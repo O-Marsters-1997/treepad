@@ -8,6 +8,15 @@ import (
 	"treepad/internal/worktree"
 )
 
+// vscodeSyncPatterns are the editor-specific files propagated to every worktree.
+var vscodeSyncPatterns = []string{
+	".vscode/settings.json",
+	".vscode/tasks.json",
+	".vscode/launch.json",
+	".vscode/extensions.json",
+	".vscode/*.code-snippets",
+}
+
 func init() {
 	editor.Register("vscode", func() editor.Adapter { return &Adapter{} })
 }
@@ -29,9 +38,21 @@ func (a *Adapter) Configure(worktrees []worktree.Worktree, opts editor.Options) 
 		}
 	}
 
-	fmt.Println("\nsyncing configs to worktrees...")
+	fmt.Println("\nsyncing VS Code configs to worktrees...")
 	syncer := sync.FileSyncer{}
-	return sync.SyncAll(syncer, opts.SourceDir, worktrees)
+	for _, wt := range worktrees {
+		if wt.Path == opts.SourceDir {
+			continue
+		}
+		fmt.Printf("  → %s (%s)\n", wt.Branch, wt.Path)
+		if err := syncer.Sync(vscodeSyncPatterns, sync.Config{
+			SourceDir: opts.SourceDir,
+			TargetDir: wt.Path,
+		}); err != nil {
+			return fmt.Errorf("sync vscode configs to %s: %w", wt.Branch, err)
+		}
+	}
+	return nil
 }
 
 func resolveExtensions(dir string) ([]string, error) {
