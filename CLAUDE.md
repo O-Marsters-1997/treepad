@@ -9,3 +9,4 @@
 - Only add comments if code is NOT self-descriptive.
 - Keep solutions simple and direct.
 - User instructions always override this file.
+- Only add comments that explain reasoning for something that is NOT self evident from the codde. Code should be self documenting wherever possible.

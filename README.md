@@ -34,6 +34,4 @@ go install treepad@latest
 treepad [command] [options]
 ```
 
-Run `treepad --help` to see available commands.
-
-> Commands are being added — check back as the project develops.
+See [docs/commands.md](docs/commands.md) for the full command reference.
