@@ -1,0 +1,31 @@
+package workspace
+
+import (
+	"fmt"
+	"path/filepath"
+
+	"treepad/internal/worktree"
+)
+
+// resolveSourceDir is a pure function — no I/O.
+// cwd is pre-fetched by the caller and used only when useCurrentFlag is true.
+func resolveSourceDir(
+	useCurrentFlag bool,
+	sourcePath string,
+	cwd string,
+	worktrees []worktree.Worktree,
+) (string, error) {
+	switch {
+	case useCurrentFlag:
+		return cwd, nil
+	case sourcePath != "":
+		return filepath.Abs(sourcePath)
+	default:
+		for _, wt := range worktrees {
+			if wt.IsMain {
+				return wt.Path, nil
+			}
+		}
+		return "", fmt.Errorf("could not find main worktree (no .git directory found)")
+	}
+}
