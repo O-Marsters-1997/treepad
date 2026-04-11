@@ -8,9 +8,11 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"treepad/internal/config"
 	"treepad/internal/editor"
 	"treepad/internal/git"
 	"treepad/internal/slug"
+	"treepad/internal/sync"
 	_ "treepad/internal/vscode" // registers the "vscode" adapter
 )
 
@@ -38,6 +40,10 @@ func Command() *cli.Command {
 				Name:  "editor",
 				Value: "vscode",
 				Usage: "editor adapter to use",
+			},
+			&cli.StringSliceFlag{
+				Name:  "include",
+				Usage: "additional file patterns to sync (appended to sync.files in .treepad.json)",
 			},
 		},
 		Action: run,
@@ -107,6 +113,27 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		SyncOnly:  cmd.Bool("sync-only"),
 	}); err != nil {
 		return err
+	}
+
+	treePadCfg, err := config.Load(sourceDir)
+	if err != nil {
+		return err
+	}
+	patterns := append(treePadCfg.Sync.Files, cmd.StringSlice("include")...)
+
+	fmt.Println("\nsyncing tool configs to worktrees...")
+	syncer := sync.FileSyncer{}
+	for _, wt := range worktrees {
+		if wt.Path == sourceDir {
+			continue
+		}
+		fmt.Printf("  → %s (%s)\n", wt.Branch, wt.Path)
+		if err := syncer.Sync(patterns, sync.Config{
+			SourceDir: sourceDir,
+			TargetDir: wt.Path,
+		}); err != nil {
+			return fmt.Errorf("sync tool configs to %s: %w", wt.Branch, err)
+		}
 	}
 
 	if cmd.Bool("sync-only") {
