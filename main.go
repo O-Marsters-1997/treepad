@@ -12,8 +12,8 @@ import (
 
 func main() {
 	cmd := &cli.Command{
-		Name:     "treepad",
-		Usage:    "CLI for managing git worktrees",
+		Name:  "treepad",
+		Usage: "CLI for managing git worktrees",
 		Commands: []*cli.Command{
 			workspace.Command(),
 		},

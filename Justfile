@@ -10,6 +10,12 @@ run *args:
 test:
     go test ./...
 
+lint:
+    golangci-lint run ./...
+
+fmt:
+    go fmt ./...
+
 tidy:
     go mod tidy
 
