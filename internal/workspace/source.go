@@ -7,9 +7,9 @@ import (
 	"treepad/internal/worktree"
 )
 
-// resolveSourceDir is a pure function — no I/O.
+// ResolveSourceDir is a pure function — no I/O.
 // cwd is pre-fetched by the caller and used only when useCurrentFlag is true.
-func resolveSourceDir(
+func ResolveSourceDir(
 	useCurrentFlag bool,
 	sourcePath string,
 	cwd string,

@@ -141,10 +141,10 @@ func TestOrchestrator_runnerError(t *testing.T) {
 	}
 }
 
-// --- resolveSourceDir tests ---
+// --- ResolveSourceDir tests ---
 
 func TestResolveSourceDir_useCurrentFlag(t *testing.T) {
-	got, err := resolveSourceDir(true, "", "/home/user/repo", nil)
+	got, err := ResolveSourceDir(true, "", "/home/user/repo", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestResolveSourceDir_useCurrentFlag(t *testing.T) {
 
 func TestResolveSourceDir_explicitPath(t *testing.T) {
 	// Absolute path: filepath.Abs is a no-op, keeping the test hermetic.
-	got, err := resolveSourceDir(false, "/tmp/other-repo", "", nil)
+	got, err := ResolveSourceDir(false, "/tmp/other-repo", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestResolveSourceDir_defaultsToMainWorktree(t *testing.T) {
 		{Path: "/repo/feat", Branch: "feat", IsMain: false},
 		{Path: "/repo/main", Branch: "main", IsMain: true},
 	}
-	got, err := resolveSourceDir(false, "", "", wts)
+	got, err := ResolveSourceDir(false, "", "", wts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestResolveSourceDir_noMainWorktree(t *testing.T) {
 	wts := []worktree.Worktree{
 		{Path: "/repo/feat", Branch: "feat", IsMain: false},
 	}
-	_, err := resolveSourceDir(false, "", "", wts)
+	_, err := ResolveSourceDir(false, "", "", wts)
 	if err == nil {
 		t.Fatal("expected error when no main worktree, got nil")
 	}

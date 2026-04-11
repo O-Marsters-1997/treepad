@@ -7,7 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/cmd/workspace"
+	"treepad/internal/workspace"
 )
 
 func main() {
