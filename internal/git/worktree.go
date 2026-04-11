@@ -9,13 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-)
 
-type Worktree struct {
-	Path   string
-	Branch string // stripped of refs/heads/ prefix; "(detached)" when detached
-	IsMain bool   // true when .git entry is a directory, not a file
-}
+	"treepad/internal/worktree"
+)
 
 type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
@@ -27,7 +23,7 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 	return exec.CommandContext(ctx, name, args...).Output()
 }
 
-func List(ctx context.Context, runner CommandRunner) ([]Worktree, error) {
+func List(ctx context.Context, runner CommandRunner) ([]worktree.Worktree, error) {
 	out, err := runner.Run(ctx, "git", "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("git worktree list: %w", err)
@@ -36,20 +32,20 @@ func List(ctx context.Context, runner CommandRunner) ([]Worktree, error) {
 }
 
 // MainWorktree returns the worktree whose .git entry is a directory (the main repo).
-func MainWorktree(worktrees []Worktree) (Worktree, error) {
-	for _, wt := range worktrees {
+func MainWorktree(wts []worktree.Worktree) (worktree.Worktree, error) {
+	for _, wt := range wts {
 		if wt.IsMain {
 			return wt, nil
 		}
 	}
-	return Worktree{}, fmt.Errorf("could not find main worktree (no .git directory found)")
+	return worktree.Worktree{}, fmt.Errorf("could not find main worktree (no .git directory found)")
 }
 
 // parsePorcelain parses `git worktree list --porcelain` output.
 // Entries are blank-line separated; each entry contains key-value pairs.
-func parsePorcelain(data []byte) ([]Worktree, error) {
-	var worktrees []Worktree
-	var current Worktree
+func parsePorcelain(data []byte) ([]worktree.Worktree, error) {
+	var worktrees []worktree.Worktree
+	var current worktree.Worktree
 	inEntry := false
 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
@@ -58,7 +54,7 @@ func parsePorcelain(data []byte) ([]Worktree, error) {
 		if line == "" {
 			if inEntry {
 				worktrees = append(worktrees, current)
-				current = Worktree{}
+				current = worktree.Worktree{}
 				inEntry = false
 			}
 			continue

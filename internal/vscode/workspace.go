@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"treepad/internal/git"
+	"treepad/internal/worktree"
 )
 
 type workspaceFolder struct {
@@ -22,7 +22,7 @@ type workspaceFile struct {
 
 // Generate writes one .code-workspace file per worktree into outputDir.
 // Files are named <slug>-<branch>.code-workspace.
-func Generate(worktrees []git.Worktree, extensions []string, slug, outputDir string) error {
+func Generate(worktrees []worktree.Worktree, extensions []string, slug, outputDir string) error {
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}

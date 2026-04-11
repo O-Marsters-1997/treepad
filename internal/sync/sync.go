@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"treepad/internal/git"
+	"treepad/internal/worktree"
 )
 
 type Config struct {
@@ -68,7 +68,7 @@ func (FileSyncer) SyncEnvFiles(cfg Config) error {
 	return nil
 }
 
-func SyncAll(syncer Syncer, source string, worktrees []git.Worktree) error {
+func SyncAll(syncer Syncer, source string, worktrees []worktree.Worktree) error {
 	srcAbs, err := filepath.Abs(source)
 	if err != nil {
 		return fmt.Errorf("resolve source path: %w", err)
