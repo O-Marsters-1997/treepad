@@ -1,9 +1,22 @@
 package main
 
-import "fmt"
+import (
+	"log"
+	"os"
+
+	"github.com/urfave/cli/v2"
+)
 
 func main() {
-	fmt.Println("Hello, treepad!")
-}
+	app := &cli.App{
+		Name:     "treepad",
+		Usage:    "CLI for managing git worktrees",
+		Commands: []*cli.Command{
+			// subcommands will be added here
+		},
+	}
 
-// hello
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
+}
