@@ -49,7 +49,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 		return fmt.Errorf("get current directory: %w", err)
 	}
 
-	sourceDir, err := resolveSourceDir(in.UseCurrentDir, in.SourcePath, cwd, worktrees)
+	sourceDir, err := ResolveSourceDir(in.UseCurrentDir, in.SourcePath, cwd, worktrees)
 	if err != nil {
 		return err
 	}
