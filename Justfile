@@ -11,7 +11,13 @@ test:
     go test ./...
 
 lint:
-    golangci-lint run ./...
+    docker run --rm \
+        -v "$(pwd):/app" \
+        -v treepad-golangci-lint-cache:/root/.cache \
+        -v treepad-go-mod-cache:/root/go/pkg/mod \
+        -w /app \
+        golangci/golangci-lint:latest \
+        golangci-lint run ./...
 
 fmt:
     go fmt ./...
@@ -21,3 +27,8 @@ tidy:
 
 clean:
     rm -f treepad
+
+ci:
+    golangci-lint run ./...
+    just build
+    just test
