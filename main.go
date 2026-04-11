@@ -6,14 +6,16 @@ import (
 	"os"
 
 	"github.com/urfave/cli/v3"
+
+	"treepad/cmd/workspace"
 )
 
 func main() {
 	cmd := &cli.Command{
-		Name:     "treepad",
-		Usage:    "CLI for managing git worktrees",
+		Name:  "treepad",
+		Usage: "CLI for managing git worktrees",
 		Commands: []*cli.Command{
-			// subcommands will be added here
+			workspace.Command(),
 		},
 	}
 

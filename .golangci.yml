@@ -1,0 +1,24 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck # unchecked errors
+    - govet # vet checks
+    - ineffassign # unused assignments
+    - staticcheck # static analysis
+    - unused # unused code
+    - misspell # spelling
+    - exhaustive # exhaustive enum switches
+
+formatters:
+  enable:
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - treepad
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
