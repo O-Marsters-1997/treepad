@@ -17,7 +17,8 @@ A primary motivation is **parallelising [Claude Code](https://claude.ai/code) in
 
 ## Built with
 
-- [urfave/cli v2](https://cli.urfave.org/) — composable, extensible CLI framework for Go
+- [urfave/cli v3](https://cli.urfave.org/) — composable, extensible CLI framework for Go
+  - Details for v3 can be found at https://cli.urfave.org/v3/getting-started/
 
 ## Installation
 
