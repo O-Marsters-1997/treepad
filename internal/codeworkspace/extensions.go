@@ -47,6 +47,7 @@ func ReadExtensions(dir string) ([]string, error) {
 	return ef.Recommendations, nil
 }
 
+// DetectExtensions walks dir looking for known file types and returns matching VS Code extension IDs.
 func DetectExtensions(dir string) ([]string, error) {
 	type probe struct {
 		ext       string // file extension to match; empty means match by filename instead

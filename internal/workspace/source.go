@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"fmt"
 	"path/filepath"
 
 	"treepad/internal/worktree"
@@ -21,11 +20,10 @@ func ResolveSourceDir(
 	case sourcePath != "":
 		return filepath.Abs(sourcePath)
 	default:
-		for _, wt := range worktrees {
-			if wt.IsMain {
-				return wt.Path, nil
-			}
+		main, err := worktree.MainWorktree(worktrees)
+		if err != nil {
+			return "", err
 		}
-		return "", fmt.Errorf("could not find main worktree (no .git directory found)")
+		return main.Path, nil
 	}
 }

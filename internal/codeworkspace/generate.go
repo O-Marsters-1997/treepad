@@ -1,3 +1,4 @@
+// Package codeworkspace generates .code-workspace files and resolves VS Code extension recommendations.
 package codeworkspace
 
 import (
@@ -69,16 +70,12 @@ func Generate(worktrees []worktree.Worktree, extensions []string, slug, outputDi
 }
 
 func sanitizeBranch(branch string) string {
-	replacer := strings.NewReplacer(
-		"/", "-",
-		"\\", "-",
-		":", "-",
-		"*", "-",
-		"?", "-",
-		"\"", "-",
-		"<", "-",
-		">", "-",
-		"|", "-",
-	)
-	return replacer.Replace(branch)
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|':
+			return '-'
+		default:
+			return r
+		}
+	}, branch)
 }

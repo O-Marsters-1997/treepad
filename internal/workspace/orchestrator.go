@@ -6,22 +6,23 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"treepad/internal/codeworkspace"
 	"treepad/internal/config"
-	"treepad/internal/git"
 	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
+	"treepad/internal/worktree"
 )
 
 // Orchestrator holds injected dependencies and owns all command logic.
 // run() is reduced to wiring: it builds an Orchestrator and calls Run.
 type Orchestrator struct {
-	runner git.CommandRunner
+	runner worktree.CommandRunner
 	syncer internalsync.Syncer
 }
 
-func NewOrchestrator(runner git.CommandRunner, syncer internalsync.Syncer) *Orchestrator {
+func NewOrchestrator(runner worktree.CommandRunner, syncer internalsync.Syncer) *Orchestrator {
 	return &Orchestrator{runner: runner, syncer: syncer}
 }
 
@@ -36,7 +37,7 @@ type RunInput struct {
 }
 
 func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
-	worktrees, err := git.List(ctx, o.runner)
+	worktrees, err := worktree.List(ctx, o.runner)
 	if err != nil {
 		return err
 	}
@@ -85,7 +86,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 	if err != nil {
 		return err
 	}
-	patterns := append(treePadCfg.Sync.Files, in.ExtraPatterns...)
+	patterns := slices.Concat(treePadCfg.Sync.Files, in.ExtraPatterns)
 	slog.Debug("sync patterns", "patterns", patterns)
 
 	fmt.Println("\nsyncing configs to worktrees...")

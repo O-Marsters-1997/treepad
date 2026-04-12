@@ -1,14 +1,11 @@
-package git
+package worktree
 
 import (
 	"context"
 	"errors"
 	"testing"
-
-	"treepad/internal/worktree"
 )
 
-// stubRunner satisfies CommandRunner and returns fixed output.
 type stubRunner struct {
 	output []byte
 	err    error
@@ -95,7 +92,7 @@ branch refs/heads/main`)
 }
 
 func TestMainWorktree(t *testing.T) {
-	worktrees := []worktree.Worktree{
+	worktrees := []Worktree{
 		{Path: "/a", Branch: "feature", IsMain: false},
 		{Path: "/b", Branch: "main", IsMain: true},
 	}
@@ -109,7 +106,7 @@ func TestMainWorktree(t *testing.T) {
 }
 
 func TestMainWorktree_noneFound(t *testing.T) {
-	_, err := MainWorktree([]worktree.Worktree{{Path: "/a", IsMain: false}})
+	_, err := MainWorktree([]Worktree{{Path: "/a", IsMain: false}})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

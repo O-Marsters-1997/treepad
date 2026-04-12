@@ -1,3 +1,4 @@
+// Package workspace wires CLI flags to the Orchestrator and exposes the top-level workspace command.
 package workspace
 
 import (
@@ -6,8 +7,8 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/git"
 	internalsync "treepad/internal/sync"
+	"treepad/internal/worktree"
 )
 
 func Command() *cli.Command {
@@ -47,7 +48,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	o := NewOrchestrator(git.ExecRunner{}, internalsync.FileSyncer{})
+	o := NewOrchestrator(worktree.ExecRunner{}, internalsync.FileSyncer{})
 	return o.Run(ctx, RunInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,
