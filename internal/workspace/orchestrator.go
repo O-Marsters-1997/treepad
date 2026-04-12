@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"treepad/internal/codeworkspace"
 	"treepad/internal/config"
-	"treepad/internal/editor"
 	"treepad/internal/git"
 	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
@@ -17,12 +17,11 @@ import (
 // run() is reduced to wiring: it builds an Orchestrator and calls Run.
 type Orchestrator struct {
 	runner git.CommandRunner
-	editor editor.Adapter
 	syncer internalsync.Syncer
 }
 
-func NewOrchestrator(runner git.CommandRunner, ed editor.Adapter, syncer internalsync.Syncer) *Orchestrator {
-	return &Orchestrator{runner: runner, editor: ed, syncer: syncer}
+func NewOrchestrator(runner git.CommandRunner, syncer internalsync.Syncer) *Orchestrator {
+	return &Orchestrator{runner: runner, syncer: syncer}
 }
 
 // RunInput carries all CLI-layer decisions. Using a struct means adding a flag
@@ -66,13 +65,15 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 		outputDir = filepath.Join(home, repoSlug+"-workspaces")
 	}
 
-	if err := o.editor.Configure(worktrees, editor.Options{
-		SourceDir: sourceDir,
-		OutputDir: outputDir,
-		Slug:      repoSlug,
-		SyncOnly:  in.SyncOnly,
-	}); err != nil {
-		return err
+	if !in.SyncOnly {
+		extensions, err := codeworkspace.ResolveExtensions(sourceDir)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("\ngenerating workspace files → %s\n", outputDir)
+		if err := codeworkspace.Generate(worktrees, extensions, repoSlug, outputDir); err != nil {
+			return err
+		}
 	}
 
 	treePadCfg, err := config.Load(sourceDir)
@@ -81,7 +82,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 	}
 	patterns := append(treePadCfg.Sync.Files, in.ExtraPatterns...)
 
-	fmt.Println("\nsyncing tool configs to worktrees...")
+	fmt.Println("\nsyncing configs to worktrees...")
 	for _, wt := range worktrees {
 		if wt.Path == sourceDir {
 			continue
@@ -91,7 +92,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 			SourceDir: sourceDir,
 			TargetDir: wt.Path,
 		}); err != nil {
-			return fmt.Errorf("sync tool configs to %s: %w", wt.Branch, err)
+			return fmt.Errorf("sync configs to %s: %w", wt.Branch, err)
 		}
 	}
 

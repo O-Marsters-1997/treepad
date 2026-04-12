@@ -1,4 +1,4 @@
-package vscode
+package codeworkspace
 
 import (
 	"encoding/json"
@@ -11,6 +11,19 @@ import (
 
 type extensionsFile struct {
 	Recommendations []string `json:"recommendations"`
+}
+
+// ResolveExtensions reads .vscode/extensions.json if present, otherwise
+// auto-detects recommended extensions by walking the directory tree.
+func ResolveExtensions(dir string) ([]string, error) {
+	exts, err := ReadExtensions(dir)
+	if err != nil {
+		return nil, err
+	}
+	if exts != nil {
+		return exts, nil
+	}
+	return DetectExtensions(dir)
 }
 
 // ReadExtensions returns (nil, nil) when extensions.json is absent — caller should fall through to DetectExtensions.

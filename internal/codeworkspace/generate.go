@@ -1,4 +1,4 @@
-package vscode
+package codeworkspace
 
 import (
 	"encoding/json"
@@ -22,6 +22,7 @@ type workspaceFile struct {
 
 // Generate writes one .code-workspace file per worktree into outputDir.
 // Files are named <slug>-<branch>.code-workspace.
+// The .code-workspace format is supported by VS Code, Cursor, and Windsurf.
 func Generate(worktrees []worktree.Worktree, extensions []string, slug, outputDir string) error {
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)

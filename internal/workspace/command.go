@@ -6,10 +6,8 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/editor"
 	"treepad/internal/git"
 	internalsync "treepad/internal/sync"
-	_ "treepad/internal/vscode" // registers the "vscode" adapter
 )
 
 func Command() *cli.Command {
@@ -32,11 +30,6 @@ func Command() *cli.Command {
 				Aliases: []string{"o"},
 				Usage:   "directory for generated workspace files (default: ~/<repo-slug>-workspaces/)",
 			},
-			&cli.StringFlag{
-				Name:  "editor",
-				Value: "vscode",
-				Usage: "editor adapter to use",
-			},
 			&cli.StringSliceFlag{
 				Name:  "include",
 				Usage: "additional file patterns to sync (appended to sync.files in .treepad.json)",
@@ -54,12 +47,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	ad, err := editor.New(cmd.String("editor"))
-	if err != nil {
-		return err
-	}
-
-	o := NewOrchestrator(git.ExecRunner{}, ad, internalsync.FileSyncer{})
+	o := NewOrchestrator(git.ExecRunner{}, internalsync.FileSyncer{})
 	return o.Run(ctx, RunInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,

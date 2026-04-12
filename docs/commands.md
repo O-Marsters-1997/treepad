@@ -2,7 +2,7 @@
 
 ## workspace
 
-Syncs VS Code configs and generates `.code-workspace` files across all git worktrees.
+Syncs editor configs and generates `.code-workspace` files across all git worktrees. Works with VS Code, Cursor, and Windsurf out of the box.
 
 ```
 treepad workspace [options] [source-path]
@@ -22,7 +22,6 @@ By default, uses the main worktree (the one with a `.git` directory) as the conf
 | `--use-current` | `-c` | Use current directory as config source instead of the main worktree |
 | `--sync-only` | | Sync configs only; skip `.code-workspace` file generation |
 | `--output-dir` | `-o` | Directory for generated `.code-workspace` files (default: `~/<repo-slug>-workspaces/`) |
-| `--editor` | | Editor adapter to use (default: `vscode`) |
 | `--include` | | Additional file patterns to sync (appended to `sync.files` in `.treepad.json`) |
 
 ### Examples
@@ -43,9 +42,6 @@ treepad workspace --output-dir ~/my-workspaces
 # Use an explicit repo path as the config source
 treepad workspace /path/to/repo
 
-# Use a specific editor adapter
-treepad workspace --editor cursor
-
 # Include extra file patterns in the sync
 treepad workspace --include ".prettierrc" --include "*.md"
 ```
@@ -56,7 +52,6 @@ The optional `.treepad.json` file at the repo root controls default behaviour. A
 
 ```json
 {
-  "editor": "vscode",
   "sync": {
     "files": [".claude/settings.local.json", ".env", ".env.docker-compose"]
   }
@@ -65,7 +60,6 @@ The optional `.treepad.json` file at the repo root controls default behaviour. A
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `editor` | string | Default editor adapter name (overridden by `--editor` flag) |
 | `sync.files` | string[] | Glob patterns of files to sync across worktrees |
 
 When `sync.files` is set, it **replaces** the defaults entirely. The `--include` flag appends additional patterns to whatever `sync.files` resolves to.
@@ -75,3 +69,8 @@ When `sync.files` is set, it **replaces** the defaults entirely. The `--include`
 - `.claude/settings.local.json`
 - `.env`
 - `.env.docker-compose`
+- `.vscode/settings.json`
+- `.vscode/tasks.json`
+- `.vscode/launch.json`
+- `.vscode/extensions.json`
+- `.vscode/*.code-snippets`

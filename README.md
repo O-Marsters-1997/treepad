@@ -36,7 +36,6 @@ This produces a `treepad` binary in the project root. Move it somewhere on your 
 
 ```json
 {
-  "editor": "vscode",
   "sync": {
     "files": [".claude/settings.local.json", ".env"]
   }
