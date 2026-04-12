@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,7 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 }
 
 func List(ctx context.Context, runner CommandRunner) ([]worktree.Worktree, error) {
+	slog.Debug("listing git worktrees")
 	out, err := runner.Run(ctx, "git", "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("git worktree list: %w", err)

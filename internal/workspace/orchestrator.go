@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -42,6 +43,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 	if len(worktrees) == 0 {
 		return fmt.Errorf("no git worktrees found")
 	}
+	slog.Debug("discovered worktrees", "count", len(worktrees))
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -52,6 +54,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 	if err != nil {
 		return err
 	}
+	slog.Debug("resolved source directory", "sourceDir", sourceDir, "useCurrentDir", in.UseCurrentDir, "sourcePath", in.SourcePath)
 	fmt.Printf("using config source: %s\n", sourceDir)
 
 	repoSlug := slug.Slug(filepath.Base(sourceDir))
@@ -64,12 +67,14 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 		}
 		outputDir = filepath.Join(home, repoSlug+"-workspaces")
 	}
+	slog.Debug("output directory", "dir", outputDir, "explicit", in.OutputDir != "")
 
 	if !in.SyncOnly {
 		extensions, err := codeworkspace.ResolveExtensions(sourceDir)
 		if err != nil {
 			return err
 		}
+		slog.Debug("resolved extensions", "count", len(extensions))
 		fmt.Printf("\ngenerating workspace files → %s\n", outputDir)
 		if err := codeworkspace.Generate(worktrees, extensions, repoSlug, outputDir); err != nil {
 			return err
@@ -81,6 +86,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 		return err
 	}
 	patterns := append(treePadCfg.Sync.Files, in.ExtraPatterns...)
+	slog.Debug("sync patterns", "patterns", patterns)
 
 	fmt.Println("\nsyncing configs to worktrees...")
 	for _, wt := range worktrees {
@@ -94,6 +100,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 		}); err != nil {
 			return fmt.Errorf("sync configs to %s: %w", wt.Branch, err)
 		}
+		slog.Debug("synced worktree", "branch", wt.Branch, "target", wt.Path)
 	}
 
 	if in.SyncOnly {

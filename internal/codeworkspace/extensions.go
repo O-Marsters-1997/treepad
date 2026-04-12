@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -21,8 +22,10 @@ func ResolveExtensions(dir string) ([]string, error) {
 		return nil, err
 	}
 	if exts != nil {
+		slog.Debug("using extensions from file", "count", len(exts))
 		return exts, nil
 	}
+	slog.Debug("no extensions.json found, detecting from file types")
 	return DetectExtensions(dir)
 }
 
@@ -104,5 +107,6 @@ func DetectExtensions(dir string) ([]string, error) {
 		return nil, fmt.Errorf("detect extensions: %w", err)
 	}
 
+	slog.Debug("detected extensions", "extensions", extensions)
 	return extensions, nil
 }

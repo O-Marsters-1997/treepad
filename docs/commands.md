@@ -48,29 +48,4 @@ treepad workspace --include ".prettierrc" --include "*.md"
 
 ### Configuration
 
-The optional `.treepad.json` file at the repo root controls default behaviour. All fields have defaults, so the file is never required.
-
-```json
-{
-  "sync": {
-    "files": [".claude/settings.local.json", ".env", ".env.docker-compose"]
-  }
-}
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `sync.files` | string[] | Glob patterns of files to sync across worktrees |
-
-When `sync.files` is set, it **replaces** the defaults entirely. The `--include` flag appends additional patterns to whatever `sync.files` resolves to.
-
-**Default synced files** (when no `.treepad.json` is present or `sync.files` is unset):
-
-- `.claude/settings.local.json`
-- `.env`
-- `.env.docker-compose`
-- `.vscode/settings.json`
-- `.vscode/tasks.json`
-- `.vscode/launch.json`
-- `.vscode/extensions.json`
-- `.vscode/*.code-snippets`
+See [configuration.md](configuration.md) for the full schema, defaults, and examples.

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -43,6 +44,7 @@ func Load(repoRoot string) (Config, error) {
 
 	data, err := os.ReadFile(filepath.Join(repoRoot, configFileName))
 	if errors.Is(err, os.ErrNotExist) {
+		slog.Debug("no .treepad.json found, using defaults", "dir", repoRoot)
 		return cfg, nil
 	}
 	if err != nil {
@@ -58,5 +60,6 @@ func Load(repoRoot string) (Config, error) {
 		cfg.Sync.Files = fileCfg.Sync.Files
 	}
 
+	slog.Debug("loaded .treepad.json", "dir", repoRoot, "syncFiles", cfg.Sync.Files)
 	return cfg, nil
 }
