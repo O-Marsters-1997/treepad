@@ -23,10 +23,27 @@ A primary motivation is **parallelising [Claude Code](https://claude.ai/code) in
 ## Installation
 
 ```bash
-go install treepad@latest
+git clone https://github.com/O-Marsters-1997/treepad
+cd treepad
+just build
 ```
 
-> Installation instructions will be updated as the project matures.
+This produces a `treepad` binary in the project root. Move it somewhere on your `$PATH`.
+
+## Configuration
+
+`treepad` works with zero configuration. To customise behaviour, add a `.treepad.json` file to your repo root:
+
+```json
+{
+  "editor": "vscode",
+  "sync": {
+    "files": [".claude/settings.local.json", ".env"]
+  }
+}
+```
+
+See [docs/commands.md](docs/commands.md#configuration) for the full schema and defaults.
 
 ## Usage
 
@@ -35,3 +52,13 @@ treepad [command] [options]
 ```
 
 See [docs/commands.md](docs/commands.md) for the full command reference.
+
+## Development
+
+| Command | Description |
+|---------|-------------|
+| `just build` | Compile the binary |
+| `just test` | Run all tests |
+| `just lint` | Run golangci-lint (via Docker) |
+| `just fmt` | Format all Go files |
+| `just ci` | Lint, build, and test |
