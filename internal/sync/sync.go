@@ -3,6 +3,7 @@ package sync
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
@@ -28,6 +29,7 @@ func (FileSyncer) Sync(patterns []string, cfg Config) error {
 		if err != nil {
 			return fmt.Errorf("invalid pattern %q: %w", pattern, err)
 		}
+		slog.Debug("pattern matched", "pattern", pattern, "matches", len(matches))
 		for _, src := range matches {
 			rel, _ := filepath.Rel(cfg.SourceDir, src)
 			dst := filepath.Join(cfg.TargetDir, rel)

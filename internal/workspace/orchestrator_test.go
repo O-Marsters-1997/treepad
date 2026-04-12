@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"treepad/internal/editor"
 	internalsync "treepad/internal/sync"
 	"treepad/internal/worktree"
 )
@@ -20,17 +19,6 @@ type fakeRunner struct {
 
 func (f fakeRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
 	return f.output, f.err
-}
-
-type fakeEditor struct {
-	opts editor.Options
-	err  error
-}
-
-func (f *fakeEditor) Name() string { return "fake" }
-func (f *fakeEditor) Configure(_ []worktree.Worktree, opts editor.Options) error {
-	f.opts = opts
-	return f.err
 }
 
 type fakeSyncer struct {
@@ -58,24 +46,11 @@ branch refs/heads/feat
 
 // --- orchestrator tests ---
 
-func TestOrchestrator_editorConfiguredWithSourceDir(t *testing.T) {
-	ed := &fakeEditor{}
-	o := NewOrchestrator(fakeRunner{output: twoWorktreePorcelain}, ed, &fakeSyncer{})
-
-	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if ed.opts.SourceDir != "/repo/main" {
-		t.Errorf("SourceDir = %q, want /repo/main", ed.opts.SourceDir)
-	}
-}
-
 func TestOrchestrator_syncerCalledForNonSourceWorktrees(t *testing.T) {
 	syn := &fakeSyncer{}
-	o := NewOrchestrator(fakeRunner{output: twoWorktreePorcelain}, &fakeEditor{}, syn)
+	o := NewOrchestrator(fakeRunner{output: twoWorktreePorcelain}, syn)
 
-	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main"})
+	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main", SyncOnly: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -87,42 +62,19 @@ func TestOrchestrator_syncerCalledForNonSourceWorktrees(t *testing.T) {
 	}
 }
 
-func TestOrchestrator_syncOnlyPassedToEditor(t *testing.T) {
-	ed := &fakeEditor{}
-	o := NewOrchestrator(fakeRunner{output: twoWorktreePorcelain}, ed, &fakeSyncer{})
-
-	_ = o.Run(context.Background(), RunInput{SourcePath: "/repo/main", SyncOnly: true})
-	if !ed.opts.SyncOnly {
-		t.Error("SyncOnly not propagated to editor")
-	}
-}
-
-func TestOrchestrator_propagatesEditorError(t *testing.T) {
-	o := NewOrchestrator(
-		fakeRunner{output: twoWorktreePorcelain},
-		&fakeEditor{err: errors.New("editor failed")},
-		&fakeSyncer{},
-	)
-	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main"})
-	if err == nil || !strings.Contains(err.Error(), "editor failed") {
-		t.Errorf("expected editor error, got: %v", err)
-	}
-}
-
 func TestOrchestrator_propagatesSyncerError(t *testing.T) {
 	o := NewOrchestrator(
 		fakeRunner{output: twoWorktreePorcelain},
-		&fakeEditor{},
 		&fakeSyncer{err: errors.New("sync failed")},
 	)
-	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main"})
+	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main", SyncOnly: true})
 	if err == nil || !strings.Contains(err.Error(), "sync failed") {
 		t.Errorf("expected sync error, got: %v", err)
 	}
 }
 
 func TestOrchestrator_noWorktrees(t *testing.T) {
-	o := NewOrchestrator(fakeRunner{output: []byte{}}, &fakeEditor{}, &fakeSyncer{})
+	o := NewOrchestrator(fakeRunner{output: []byte{}}, &fakeSyncer{})
 	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main"})
 	if err == nil || !strings.Contains(err.Error(), "no git worktrees found") {
 		t.Errorf("expected no-worktrees error, got: %v", err)
@@ -132,7 +84,6 @@ func TestOrchestrator_noWorktrees(t *testing.T) {
 func TestOrchestrator_runnerError(t *testing.T) {
 	o := NewOrchestrator(
 		fakeRunner{err: errors.New("git not found")},
-		&fakeEditor{},
 		&fakeSyncer{},
 	)
 	err := o.Run(context.Background(), RunInput{})

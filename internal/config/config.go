@@ -6,18 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
 
 const configFileName = ".treepad.json"
 
-// DefaultSyncFiles is the baseline list of tool-agnostic files synced across
-// worktrees when no .treepad.json is present or when sync.files is unset.
+// DefaultSyncFiles is the baseline list of files synced across worktrees when
+// no .treepad.json is present or when sync.files is unset. Includes .vscode/*
+// patterns which work for VS Code, Cursor, and Windsurf out of the box.
 var DefaultSyncFiles = []string{
 	".claude/settings.local.json",
 	".env",
 	".env.docker-compose",
+	".vscode/settings.json",
+	".vscode/tasks.json",
+	".vscode/launch.json",
+	".vscode/extensions.json",
+	".vscode/*.code-snippets",
 }
 
 type SyncConfig struct {
@@ -26,20 +33,18 @@ type SyncConfig struct {
 }
 
 type Config struct {
-	// Editor sets the default adapter name; overridden by the --editor flag.
-	Editor string     `json:"editor"`
-	Sync   SyncConfig `json:"sync"`
+	Sync SyncConfig `json:"sync"`
 }
 
 // Load reads .treepad.json from repoRoot. Returns defaults when the file is absent.
 func Load(repoRoot string) (Config, error) {
 	cfg := Config{
-		Editor: "vscode",
-		Sync:   SyncConfig{Files: DefaultSyncFiles},
+		Sync: SyncConfig{Files: DefaultSyncFiles},
 	}
 
 	data, err := os.ReadFile(filepath.Join(repoRoot, configFileName))
 	if errors.Is(err, os.ErrNotExist) {
+		slog.Debug("no .treepad.json found, using defaults", "dir", repoRoot)
 		return cfg, nil
 	}
 	if err != nil {
@@ -51,12 +56,10 @@ func Load(repoRoot string) (Config, error) {
 		return cfg, fmt.Errorf("parsing %s: %w", configFileName, err)
 	}
 
-	if fileCfg.Editor != "" {
-		cfg.Editor = fileCfg.Editor
-	}
 	if len(fileCfg.Sync.Files) > 0 {
 		cfg.Sync.Files = fileCfg.Sync.Files
 	}
 
+	slog.Debug("loaded .treepad.json", "dir", repoRoot, "syncFiles", cfg.Sync.Files)
 	return cfg, nil
 }

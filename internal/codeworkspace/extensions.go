@@ -1,16 +1,32 @@
-package vscode
+package codeworkspace
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 )
 
 type extensionsFile struct {
 	Recommendations []string `json:"recommendations"`
+}
+
+// ResolveExtensions reads .vscode/extensions.json if present, otherwise
+// auto-detects recommended extensions by walking the directory tree.
+func ResolveExtensions(dir string) ([]string, error) {
+	exts, err := ReadExtensions(dir)
+	if err != nil {
+		return nil, err
+	}
+	if exts != nil {
+		slog.Debug("using extensions from file", "count", len(exts))
+		return exts, nil
+	}
+	slog.Debug("no extensions.json found, detecting from file types")
+	return DetectExtensions(dir)
 }
 
 // ReadExtensions returns (nil, nil) when extensions.json is absent — caller should fall through to DetectExtensions.
@@ -91,5 +107,6 @@ func DetectExtensions(dir string) ([]string, error) {
 		return nil, fmt.Errorf("detect extensions: %w", err)
 	}
 
+	slog.Debug("detected extensions", "extensions", extensions)
 	return extensions, nil
 }
