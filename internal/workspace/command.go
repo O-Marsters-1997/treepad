@@ -4,6 +4,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -48,7 +49,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	o := NewOrchestrator(worktree.ExecRunner{}, internalsync.FileSyncer{})
+	o := NewOrchestrator(worktree.ExecRunner{}, internalsync.FileSyncer{}, os.Stdout)
 	return o.Run(ctx, RunInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,

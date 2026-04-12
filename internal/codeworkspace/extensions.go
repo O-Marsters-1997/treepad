@@ -68,6 +68,12 @@ func DetectExtensions(dir string) ([]string, error) {
 		{filename: "docker-compose.yml", extension: "ms-azuretools.vscode-docker"},
 	}
 
+	uniqueExts := make(map[string]struct{})
+	for _, p := range probes {
+		uniqueExts[p.extension] = struct{}{}
+	}
+	totalUnique := len(uniqueExts)
+
 	found := make(map[string]bool)
 	var extensions []string
 
@@ -101,6 +107,9 @@ func DetectExtensions(dir string) ([]string, error) {
 			case p.ext != "" && ext == p.ext:
 				add(p.extension)
 			}
+		}
+		if len(found) == totalUnique {
+			return filepath.SkipAll
 		}
 		return nil
 	})

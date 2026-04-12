@@ -58,6 +58,7 @@ func Load(repoRoot string) (Config, error) {
 		return cfg, fmt.Errorf("parsing %s: %w", configFileName, err)
 	}
 
+	// An explicit empty array ("files": []) is treated the same as unset — defaults apply.
 	if len(fileCfg.Sync.Files) > 0 {
 		cfg.Sync.Files = fileCfg.Sync.Files
 	}

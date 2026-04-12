@@ -4,6 +4,7 @@ package codeworkspace
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -25,7 +26,7 @@ type workspaceFile struct {
 // Generate writes one .code-workspace file per worktree into outputDir.
 // Files are named <slug>-<branch>.code-workspace.
 // The .code-workspace format is supported by VS Code, Cursor, and Windsurf.
-func Generate(worktrees []worktree.Worktree, extensions []string, slug, outputDir string) error {
+func Generate(worktrees []worktree.Worktree, extensions []string, slug, outputDir string, out io.Writer) error {
 	slog.Debug("generating workspace files", "count", len(worktrees), "outputDir", outputDir)
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
@@ -64,7 +65,7 @@ func Generate(worktrees []worktree.Worktree, extensions []string, slug, outputDi
 		}
 
 		slog.Debug("wrote workspace file", "path", dest, "branch", wt.Branch)
-		fmt.Printf("  created %s\n", filename)
+		fmt.Fprintf(out, "  created %s\n", filename)
 	}
 	return nil
 }

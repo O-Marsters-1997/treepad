@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,7 +26,15 @@ type Worktree struct {
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).Output()
+	out, err := exec.CommandContext(ctx, name, args...).Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			return nil, fmt.Errorf("%w: %s", err, bytes.TrimSpace(exitErr.Stderr))
+		}
+		return nil, err
+	}
+	return out, nil
 }
 
 func List(ctx context.Context, runner CommandRunner) ([]Worktree, error) {
@@ -34,7 +43,14 @@ func List(ctx context.Context, runner CommandRunner) ([]Worktree, error) {
 	if err != nil {
 		return nil, fmt.Errorf("git worktree list: %w", err)
 	}
-	return parsePorcelain(out)
+	wts, err := parsePorcelain(out)
+	if err != nil {
+		return nil, err
+	}
+	for i := range wts {
+		wts[i].IsMain = isMainWorktree(wts[i].Path)
+	}
+	return wts, nil
 }
 
 // MainWorktree returns the worktree whose .git entry is a directory (the main repo).
@@ -72,7 +88,6 @@ func parsePorcelain(data []byte) ([]Worktree, error) {
 		switch key {
 		case "worktree":
 			current.Path = value
-			current.IsMain = isMainWorktree(value)
 		case "branch":
 			current.Branch = strings.TrimPrefix(value, "refs/heads/")
 		case "detached":

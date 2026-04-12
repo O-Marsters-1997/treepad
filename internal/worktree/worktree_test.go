@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-type stubRunner struct {
+type fakeRunner struct {
 	output []byte
 	err    error
 }
 
-func (s stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
-	return s.output, s.err
+func (f fakeRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	return f.output, f.err
 }
 
 var samplePorcelain = []byte(`worktree /home/user/myrepo
@@ -27,7 +27,7 @@ branch refs/heads/feature/my-work
 
 func TestList(t *testing.T) {
 	ctx := context.Background()
-	worktrees, err := List(ctx, stubRunner{output: samplePorcelain})
+	worktrees, err := List(ctx, fakeRunner{output: samplePorcelain})
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -36,26 +36,29 @@ func TestList(t *testing.T) {
 	}
 
 	cases := []struct {
+		name   string
 		idx    int
 		path   string
 		branch string
 	}{
-		{0, "/home/user/myrepo", "main"},
-		{1, "/home/user/myrepo-feature", "feature/my-work"},
+		{"main worktree", 0, "/home/user/myrepo", "main"},
+		{"feature worktree", 1, "/home/user/myrepo-feature", "feature/my-work"},
 	}
 	for _, tc := range cases {
-		wt := worktrees[tc.idx]
-		if wt.Path != tc.path {
-			t.Errorf("worktrees[%d].Path = %q, want %q", tc.idx, wt.Path, tc.path)
-		}
-		if wt.Branch != tc.branch {
-			t.Errorf("worktrees[%d].Branch = %q, want %q", tc.idx, wt.Branch, tc.branch)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			wt := worktrees[tc.idx]
+			if wt.Path != tc.path {
+				t.Errorf("Path = %q, want %q", wt.Path, tc.path)
+			}
+			if wt.Branch != tc.branch {
+				t.Errorf("Branch = %q, want %q", wt.Branch, tc.branch)
+			}
+		})
 	}
 }
 
 func TestList_runnerError(t *testing.T) {
-	_, err := List(context.Background(), stubRunner{err: errors.New("exit status 128")})
+	_, err := List(context.Background(), fakeRunner{err: errors.New("exit status 128")})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -67,7 +70,7 @@ HEAD abc123
 detached
 
 `)
-	worktrees, err := List(context.Background(), stubRunner{output: input})
+	worktrees, err := List(context.Background(), fakeRunner{output: input})
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -82,7 +85,7 @@ func TestList_noTrailingNewline(t *testing.T) {
 HEAD abc123
 branch refs/heads/main`)
 
-	worktrees, err := List(context.Background(), stubRunner{output: input})
+	worktrees, err := List(context.Background(), fakeRunner{output: input})
 	if err != nil {
 		t.Fatalf("List() error: %v", err)
 	}
@@ -91,23 +94,54 @@ branch refs/heads/main`)
 	}
 }
 
-func TestMainWorktree(t *testing.T) {
-	worktrees := []Worktree{
-		{Path: "/a", Branch: "feature", IsMain: false},
-		{Path: "/b", Branch: "main", IsMain: true},
-	}
-	got, err := MainWorktree(worktrees)
+func TestParsePorcelain_doesNotSetIsMain(t *testing.T) {
+	wts, err := parsePorcelain(samplePorcelain)
 	if err != nil {
-		t.Fatalf("MainWorktree() error: %v", err)
+		t.Fatal(err)
 	}
-	if got.Path != "/b" {
-		t.Errorf("Path = %q, want \"/b\"", got.Path)
+	for i, wt := range wts {
+		if wt.IsMain {
+			t.Errorf("worktrees[%d].IsMain = true, want false (parsePorcelain must not touch filesystem)", i)
+		}
 	}
 }
 
-func TestMainWorktree_noneFound(t *testing.T) {
-	_, err := MainWorktree([]Worktree{{Path: "/a", IsMain: false}})
-	if err == nil {
-		t.Fatal("expected error, got nil")
+func TestMainWorktree(t *testing.T) {
+	tests := []struct {
+		name      string
+		worktrees []Worktree
+		wantPath  string
+		wantErr   bool
+	}{
+		{
+			name: "returns main worktree",
+			worktrees: []Worktree{
+				{Path: "/a", Branch: "feature", IsMain: false},
+				{Path: "/b", Branch: "main", IsMain: true},
+			},
+			wantPath: "/b",
+		},
+		{
+			name:      "error when none found",
+			worktrees: []Worktree{{Path: "/a", IsMain: false}},
+			wantErr:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := MainWorktree(tt.worktrees)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
+			}
+		})
 	}
 }
