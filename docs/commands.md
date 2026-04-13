@@ -50,6 +50,39 @@ treepad workspace --include ".prettierrc" --include "*.md"
 
 See [configuration.md](configuration.md) for the full schema, defaults, and examples.
 
+## create
+
+Create a new git worktree, sync configs from the main worktree, and generate a workspace file for it.
+
+```
+treepad create [options] <branch>
+```
+
+Creates a new worktree branched from a specified ref (default: `main`), syncs editor configs from the main worktree, and generates a `.code-workspace` file for quick access.
+
+### Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--base` | | Ref to branch the new worktree from (default: `main`) |
+| `--open` | `-o` | Open the generated workspace file immediately after creation |
+
+### Examples
+
+```bash
+# Create a new worktree for branch 'feature-x' branched from main
+treepad create feature-x
+
+# Create a worktree from a different base ref
+treepad create bugfix-y --base develop
+
+# Create a worktree and open the generated workspace file
+treepad create feature-z --open
+
+# Shorthand with flags combined
+treepad create my-branch --base main --open
+```
+
 ## config
 
 Manage treepad configuration files.

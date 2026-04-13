@@ -49,8 +49,8 @@ func runWorkspace(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	o := workspace.NewOrchestrator(worktree.ExecRunner{}, internalsync.FileSyncer{}, os.Stdout)
-	return o.Run(ctx, workspace.RunInput{
+	svc := workspace.NewService(worktree.ExecRunner{}, internalsync.FileSyncer{}, nil, os.Stdout)
+	return svc.Generate(ctx, workspace.GenerateInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,
 		SyncOnly:      cmd.Bool("sync-only"),
