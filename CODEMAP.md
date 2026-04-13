@@ -24,8 +24,16 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 - `workspaceCommand()` — top-level workspace command definition
 - `runWorkspace(ctx, cmd)` — action handler for workspace operations
   - Parses flags: `--use-current`, `--sync-only`, `--output-dir`, `--include`
-  - Instantiates `workspace.Orchestrator` and calls `Run()`
+  - Instantiates `workspace.Service` and calls `Generate()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`
+
+### `create.go`
+
+- `createCommand()` — top-level create command definition
+- `runCreate(ctx, cmd)` — action handler for creating new worktrees
+  - Parses flags: `--base` (default: "main"), `--open`
+  - Instantiates `workspace.Service` and calls `Create()`
+  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `workspace.ExecOpener`
 
 ### `config.go`
 
@@ -71,20 +79,28 @@ Handles configuration file loading, initialization, and display.
 
 Pure business logic for worktree syncing and workspace file generation.
 
-### `orchestrator.go`
+### `service.go`
 
-- `Orchestrator` struct — coordinates syncing and generation
-- `RunInput` struct — input parameters
-  - `UseCurrentDir`, `SourcePath`, `SyncOnly`, `OutputDir`, `ExtraPatterns`
-- `Run(ctx, input)` — main orchestration logic
-  - Resolves config source (explicit path, current dir, or main worktree)
-  - Loads config and applies extra patterns
-  - Syncs files across worktrees
-  - Optionally generates `.code-workspace` files
+- `Service` struct — coordinates syncing and workspace generation
+  - `NewService(runner, syncer, opener, out)` — constructor
+  - `Generate(ctx, GenerateInput)` — generates workspace files and syncs configs
+    - Input: `UseCurrentDir`, `SourcePath`, `SyncOnly`, `OutputDir`, `ExtraPatterns`
+    - Resolves config source, loads config, syncs files, generates workspace files
+  - `Create(ctx, CreateInput)` — creates new worktree, syncs configs, generates workspace file
+    - Input: `Branch`, `Base`, `Open`, `OutputDir`
+- Private helpers:
+  - `listWorktrees(ctx)` — lists all worktrees in repo
+  - `resolveOutputDir(explicit, repoSlug)` — resolves workspace output directory
+  - `loadAndSync(sourceDir, extraPatterns, targets)` — loads config and syncs to targets
 
 ### `source.go`
 
-- Helpers for resolving the config source directory
+- `ResolveSourceDir(useCurrentDir, sourcePath, cwd, worktrees)` — determines config source directory
+
+### `opener.go`
+
+- `Opener` interface — abstracts workspace file opening
+- `ExecOpener` struct — implementation that opens files via system command
 
 ## Worktree Package (`internal/worktree/`)
 
@@ -135,6 +151,9 @@ treepad [--verbose] <command>
 │   ├── --sync-only
 │   ├── --output-dir (-o)
 │   └── --include (repeatable)
+├── create [options] <branch>
+│   ├── --base (default: main)
+│   └── --open (-o)
 └── config
     ├── init [--global]
     └── show
@@ -158,10 +177,18 @@ treepad [--verbose] <command>
 ## Data Flow Example: `treepad workspace`
 
 1. `main.go` parses flags and calls `commands.Router()`
-2. `commands.workspace.workspaceCommand()` defines CLI interface
-3. `runWorkspace()` parses args and calls `workspace.Orchestrator.Run()`
-4. `Orchestrator` resolves source, loads config via `config.Load()`, syncs files via `sync.FileSyncer`
+2. `commands.workspaceCommand()` defines CLI interface
+3. `runWorkspace()` parses args, instantiates `workspace.Service`, calls `Generate()`
+4. `Service.Generate()` resolves source, loads config via `config.Load()`, syncs files via `sync.FileSyncer`
 5. Optionally generates workspace files via `codeworkspace.Generate()`
+
+## Data Flow Example: `treepad create`
+
+1. `main.go` parses flags and calls `commands.Router()`
+2. `commands.createCommand()` defines CLI interface
+3. `runCreate()` parses args, instantiates `workspace.Service`, calls `Create()`
+4. `Service.Create()` runs `git worktree add`, syncs configs, generates workspace file
+5. Optionally opens workspace file via `workspace.ExecOpener`
 
 ## Data Flow Example: `treepad config init --global`
 
@@ -181,4 +208,4 @@ treepad [--verbose] <command>
 
 ---
 
-**Last Updated:** April 13, 2026
+**Last Updated:** April 13, 2026 (refactored workspace package: unified Orchestrator/Creator into Service)
