@@ -65,7 +65,7 @@ func Generate(worktrees []worktree.Worktree, extensions []string, slug, outputDi
 		}
 
 		slog.Debug("wrote workspace file", "path", dest, "branch", wt.Branch)
-		fmt.Fprintf(out, "  created %s\n", filename)
+		_, _ = fmt.Fprintf(out, "  created %s\n", filename)
 	}
 	return nil
 }

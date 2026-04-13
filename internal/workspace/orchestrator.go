@@ -58,7 +58,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 		return fmt.Errorf("resolve source directory: %w", err)
 	}
 	slog.Debug("resolved source directory", "sourceDir", sourceDir, "useCurrentDir", in.UseCurrentDir, "sourcePath", in.SourcePath)
-	fmt.Fprintf(o.out, "using config source: %s\n", sourceDir)
+	_, _ = fmt.Fprintf(o.out, "using config source: %s\n", sourceDir)
 
 	repoSlug := slug.Slug(filepath.Base(sourceDir))
 
@@ -78,7 +78,7 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 			return fmt.Errorf("resolve extensions: %w", err)
 		}
 		slog.Debug("resolved extensions", "count", len(extensions))
-		fmt.Fprintf(o.out, "\ngenerating workspace files → %s\n", outputDir)
+		_, _ = fmt.Fprintf(o.out, "\ngenerating workspace files → %s\n", outputDir)
 		if err := codeworkspace.Generate(worktrees, extensions, repoSlug, outputDir, o.out); err != nil {
 			return err
 		}
@@ -91,12 +91,12 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 	patterns := slices.Concat(treePadCfg.Sync.Files, in.ExtraPatterns)
 	slog.Debug("sync patterns", "patterns", patterns)
 
-	fmt.Fprintln(o.out, "\nsyncing configs to worktrees...")
+	_, _ = fmt.Fprintln(o.out, "\nsyncing configs to worktrees...")
 	for _, wt := range worktrees {
 		if wt.Path == sourceDir {
 			continue
 		}
-		fmt.Fprintf(o.out, "  → %s (%s)\n", wt.Branch, wt.Path)
+		_, _ = fmt.Fprintf(o.out, "  → %s (%s)\n", wt.Branch, wt.Path)
 		if err := o.syncer.Sync(patterns, internalsync.Config{
 			SourceDir: sourceDir,
 			TargetDir: wt.Path,
@@ -107,9 +107,9 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 	}
 
 	if in.SyncOnly {
-		fmt.Fprintln(o.out, "\ndone: config sync complete")
+		_, _ = fmt.Fprintln(o.out, "\ndone: config sync complete")
 	} else {
-		fmt.Fprintln(o.out, "\ndone: workspace files generated and configs synced")
+		_, _ = fmt.Fprintln(o.out, "\ndone: workspace files generated and configs synced")
 	}
 	return nil
 }
