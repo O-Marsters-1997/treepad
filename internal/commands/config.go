@@ -37,8 +37,8 @@ func configInitCommand() *cli.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.Root().Writer, "Wrote config to %s\n", path)
-				return nil
+				_, err = fmt.Fprintf(cmd.Root().Writer, "Wrote config to %s\n", path)
+				return err
 			}
 
 			wts, err := worktree.List(ctx, worktree.ExecRunner{})
@@ -53,8 +53,8 @@ func configInitCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.Root().Writer, "Wrote config to %s\n", path)
-			return nil
+			_, err = fmt.Fprintf(cmd.Root().Writer, "Wrote config to %s\n", path)
+			return err
 		},
 	}
 }
@@ -76,8 +76,8 @@ func configShowCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.Root().Writer, output)
-			return nil
+			_, err = fmt.Fprint(cmd.Root().Writer, output)
+			return err
 		},
 	}
 }
