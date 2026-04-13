@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go build -o treepad .
+      - run: go build -o treepad ./cmd/workspace
 
   tidy:
     runs-on: ubuntu-latest

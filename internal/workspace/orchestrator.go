@@ -3,26 +3,29 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"treepad/internal/codeworkspace"
 	"treepad/internal/config"
-	"treepad/internal/git"
 	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
+	"treepad/internal/worktree"
 )
 
 // Orchestrator holds injected dependencies and owns all command logic.
 // run() is reduced to wiring: it builds an Orchestrator and calls Run.
 type Orchestrator struct {
-	runner git.CommandRunner
+	runner worktree.CommandRunner
 	syncer internalsync.Syncer
+	out    io.Writer
 }
 
-func NewOrchestrator(runner git.CommandRunner, syncer internalsync.Syncer) *Orchestrator {
-	return &Orchestrator{runner: runner, syncer: syncer}
+func NewOrchestrator(runner worktree.CommandRunner, syncer internalsync.Syncer, out io.Writer) *Orchestrator {
+	return &Orchestrator{runner: runner, syncer: syncer, out: out}
 }
 
 // RunInput carries all CLI-layer decisions. Using a struct means adding a flag
@@ -36,9 +39,9 @@ type RunInput struct {
 }
 
 func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
-	worktrees, err := git.List(ctx, o.runner)
+	worktrees, err := worktree.List(ctx, o.runner)
 	if err != nil {
-		return err
+		return fmt.Errorf("list worktrees: %w", err)
 	}
 	if len(worktrees) == 0 {
 		return fmt.Errorf("no git worktrees found")
@@ -52,10 +55,10 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 
 	sourceDir, err := ResolveSourceDir(in.UseCurrentDir, in.SourcePath, cwd, worktrees)
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve source directory: %w", err)
 	}
 	slog.Debug("resolved source directory", "sourceDir", sourceDir, "useCurrentDir", in.UseCurrentDir, "sourcePath", in.SourcePath)
-	fmt.Printf("using config source: %s\n", sourceDir)
+	_, _ = fmt.Fprintf(o.out, "using config source: %s\n", sourceDir)
 
 	repoSlug := slug.Slug(filepath.Base(sourceDir))
 
@@ -72,28 +75,28 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 	if !in.SyncOnly {
 		extensions, err := codeworkspace.ResolveExtensions(sourceDir)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolve extensions: %w", err)
 		}
 		slog.Debug("resolved extensions", "count", len(extensions))
-		fmt.Printf("\ngenerating workspace files → %s\n", outputDir)
-		if err := codeworkspace.Generate(worktrees, extensions, repoSlug, outputDir); err != nil {
+		_, _ = fmt.Fprintf(o.out, "\ngenerating workspace files → %s\n", outputDir)
+		if err := codeworkspace.Generate(worktrees, extensions, repoSlug, outputDir, o.out); err != nil {
 			return err
 		}
 	}
 
 	treePadCfg, err := config.Load(sourceDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("load config: %w", err)
 	}
-	patterns := append(treePadCfg.Sync.Files, in.ExtraPatterns...)
+	patterns := slices.Concat(treePadCfg.Sync.Files, in.ExtraPatterns)
 	slog.Debug("sync patterns", "patterns", patterns)
 
-	fmt.Println("\nsyncing configs to worktrees...")
+	_, _ = fmt.Fprintln(o.out, "\nsyncing configs to worktrees...")
 	for _, wt := range worktrees {
 		if wt.Path == sourceDir {
 			continue
 		}
-		fmt.Printf("  → %s (%s)\n", wt.Branch, wt.Path)
+		_, _ = fmt.Fprintf(o.out, "  → %s (%s)\n", wt.Branch, wt.Path)
 		if err := o.syncer.Sync(patterns, internalsync.Config{
 			SourceDir: sourceDir,
 			TargetDir: wt.Path,
@@ -104,9 +107,9 @@ func (o *Orchestrator) Run(ctx context.Context, in RunInput) error {
 	}
 
 	if in.SyncOnly {
-		fmt.Println("\ndone: config sync complete")
+		_, _ = fmt.Fprintln(o.out, "\ndone: config sync complete")
 	} else {
-		fmt.Println("\ndone: workspace files generated and configs synced")
+		_, _ = fmt.Fprintln(o.out, "\ndone: workspace files generated and configs synced")
 	}
 	return nil
 }

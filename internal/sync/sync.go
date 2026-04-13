@@ -1,3 +1,4 @@
+// Package sync copies files matching glob patterns between directories.
 package sync
 
 import (
@@ -31,7 +32,10 @@ func (FileSyncer) Sync(patterns []string, cfg Config) error {
 		}
 		slog.Debug("pattern matched", "pattern", pattern, "matches", len(matches))
 		for _, src := range matches {
-			rel, _ := filepath.Rel(cfg.SourceDir, src)
+			rel, err := filepath.Rel(cfg.SourceDir, src)
+			if err != nil {
+				return fmt.Errorf("relative path for %s: %w", src, err)
+			}
 			dst := filepath.Join(cfg.TargetDir, rel)
 			if err := copyFile(src, dst); err != nil {
 				return fmt.Errorf("sync %s: %w", rel, err)
@@ -44,22 +48,22 @@ func (FileSyncer) Sync(patterns []string, cfg Config) error {
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("open source: %w", err)
 	}
 	defer func() { _ = in.Close() }()
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return fmt.Errorf("create destination directory: %w", err)
 	}
 
 	out, err := os.Create(dst)
 	if err != nil {
-		return err
+		return fmt.Errorf("create destination: %w", err)
 	}
 	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, in); err != nil {
-		return err
+		return fmt.Errorf("copy data: %w", err)
 	}
 	return out.Close()
 }

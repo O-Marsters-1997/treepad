@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -46,95 +47,123 @@ branch refs/heads/feat
 
 // --- orchestrator tests ---
 
-func TestOrchestrator_syncerCalledForNonSourceWorktrees(t *testing.T) {
-	syn := &fakeSyncer{}
-	o := NewOrchestrator(fakeRunner{output: twoWorktreePorcelain}, syn)
-
-	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main", SyncOnly: true})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(syn.calls) != 1 {
-		t.Fatalf("syncer called %d times, want 1", len(syn.calls))
-	}
-	if syn.calls[0].TargetDir != "/repo/feat" {
-		t.Errorf("TargetDir = %q, want /repo/feat", syn.calls[0].TargetDir)
-	}
+func newTestOrchestrator(t *testing.T, runner worktree.CommandRunner, syncer internalsync.Syncer) *Orchestrator {
+	t.Helper()
+	return NewOrchestrator(runner, syncer, io.Discard)
 }
 
-func TestOrchestrator_propagatesSyncerError(t *testing.T) {
-	o := NewOrchestrator(
-		fakeRunner{output: twoWorktreePorcelain},
-		&fakeSyncer{err: errors.New("sync failed")},
-	)
-	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main", SyncOnly: true})
-	if err == nil || !strings.Contains(err.Error(), "sync failed") {
-		t.Errorf("expected sync error, got: %v", err)
-	}
-}
+func TestOrchestratorRun(t *testing.T) {
+	t.Run("syncs non-source worktrees", func(t *testing.T) {
+		syn := &fakeSyncer{}
+		o := newTestOrchestrator(t, fakeRunner{output: twoWorktreePorcelain}, syn)
 
-func TestOrchestrator_noWorktrees(t *testing.T) {
-	o := NewOrchestrator(fakeRunner{output: []byte{}}, &fakeSyncer{})
-	err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main"})
-	if err == nil || !strings.Contains(err.Error(), "no git worktrees found") {
-		t.Errorf("expected no-worktrees error, got: %v", err)
-	}
-}
+		err := o.Run(context.Background(), RunInput{SourcePath: "/repo/main", SyncOnly: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(syn.calls) != 1 {
+			t.Fatalf("syncer called %d times, want 1", len(syn.calls))
+		}
+		if syn.calls[0].TargetDir != "/repo/feat" {
+			t.Errorf("TargetDir = %q, want /repo/feat", syn.calls[0].TargetDir)
+		}
+	})
 
-func TestOrchestrator_runnerError(t *testing.T) {
-	o := NewOrchestrator(
-		fakeRunner{err: errors.New("git not found")},
-		&fakeSyncer{},
-	)
-	err := o.Run(context.Background(), RunInput{})
-	if err == nil || !strings.Contains(err.Error(), "git not found") {
-		t.Errorf("expected runner error, got: %v", err)
+	errorTests := []struct {
+		name    string
+		runner  worktree.CommandRunner
+		syncer  internalsync.Syncer
+		input   RunInput
+		wantErr string
+	}{
+		{
+			name:    "propagates syncer error",
+			runner:  fakeRunner{output: twoWorktreePorcelain},
+			syncer:  &fakeSyncer{err: errors.New("sync failed")},
+			input:   RunInput{SourcePath: "/repo/main", SyncOnly: true},
+			wantErr: "sync failed",
+		},
+		{
+			name:    "no worktrees",
+			runner:  fakeRunner{output: []byte{}},
+			syncer:  &fakeSyncer{},
+			input:   RunInput{SourcePath: "/repo/main"},
+			wantErr: "no git worktrees found",
+		},
+		{
+			name:    "runner error",
+			runner:  fakeRunner{err: errors.New("git not found")},
+			syncer:  &fakeSyncer{},
+			input:   RunInput{},
+			wantErr: "git not found",
+		},
+	}
+	for _, tt := range errorTests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := newTestOrchestrator(t, tt.runner, tt.syncer)
+			err := o.Run(context.Background(), tt.input)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 
 // --- ResolveSourceDir tests ---
 
-func TestResolveSourceDir_useCurrentFlag(t *testing.T) {
-	got, err := ResolveSourceDir(true, "", "/home/user/repo", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "/home/user/repo" {
-		t.Errorf("got %q, want /home/user/repo", got)
-	}
-}
-
-func TestResolveSourceDir_explicitPath(t *testing.T) {
-	// Absolute path: filepath.Abs is a no-op, keeping the test hermetic.
-	got, err := ResolveSourceDir(false, "/tmp/other-repo", "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "/tmp/other-repo" {
-		t.Errorf("got %q, want /tmp/other-repo", got)
-	}
-}
-
-func TestResolveSourceDir_defaultsToMainWorktree(t *testing.T) {
-	wts := []worktree.Worktree{
+func TestResolveSourceDir(t *testing.T) {
+	withMain := []worktree.Worktree{
 		{Path: "/repo/feat", Branch: "feat", IsMain: false},
 		{Path: "/repo/main", Branch: "main", IsMain: true},
 	}
-	got, err := ResolveSourceDir(false, "", "", wts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "/repo/main" {
-		t.Errorf("got %q, want /repo/main", got)
-	}
-}
 
-func TestResolveSourceDir_noMainWorktree(t *testing.T) {
-	wts := []worktree.Worktree{
-		{Path: "/repo/feat", Branch: "feat", IsMain: false},
+	tests := []struct {
+		name       string
+		useCurrent bool
+		sourcePath string
+		cwd        string
+		worktrees  []worktree.Worktree
+		want       string
+		wantErr    bool
+	}{
+		{
+			name:       "use current flag",
+			useCurrent: true,
+			cwd:        "/home/user/repo",
+			want:       "/home/user/repo",
+		},
+		{
+			// Absolute path: filepath.Abs is a no-op, keeping the test hermetic.
+			name:       "explicit path",
+			sourcePath: "/tmp/other-repo",
+			want:       "/tmp/other-repo",
+		},
+		{
+			name:      "defaults to main worktree",
+			worktrees: withMain,
+			want:      "/repo/main",
+		},
+		{
+			name:      "error when no main worktree",
+			worktrees: []worktree.Worktree{{Path: "/repo/feat", Branch: "feat", IsMain: false}},
+			wantErr:   true,
+		},
 	}
-	_, err := ResolveSourceDir(false, "", "", wts)
-	if err == nil {
-		t.Fatal("expected error when no main worktree, got nil")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolveSourceDir(tt.useCurrent, tt.sourcePath, tt.cwd, tt.worktrees)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

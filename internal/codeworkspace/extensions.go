@@ -47,6 +47,7 @@ func ReadExtensions(dir string) ([]string, error) {
 	return ef.Recommendations, nil
 }
 
+// DetectExtensions walks dir looking for known file types and returns matching VS Code extension IDs.
 func DetectExtensions(dir string) ([]string, error) {
 	type probe struct {
 		ext       string // file extension to match; empty means match by filename instead
@@ -66,6 +67,12 @@ func DetectExtensions(dir string) ([]string, error) {
 		{filename: "Dockerfile", extension: "ms-azuretools.vscode-docker"},
 		{filename: "docker-compose.yml", extension: "ms-azuretools.vscode-docker"},
 	}
+
+	uniqueExts := make(map[string]struct{})
+	for _, p := range probes {
+		uniqueExts[p.extension] = struct{}{}
+	}
+	totalUnique := len(uniqueExts)
 
 	found := make(map[string]bool)
 	var extensions []string
@@ -100,6 +107,9 @@ func DetectExtensions(dir string) ([]string, error) {
 			case p.ext != "" && ext == p.ext:
 				add(p.extension)
 			}
+		}
+		if len(found) == totalUnique {
+			return filepath.SkipAll
 		}
 		return nil
 	})
