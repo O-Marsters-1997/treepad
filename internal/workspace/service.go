@@ -1,0 +1,200 @@
+package workspace
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
+
+	"treepad/internal/codeworkspace"
+	"treepad/internal/config"
+	"treepad/internal/slug"
+	internalsync "treepad/internal/sync"
+	"treepad/internal/worktree"
+)
+
+type Service struct {
+	runner worktree.CommandRunner
+	syncer internalsync.Syncer
+	opener Opener
+	out    io.Writer
+}
+
+func NewService(runner worktree.CommandRunner, syncer internalsync.Syncer, opener Opener, out io.Writer) *Service {
+	return &Service{runner: runner, syncer: syncer, opener: opener, out: out}
+}
+
+type GenerateInput struct {
+	UseCurrentDir bool
+	SourcePath    string
+	SyncOnly      bool
+	OutputDir     string
+	ExtraPatterns []string
+}
+
+type CreateInput struct {
+	Branch    string
+	Base      string
+	Open      bool
+	OutputDir string
+}
+
+func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
+	worktrees, err := s.listWorktrees(ctx)
+	if err != nil {
+		return err
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get current directory: %w", err)
+	}
+
+	sourceDir, err := ResolveSourceDir(in.UseCurrentDir, in.SourcePath, cwd, worktrees)
+	if err != nil {
+		return fmt.Errorf("resolve source directory: %w", err)
+	}
+	slog.Debug("resolved source directory", "sourceDir", sourceDir, "useCurrentDir", in.UseCurrentDir, "sourcePath", in.SourcePath)
+	_, _ = fmt.Fprintf(s.out, "using config source: %s\n", sourceDir)
+
+	repoSlug := slug.Slug(filepath.Base(sourceDir))
+
+	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
+	if err != nil {
+		return err
+	}
+	slog.Debug("output directory", "dir", outputDir, "explicit", in.OutputDir != "")
+
+	if !in.SyncOnly {
+		extensions, err := codeworkspace.ResolveExtensions(sourceDir)
+		if err != nil {
+			return fmt.Errorf("resolve extensions: %w", err)
+		}
+		slog.Debug("resolved extensions", "count", len(extensions))
+		_, _ = fmt.Fprintf(s.out, "\ngenerating workspace files → %s\n", outputDir)
+		if err := codeworkspace.Generate(worktrees, extensions, repoSlug, outputDir, s.out); err != nil {
+			return err
+		}
+	}
+
+	var targets []syncTarget
+	for _, wt := range worktrees {
+		if wt.Path == sourceDir {
+			continue
+		}
+		targets = append(targets, syncTarget{path: wt.Path, branch: wt.Branch})
+	}
+	if err := s.loadAndSync(sourceDir, in.ExtraPatterns, targets); err != nil {
+		return err
+	}
+
+	if in.SyncOnly {
+		_, _ = fmt.Fprintln(s.out, "\ndone: config sync complete")
+	} else {
+		_, _ = fmt.Fprintln(s.out, "\ndone: workspace files generated and configs synced")
+	}
+	return nil
+}
+
+func (s *Service) Create(ctx context.Context, in CreateInput) error {
+	worktrees, err := s.listWorktrees(ctx)
+	if err != nil {
+		return err
+	}
+
+	mainWT, err := worktree.MainWorktree(worktrees)
+	if err != nil {
+		return err
+	}
+
+	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
+	worktreePath := filepath.Join(filepath.Dir(mainWT.Path), repoSlug+"-"+slug.Slug(in.Branch))
+	slog.Debug("derived worktree path", "path", worktreePath)
+
+	if _, err := s.runner.Run(ctx, "git", "worktree", "add", "-b", in.Branch, worktreePath, in.Base); err != nil {
+		return fmt.Errorf("git worktree add: %w", err)
+	}
+	_, _ = fmt.Fprintf(s.out, "created worktree at %s\n", worktreePath)
+
+	if err := s.loadAndSync(mainWT.Path, nil, []syncTarget{{path: worktreePath, branch: in.Branch}}); err != nil {
+		return err
+	}
+
+	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
+	if err != nil {
+		return err
+	}
+
+	extensions, err := codeworkspace.ResolveExtensions(mainWT.Path)
+	if err != nil {
+		return fmt.Errorf("resolve extensions: %w", err)
+	}
+
+	newWT := worktree.Worktree{Path: worktreePath, Branch: in.Branch}
+	if err := codeworkspace.Generate([]worktree.Worktree{newWT}, extensions, repoSlug, outputDir, io.Discard); err != nil {
+		return fmt.Errorf("generate workspace file: %w", err)
+	}
+	slog.Debug("generated workspace file", "outputDir", outputDir, "branch", in.Branch)
+
+	if in.Open {
+		wsFile := filepath.Join(outputDir, codeworkspace.Filename(repoSlug, in.Branch))
+		_, _ = fmt.Fprintln(s.out, "opening workspace...")
+		if err := s.opener.Open(ctx, wsFile); err != nil {
+			return fmt.Errorf("open workspace: %w", err)
+		}
+	}
+	return nil
+}
+
+type syncTarget struct {
+	path   string
+	branch string
+}
+
+func (s *Service) listWorktrees(ctx context.Context) ([]worktree.Worktree, error) {
+	worktrees, err := worktree.List(ctx, s.runner)
+	if err != nil {
+		return nil, fmt.Errorf("list worktrees: %w", err)
+	}
+	if len(worktrees) == 0 {
+		return nil, fmt.Errorf("no git worktrees found")
+	}
+	slog.Debug("discovered worktrees", "count", len(worktrees))
+	return worktrees, nil
+}
+
+func (s *Service) resolveOutputDir(explicit string, repoSlug string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home directory: %w", err)
+	}
+	return filepath.Join(home, repoSlug+"-workspaces"), nil
+}
+
+func (s *Service) loadAndSync(sourceDir string, extraPatterns []string, targets []syncTarget) error {
+	cfg, err := config.Load(sourceDir)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	patterns := slices.Concat(cfg.Sync.Files, extraPatterns)
+	slog.Debug("sync patterns", "patterns", patterns)
+
+	_, _ = fmt.Fprintln(s.out, "\nsyncing configs to worktrees...")
+	for _, t := range targets {
+		_, _ = fmt.Fprintf(s.out, "  → %s (%s)\n", t.branch, t.path)
+		if err := s.syncer.Sync(patterns, internalsync.Config{
+			SourceDir: sourceDir,
+			TargetDir: t.path,
+		}); err != nil {
+			return fmt.Errorf("sync configs to %s: %w", t.branch, err)
+		}
+		slog.Debug("synced worktree", "branch", t.branch, "target", t.path)
+	}
+	return nil
+}

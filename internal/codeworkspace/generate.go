@@ -70,6 +70,11 @@ func Generate(worktrees []worktree.Worktree, extensions []string, slug, outputDi
 	return nil
 }
 
+// Filename returns the .code-workspace filename for a given repo slug and branch.
+func Filename(repoSlug, branch string) string {
+	return fmt.Sprintf("%s-%s.code-workspace", repoSlug, sanitizeBranch(branch))
+}
+
 func sanitizeBranch(branch string) string {
 	return strings.Map(func(r rune) rune {
 		switch r {
