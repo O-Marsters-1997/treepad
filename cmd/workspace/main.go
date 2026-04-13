@@ -8,7 +8,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/workspace"
+	"treepad/internal/commands"
 )
 
 func main() {
@@ -32,9 +32,7 @@ func main() {
 			))
 			return ctx, nil
 		},
-		Commands: []*cli.Command{
-			workspace.Command(),
-		},
+		Commands: commands.Router(),
 	}
 
 	if err := cmd.Run(context.Background(), os.Args); err != nil {

@@ -1,5 +1,4 @@
-// Package workspace wires CLI flags to the Orchestrator and exposes the top-level workspace command.
-package workspace
+package commands
 
 import (
 	"context"
@@ -9,10 +8,11 @@ import (
 	"github.com/urfave/cli/v3"
 
 	internalsync "treepad/internal/sync"
+	"treepad/internal/workspace"
 	"treepad/internal/worktree"
 )
 
-func Command() *cli.Command {
+func workspaceCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "workspace",
 		Usage:     "sync editor configs and generate workspace files across git worktrees",
@@ -37,11 +37,11 @@ func Command() *cli.Command {
 				Usage: "additional file patterns to sync (appended to sync.files in .treepad.json)",
 			},
 		},
-		Action: run,
+		Action: runWorkspace,
 	}
 }
 
-func run(ctx context.Context, cmd *cli.Command) error {
+func runWorkspace(ctx context.Context, cmd *cli.Command) error {
 	useCurrentFlag := cmd.Bool("use-current")
 	sourcePath := cmd.Args().First()
 
@@ -49,8 +49,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	o := NewOrchestrator(worktree.ExecRunner{}, internalsync.FileSyncer{}, os.Stdout)
-	return o.Run(ctx, RunInput{
+	o := workspace.NewOrchestrator(worktree.ExecRunner{}, internalsync.FileSyncer{}, os.Stdout)
+	return o.Run(ctx, workspace.RunInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,
 		SyncOnly:      cmd.Bool("sync-only"),

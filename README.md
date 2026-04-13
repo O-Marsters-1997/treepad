@@ -33,7 +33,9 @@ This produces a `treepad` binary in the project root. Move it somewhere on your 
 treepad [--verbose | -v] <command> [options]
 ```
 
-The primary command is `workspace`. Run it from inside any git repo that has worktrees set up:
+### Main commands
+
+**`workspace`** — Sync configs and generate `.code-workspace` files across all git worktrees:
 
 ```bash
 # Sync configs and generate .code-workspace files from the main worktree
@@ -50,6 +52,19 @@ treepad workspace --include ".prettierrc" --include ".eslintrc.json"
 
 # Debug what treepad is doing
 treepad --verbose workspace
+```
+
+**`config`** — Manage treepad configuration:
+
+```bash
+# Write a default .treepad.json to the main worktree root
+treepad config init
+
+# Write config to the global config path
+treepad config init --global
+
+# Show the resolved config and which source(s) contributed
+treepad config show
 ```
 
 See [docs/commands.md](docs/commands.md) for the full command reference.

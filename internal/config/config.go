@@ -38,6 +38,23 @@ type Config struct {
 	Sync SyncConfig `json:"sync"`
 }
 
+// GlobalConfigPath returns the path to the global config file.
+// Resolution order: $TREEPAD_CONFIG → $XDG_CONFIG_HOME/treepad/config.json → ~/.config/treepad/config.json
+func GlobalConfigPath() (string, error) {
+	if envPath := os.Getenv("TREEPAD_CONFIG"); envPath != "" {
+		return envPath, nil
+	}
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("determine home directory: %w", err)
+		}
+		xdg = filepath.Join(home, ".config")
+	}
+	return filepath.Join(xdg, "treepad", "config.json"), nil
+}
+
 // Load reads .treepad.json from repoRoot. Returns defaults when the file is absent.
 func Load(repoRoot string) (Config, error) {
 	cfg := Config{
