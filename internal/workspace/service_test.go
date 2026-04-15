@@ -320,7 +320,7 @@ func TestServiceRemove(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
 			{err: errors.New("locked worktree")}, // git worktree remove fails
-			{},                                    // git branch -d still runs
+			{},                                   // git branch -d still runs
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 
@@ -341,9 +341,9 @@ func TestServiceRemove(t *testing.T) {
 
 	t.Run("recovery mode: no worktree but branch exists, cleans up branch", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
-			{output: mainWorktreePorcelain(mainPath)},      // git worktree list: feat absent
-			{output: []byte("  feat\n")},                  // git branch --list feat: exists
-			{},                                             // git branch -d feat
+			{output: mainWorktreePorcelain(mainPath)}, // git worktree list: feat absent
+			{output: []byte("  feat\n")},              // git branch --list feat: exists
+			{},                                        // git branch -d feat
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 
