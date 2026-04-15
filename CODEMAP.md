@@ -35,6 +35,14 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
   - Instantiates `workspace.Service` and calls `Create()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `workspace.ExecOpener`
 
+### `remove.go`
+
+- `removeCommand()` — top-level remove command definition
+- `runRemove(ctx, cmd)` — action handler for removing worktrees
+  - Parses branch argument (required)
+  - Instantiates `workspace.Service` and calls `Remove()`
+  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`
+
 ### `config.go`
 
 - `configCommand()` — top-level config command group
@@ -88,6 +96,10 @@ Pure business logic for worktree syncing and workspace file generation.
     - Resolves config source, loads config, syncs files, generates workspace files
   - `Create(ctx, CreateInput)` — creates new worktree, syncs configs, generates workspace file
     - Input: `Branch`, `Base`, `Open`, `OutputDir`
+  - `Remove(ctx, RemoveInput)` — removes worktree, workspace file, and branch
+    - Input: `Branch`, `OutputDir`, `Cwd` (for testing)
+    - Pre-flight guards: prevents removing main worktree, prevents removing from within the target worktree
+    - Three-step removal: git worktree remove → delete workspace file → git branch -d
 - Private helpers:
   - `listWorktrees(ctx)` — lists all worktrees in repo
   - `resolveOutputDir(explicit, repoSlug)` — resolves workspace output directory
@@ -154,6 +166,7 @@ treepad [--verbose] <command>
 ├── create [options] <branch>
 │   ├── --base (default: main)
 │   └── --open (-o)
+├── remove <branch>
 └── config
     ├── init [--global]
     └── show
@@ -206,6 +219,18 @@ treepad [--verbose] <command>
 4. Calls `config.Show(mainPath)`
 5. `Show()` checks local, global, and defaults; returns formatted summary with sources
 
+## Data Flow Example: `treepad remove <branch>`
+
+1. `main.go` parses flags and calls `commands.Router()`
+2. `commands.removeCommand()` defines CLI interface
+3. `runRemove()` parses branch argument, instantiates `workspace.Service`, calls `Remove()`
+4. `Service.Remove()` executes three steps:
+   - Lists all worktrees, validates branch exists and is not main
+   - Pre-flight guard: ensures cwd is not inside the target worktree
+   - Removes git worktree via `git worktree remove`
+   - Deletes `.code-workspace` file from output directory (missing file is not an error)
+   - Deletes branch locally via `git branch -d`
+
 ---
 
-**Last Updated:** April 13, 2026 (refactored workspace package: unified Orchestrator/Creator into Service)
+**Last Updated:** April 15, 2026 (added `treepad remove` command documentation)

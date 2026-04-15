@@ -155,3 +155,38 @@ Config:
 ```
 
 See [configuration.md](configuration.md) for details on the configuration schema and defaults.
+
+## remove
+
+Remove a git worktree, delete its `.code-workspace` file, and delete the local branch.
+
+```
+treepad remove <branch>
+```
+
+Removes the worktree for the specified branch, cleans up its associated `.code-workspace` file, and deletes the branch locally. Includes pre-flight safety guards to prevent accidental data loss.
+
+### Pre-flight guards
+
+- Refuses to remove the main worktree
+- Refuses to remove a worktree if you are currently inside it (must `cd` elsewhere first)
+
+### Examples
+
+```bash
+# Remove a completed feature branch
+treepad remove feature-x
+
+# Remove after switching out of the worktree
+cd ../main-repo  # or any other location
+treepad remove feature-x
+```
+
+### Errors
+
+Attempting to remove the main worktree or the worktree you're currently in will return an error:
+
+```
+cannot remove the main worktree
+cannot remove the worktree you are currently in; cd elsewhere first
+```
