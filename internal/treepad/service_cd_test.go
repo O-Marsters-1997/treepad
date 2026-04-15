@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestServiceSwitch(t *testing.T) {
+func TestServiceCD(t *testing.T) {
 	tests := []struct {
 		name        string
 		branch      string
@@ -16,7 +16,7 @@ func TestServiceSwitch(t *testing.T) {
 		wantErrText string
 	}{
 		{
-			name:   "switches to existing worktree",
+			name:   "cds into existing worktree",
 			branch: "feat",
 			wantCD: "__TREEPAD_CD__\t/repo/feat\n",
 		},
@@ -33,7 +33,7 @@ func TestServiceSwitch(t *testing.T) {
 			var out bytes.Buffer
 			svc := NewService(fakeRunner{output: twoWorktreePorcelain}, &fakeSyncer{}, nil, &out)
 
-			err := svc.Switch(context.Background(), SwitchInput{Branch: tt.branch})
+			err := svc.CD(context.Background(), CDInput{Branch: tt.branch})
 
 			if tt.wantErr {
 				if err == nil {

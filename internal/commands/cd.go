@@ -13,16 +13,16 @@ import (
 	"treepad/internal/worktree"
 )
 
-func switchCommand() *cli.Command {
+func cdCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "switch",
+		Name:      "cd",
 		Usage:     "cd into an existing worktree by branch name",
 		ArgsUsage: "<branch>",
-		Action:    runSwitch,
+		Action:    runCD,
 	}
 }
 
-func runSwitch(ctx context.Context, cmd *cli.Command) error {
+func runCD(ctx context.Context, cmd *cli.Command) error {
 	branch := cmd.Args().First()
 	if branch == "" {
 		return fmt.Errorf("branch name is required")
@@ -35,5 +35,5 @@ func runSwitch(ctx context.Context, cmd *cli.Command) error {
 		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
 	)
-	return svc.Switch(ctx, treepad.SwitchInput{Branch: branch})
+	return svc.CD(ctx, treepad.CDInput{Branch: branch})
 }

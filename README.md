@@ -121,11 +121,11 @@ treepad prune --dry-run
 treepad prune --base develop
 ```
 
-**`switch`** — cd into an existing worktree by branch name:
+**`cd`** — cd into an existing worktree by branch name:
 
 ```bash
-# Switch into an existing worktree (cd's automatically via shell integration)
-treepad switch feature-x
+# cd into an existing worktree (shell integration handles the directory change)
+treepad cd feature-x
 ```
 
 > Requires `eval "$(treepad shell-init)"` in your shell rc — the same wrapper used by `new`.

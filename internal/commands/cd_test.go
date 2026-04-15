@@ -7,12 +7,12 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func TestSwitchCommand_missingArg(t *testing.T) {
+func TestCDCommand_missingArg(t *testing.T) {
 	app := &cli.Command{
-		Commands: []*cli.Command{switchCommand()},
+		Commands: []*cli.Command{cdCommand()},
 	}
 
-	err := app.Run(context.Background(), []string{"treepad", "switch"})
+	err := app.Run(context.Background(), []string{"treepad", "cd"})
 	if err == nil {
 		t.Fatal("expected error for missing branch arg, got nil")
 	}

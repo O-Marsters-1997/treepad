@@ -84,12 +84,12 @@ treepad new feature-z --open
 treepad new my-branch -c
 ```
 
-## switch
+## cd
 
 cd into an existing worktree by branch name.
 
 ```
-treepad switch <branch>
+treepad cd <branch>
 ```
 
 Looks up the worktree registered under `<branch>` from `git worktree list` and emits a `__TREEPAD_CD__` directive. The shell wrapper installed by `shell-init` intercepts it and changes the current directory. No flags — positional branch argument only.
@@ -107,11 +107,11 @@ eval "$(treepad shell-init)"
 ### Examples
 
 ```bash
-# Switch into an existing worktree
-treepad switch feature-x
+# cd into an existing worktree
+treepad cd feature-x
 
-# Works the same way as new — runs the binary directly to inspect the directive
-command treepad switch feature-x
+# Run the binary directly to inspect the directive
+command treepad cd feature-x
 # => __TREEPAD_CD__	/path/to/repo-feature-x
 ```
 

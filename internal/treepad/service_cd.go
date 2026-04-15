@@ -7,11 +7,11 @@ import (
 	"treepad/internal/worktree"
 )
 
-type SwitchInput struct {
+type CDInput struct {
 	Branch string
 }
 
-func (s *Service) Switch(ctx context.Context, in SwitchInput) error {
+func (s *Service) CD(ctx context.Context, in CDInput) error {
 	worktrees, err := s.listWorktrees(ctx)
 	if err != nil {
 		return err
