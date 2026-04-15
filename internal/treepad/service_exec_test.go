@@ -34,7 +34,7 @@ func worktreePorcelainWithPath(branch, path string) []byte {
 }
 
 func TestExec_unknownBranch(t *testing.T) {
-	svc := NewService(fakeRunner{output: twoWorktreePorcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
+	svc := NewService(fakeRunner{output: twoWorktreePorcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""), nil)
 	_, err := svc.Exec(context.Background(), ExecInput{
 		Branch:  "nonexistent",
 		Command: "build",
@@ -143,7 +143,7 @@ func TestExec_dispatch(t *testing.T) {
 			pt := &fakePassthroughRunner{exitCode: tt.fakeExitCode}
 			var out bytes.Buffer
 			porcelain := worktreePorcelainWithPath("feat", dir)
-			svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""))
+			svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""), nil)
 
 			exitCode, err := svc.Exec(context.Background(), ExecInput{
 				Branch:  "feat",

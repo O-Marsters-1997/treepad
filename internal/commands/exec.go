@@ -11,6 +11,7 @@ import (
 	"treepad/internal/hook"
 	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
+	"treepad/internal/ui"
 	"treepad/internal/worktree"
 )
 
@@ -43,8 +44,9 @@ func runExec(ctx context.Context, cmd *cli.Command) error {
 		internalsync.FileSyncer{},
 		artifact.ExecOpener{Runner: runner},
 		hook.ExecRunner{Runner: runner},
-		os.Stdout,
+		cmd.Root().Writer,
 		os.Stdin,
+		ui.New(cmd.Root().ErrWriter),
 	)
 	exitCode, err := svc.Exec(ctx, treepad.ExecInput{
 		Branch:  branch,
