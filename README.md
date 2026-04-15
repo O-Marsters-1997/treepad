@@ -108,7 +108,7 @@ cd ../main-repo
 treepad remove feature-x
 ```
 
-**`prune`** — Remove all worktrees whose branches are merged into a base branch:
+**`prune`** — Remove all worktrees whose branches are merged into a base branch, or force-remove all non-main worktrees:
 
 ```bash
 # Remove all worktrees whose branches are merged into main
@@ -119,6 +119,9 @@ treepad prune --dry-run
 
 # Check merges against a different base branch
 treepad prune --base develop
+
+# Force-remove all non-main worktrees (with confirmation)
+treepad prune --all
 ```
 
 **`status`** — List all worktrees with their branch, dirty state, ahead/behind count, and last commit:

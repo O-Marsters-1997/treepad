@@ -212,13 +212,13 @@ cannot remove the worktree you are currently in; cd elsewhere first
 
 ## prune
 
-Remove all worktrees whose branches are already merged into a base branch. Useful for batch-cleaning completed work.
+Remove all worktrees whose branches are already merged into a base branch, or force-remove all non-main worktrees. Useful for batch-cleaning completed work.
 
 ```
 treepad prune [options]
 ```
 
-Automatically identifies and removes worktrees whose branches have been merged into a base branch (default: `main`). Executes removals directly; pass `--dry-run` to preview without making changes.
+Automatically identifies and removes worktrees whose branches have been merged into a base branch (default: `main`). Executes removals directly; pass `--dry-run` to preview without making changes. Use `--all` to force-remove all non-main worktrees (with confirmation prompt).
 
 ### Flags
 
@@ -226,13 +226,20 @@ Automatically identifies and removes worktrees whose branches have been merged i
 |------|-------------|
 | `--base` | Ref to check merges against (default: `main`) |
 | `--dry-run` | Preview removals without executing |
+| `--all` | Force-remove all non-main worktrees regardless of merge status (must be run from main worktree, requires confirmation) |
 
 ### Filtering
 
-Prune automatically skips:
-- The main worktree
-- Detached HEAD worktrees
-- The worktree you are currently in (continues to next rather than failing)
+When not using `--all`:
+- The main worktree is automatically skipped
+- Detached HEAD worktrees are skipped
+- The worktree you are currently in is skipped (continues to next rather than failing)
+
+When using `--all`:
+- Only the main worktree is preserved
+- Detached HEAD worktrees are still removed
+- Must be invoked from the main worktree (guards against removal by accident)
+- Requires interactive confirmation before proceeding
 
 ### Examples
 
@@ -248,11 +255,17 @@ treepad prune --base develop
 
 # Preview against a different base
 treepad prune --base develop --dry-run
+
+# Force-remove all non-main worktrees (with confirmation)
+treepad prune --all
+
+# Preview force-removal without executing
+treepad prune --all --dry-run
 ```
 
 ### Output Examples
 
-**Execution output (default):**
+**Execution output (default, merge-based):**
 
 ```
 removed worktree: /path/to/repo/repo-feature-x
@@ -276,9 +289,34 @@ would remove: feature-y (/path/to/repo/repo-feature-y)
 no merged worktrees to remove
 ```
 
+**Force-remove all (`--all`) execution:**
+
+```
+the following worktrees will be force-removed:
+  feature-x  /path/to/repo/repo-feature-x
+  feature-y  /path/to/repo/repo-feature-y
+continue? [y/N]: y
+removed worktree: /path/to/repo/repo-feature-x
+removed artifact: /home/user/repo-workspaces/repo-feature-x.code-workspace
+deleted branch: feature-x
+removed worktree: /path/to/repo/repo-feature-y
+removed artifact: /home/user/repo-workspaces/repo-feature-y.code-workspace
+deleted branch: feature-y
+```
+
+**Force-remove all (`--all`) aborted:**
+
+```
+the following worktrees will be force-removed:
+  feature-x  /path/to/repo/repo-feature-x
+  feature-y  /path/to/repo/repo-feature-y
+continue? [y/N]: n
+aborted
+```
+
 ### Skipping current worktree
 
-If you're currently inside a merged worktree, prune skips it and continues with the rest:
+If you're currently inside a merged worktree (merge-based mode), prune skips it and continues with the rest:
 
 ```
 skipping feature-x: currently in this worktree

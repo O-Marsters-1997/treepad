@@ -34,6 +34,7 @@ func runRemove(ctx context.Context, cmd *cli.Command) error {
 		internalsync.FileSyncer{},
 		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
+		os.Stdin,
 	)
 	return svc.Remove(ctx, treepad.RemoveInput{Branch: branch})
 }

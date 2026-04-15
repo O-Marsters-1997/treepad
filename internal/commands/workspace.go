@@ -49,7 +49,7 @@ func runWorkspace(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	svc := treepad.NewService(worktree.ExecRunner{}, internalsync.FileSyncer{}, nil, os.Stdout)
+	svc := treepad.NewService(worktree.ExecRunner{}, internalsync.FileSyncer{}, nil, os.Stdout, os.Stdin)
 	return svc.Generate(ctx, treepad.GenerateInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,
