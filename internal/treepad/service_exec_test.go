@@ -46,251 +46,143 @@ func TestExec_unknownBranch(t *testing.T) {
 	}
 }
 
-func TestExec_scriptDispatch(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build ./...\n"), 0o644); err != nil {
-		t.Fatalf("write justfile: %v", err)
-	}
-
-	porcelain := worktreePorcelainWithPath("feat", dir)
-	pt := &fakePassthroughRunner{}
-	var out bytes.Buffer
-	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""))
-
-	exitCode, err := svc.Exec(context.Background(), ExecInput{
-		Branch:  "feat",
-		Command: "build",
-		Args:    []string{"--verbose"},
-		Cwd:     "/some/other",
-		Runner:  pt,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if exitCode != 0 {
-		t.Errorf("ExitCode = %d, want 0", exitCode)
-	}
-	if len(pt.calls) != 1 {
-		t.Fatalf("want 1 call, got %d", len(pt.calls))
-	}
-	call := pt.calls[0]
-	if call.name != "just" {
-		t.Errorf("name = %q, want %q", call.name, "just")
-	}
-	wantArgs := []string{"build", "--verbose"}
-	if !equalStringSlice(call.args, wantArgs) {
-		t.Errorf("args = %v, want %v", call.args, wantArgs)
-	}
-	if call.dir != dir {
-		t.Errorf("dir = %q, want %q", call.dir, dir)
-	}
-}
-
-func TestExec_rawFallback(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build ./...\n"), 0o644); err != nil {
-		t.Fatalf("write justfile: %v", err)
-	}
-
-	porcelain := worktreePorcelainWithPath("feat", dir)
-	pt := &fakePassthroughRunner{}
-	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
-
-	_, err := svc.Exec(context.Background(), ExecInput{
-		Branch:  "feat",
-		Command: "ls",
-		Args:    []string{"-la"},
-		Cwd:     "/some/other",
-		Runner:  pt,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pt.calls) != 1 {
-		t.Fatalf("want 1 call, got %d", len(pt.calls))
-	}
-	call := pt.calls[0]
-	if call.name != "ls" {
-		t.Errorf("name = %q, want %q", call.name, "ls")
-	}
-	wantArgs := []string{"-la"}
-	if !equalStringSlice(call.args, wantArgs) {
-		t.Errorf("args = %v, want %v", call.args, wantArgs)
-	}
-}
-
-func TestExec_npmArgs(t *testing.T) {
+func TestExec_dispatch(t *testing.T) {
 	tests := []struct {
-		name        string
-		packageJSON string
-		command     string
-		args        []string
-		wantArgs    []string
+		name         string
+		files        map[string]string // filename → content written to worktree dir
+		command      string
+		args         []string
+		cwdSame      bool // true: set Cwd = worktree dir (triggers same-worktree warning)
+		fakeExitCode int
+		wantExitCode int
+		wantCallName string   // "" means no exec call expected
+		wantCallArgs []string // checked only when wantCallName is set
+		wantOutput   []string // substrings expected in stdout
 	}{
 		{
-			name:        "double dash injected when args present",
-			packageJSON: `{"scripts":{"test":"jest"}}`,
-			command:     "test",
-			args:        []string{"--watch"},
-			wantArgs:    []string{"run", "test", "--", "--watch"},
+			name:         "script routed through just",
+			files:        map[string]string{"justfile": "build:\n  go build ./...\n"},
+			command:      "build",
+			args:         []string{"--verbose"},
+			wantCallName: "just",
+			wantCallArgs: []string{"build", "--verbose"},
 		},
 		{
-			name:        "no double dash when no args",
-			packageJSON: `{"scripts":{"build":"tsc"}}`,
-			command:     "build",
-			args:        nil,
-			wantArgs:    []string{"run", "build"},
+			name:         "unknown command falls back to raw exec",
+			files:        map[string]string{"justfile": "build:\n  go build ./...\n"},
+			command:      "ls",
+			args:         []string{"-la"},
+			wantCallName: "ls",
+			wantCallArgs: []string{"-la"},
+		},
+		{
+			name:         "exit code propagated from child process",
+			files:        map[string]string{"justfile": "fail:\n  exit 1\n"},
+			command:      "ls",
+			fakeExitCode: 42,
+			wantExitCode: 42,
+			wantCallName: "ls",
+		},
+		{
+			name: "config override selects runner when multiple present",
+			files: map[string]string{
+				"package.json":  `{"scripts":{"start":"node"}}`,
+				"justfile":      "build:\n  go build\n",
+				".treepad.toml": "[exec]\nrunner = \"just\"\n",
+			},
+			command:      "build",
+			wantCallName: "just",
+			wantCallArgs: []string{"build"},
+		},
+		{
+			name:         "same worktree emits warning but still runs",
+			files:        map[string]string{"justfile": "build:\n  go build\n"},
+			command:      "build",
+			cwdSame:      true,
+			wantCallName: "just",
+			wantCallArgs: []string{"build"},
+			wantOutput:   []string{"warning"},
+		},
+		{
+			name:    "no command lists detected runner and scripts",
+			files:   map[string]string{"justfile": "build:\n  go build\ntest:\n  go test\n"},
+			command: "",
+			wantOutput: []string{"Runner: just", "build", "test"},
+		},
+		{
+			name:         "npm: double dash injected before extra args",
+			files:        map[string]string{"package.json": `{"scripts":{"test":"jest"}}`, "package-lock.json": "{}"},
+			command:      "test",
+			args:         []string{"--watch"},
+			wantCallName: "npm",
+			wantCallArgs: []string{"run", "test", "--", "--watch"},
+		},
+		{
+			name:         "npm: no double dash when no extra args",
+			files:        map[string]string{"package.json": `{"scripts":{"build":"tsc"}}`, "package-lock.json": "{}"},
+			command:      "build",
+			wantCallName: "npm",
+			wantCallArgs: []string{"run", "build"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(tt.packageJSON), 0o644); err != nil {
-				t.Fatalf("write package.json: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "package-lock.json"), []byte("{}"), 0o644); err != nil {
-				t.Fatalf("write package-lock.json: %v", err)
+			for name, content := range tt.files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+					t.Fatalf("write %s: %v", name, err)
+				}
 			}
 
+			cwd := "/some/other"
+			if tt.cwdSame {
+				cwd = dir
+			}
+
+			pt := &fakePassthroughRunner{exitCode: tt.fakeExitCode}
+			var out bytes.Buffer
 			porcelain := worktreePorcelainWithPath("feat", dir)
-			pt := &fakePassthroughRunner{}
-			svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
+			svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""))
 
-			_, err := svc.Exec(context.Background(), ExecInput{
+			exitCode, err := svc.Exec(context.Background(), ExecInput{
 				Branch:  "feat",
 				Command: tt.command,
 				Args:    tt.args,
-				Cwd:     "/some/other",
+				Cwd:     cwd,
 				Runner:  pt,
 			})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if len(pt.calls) == 0 {
-				t.Fatal("expected a call")
+			if exitCode != tt.wantExitCode {
+				t.Errorf("exit code = %d, want %d", exitCode, tt.wantExitCode)
 			}
-			if !equalStringSlice(pt.calls[0].args, tt.wantArgs) {
-				t.Errorf("args = %v, want %v", pt.calls[0].args, tt.wantArgs)
+
+			if tt.wantCallName == "" {
+				if len(pt.calls) != 0 {
+					t.Errorf("expected no exec calls, got %d", len(pt.calls))
+				}
+			} else {
+				if len(pt.calls) == 0 {
+					t.Fatalf("expected an exec call, got none")
+				}
+				call := pt.calls[0]
+				if call.name != tt.wantCallName {
+					t.Errorf("call name = %q, want %q", call.name, tt.wantCallName)
+				}
+				if tt.wantCallArgs != nil && !equalStringSlice(call.args, tt.wantCallArgs) {
+					t.Errorf("call args = %v, want %v", call.args, tt.wantCallArgs)
+				}
+			}
+
+			outStr := out.String()
+			for _, want := range tt.wantOutput {
+				if !strings.Contains(outStr, want) {
+					t.Errorf("output missing %q: got %q", want, outStr)
+				}
 			}
 		})
-	}
-}
-
-func TestExec_zeroArgListsScripts(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build\ntest:\n  go test\n"), 0o644); err != nil {
-		t.Fatalf("write justfile: %v", err)
-	}
-
-	porcelain := worktreePorcelainWithPath("feat", dir)
-	pt := &fakePassthroughRunner{}
-	var out bytes.Buffer
-	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""))
-
-	exitCode, err := svc.Exec(context.Background(), ExecInput{
-		Branch: "feat",
-		Cwd:    "/some/other",
-		Runner: pt,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if exitCode != 0 {
-		t.Errorf("ExitCode = %d, want 0", exitCode)
-	}
-	if len(pt.calls) != 0 {
-		t.Errorf("expected no exec calls, got %d", len(pt.calls))
-	}
-	outStr := out.String()
-	if !strings.Contains(outStr, "Runner: just") {
-		t.Errorf("output missing runner name: %q", outStr)
-	}
-	if !strings.Contains(outStr, "build") || !strings.Contains(outStr, "test") {
-		t.Errorf("output missing scripts: %q", outStr)
-	}
-}
-
-func TestExec_sameWorktreeWarns(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build\n"), 0o644); err != nil {
-		t.Fatalf("write justfile: %v", err)
-	}
-
-	porcelain := worktreePorcelainWithPath("feat", dir)
-	pt := &fakePassthroughRunner{}
-	var out bytes.Buffer
-	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""))
-
-	_, err := svc.Exec(context.Background(), ExecInput{
-		Branch:  "feat",
-		Command: "build",
-		Cwd:     dir, // same as worktree path
-		Runner:  pt,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(out.String(), "warning") {
-		t.Errorf("expected same-worktree warning, got: %q", out.String())
-	}
-}
-
-func TestExec_exitCodePropagated(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("fail:\n  exit 1\n"), 0o644); err != nil {
-		t.Fatalf("write justfile: %v", err)
-	}
-
-	porcelain := worktreePorcelainWithPath("feat", dir)
-	pt := &fakePassthroughRunner{exitCode: 42}
-	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
-
-	exitCode, err := svc.Exec(context.Background(), ExecInput{
-		Branch:  "feat",
-		Command: "ls", // raw exec, exitCode still comes from fake
-		Cwd:     "/some/other",
-		Runner:  pt,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if exitCode != 42 {
-		t.Errorf("ExitCode = %d, want 42", exitCode)
-	}
-}
-
-func TestExec_configOverrideRunner(t *testing.T) {
-	dir := t.TempDir()
-	// Has package.json but .treepad.toml says runner=just
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"start":"node"}}`), 0o644); err != nil {
-		t.Fatalf("write package.json: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build\n"), 0o644); err != nil {
-		t.Fatalf("write justfile: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".treepad.toml"), []byte("[exec]\nrunner = \"just\"\n"), 0o644); err != nil {
-		t.Fatalf("write .treepad.toml: %v", err)
-	}
-
-	porcelain := worktreePorcelainWithPath("feat", dir)
-	pt := &fakePassthroughRunner{}
-	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
-
-	_, err := svc.Exec(context.Background(), ExecInput{
-		Branch:  "feat",
-		Command: "build",
-		Cwd:     "/some/other",
-		Runner:  pt,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pt.calls) == 0 {
-		t.Fatal("expected a call")
-	}
-	if pt.calls[0].name != "just" {
-		t.Errorf("name = %q, want %q", pt.calls[0].name, "just")
 	}
 }
 
