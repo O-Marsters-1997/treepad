@@ -34,6 +34,7 @@ func runCD(ctx context.Context, cmd *cli.Command) error {
 		internalsync.FileSyncer{},
 		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
+		os.Stdin,
 	)
 	return svc.CD(ctx, treepad.CDInput{Branch: branch})
 }
