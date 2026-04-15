@@ -52,12 +52,12 @@ func TestServiceDoctor(t *testing.T) {
 
 	t.Run("stale finding when last commit exceeds threshold", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},              // git worktree list
-			{output: []byte("")},             // git branch --merged (nothing)
-			{output: recentCommitOutput("abc1234", "init")},  // log: main (recent)
-			{output: []byte("")},             // dirty: main (clean)
+			{output: porcelain},                                // git worktree list
+			{output: []byte("")},                               // git branch --merged (nothing)
+			{output: recentCommitOutput("abc1234", "init")},    // log: main (recent)
+			{output: []byte("")},                               // dirty: main (clean)
 			{output: staleCommitOutput("def5678", "old work")}, // log: feat (stale)
-			{output: []byte("")},             // dirty: feat (clean)
+			{output: []byte("")},                               // dirty: feat (clean)
 		}}
 		var buf strings.Builder
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &buf, strings.NewReader(""))
@@ -73,10 +73,6 @@ func TestServiceDoctor(t *testing.T) {
 		if !strings.Contains(out, "feat") {
 			t.Errorf("output missing 'feat' branch:\n%s", out)
 		}
-		if strings.Contains(out, "main") && strings.Contains(out, "stale") {
-			// main should not be flagged stale (recent commit)
-			// this is a loose check — just verify feat appears
-		}
 	})
 
 	t.Run("dirty-old finding supersedes stale when worktree is also dirty", func(t *testing.T) {
@@ -84,7 +80,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: porcelain},
 			{output: []byte("")},
 			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},                                // dirty: main clean
+			{output: []byte("")},                               // dirty: main clean
 			{output: staleCommitOutput("def5678", "old work")}, // feat: stale
 			{output: []byte("M file.go\n")},                    // dirty: feat dirty
 		}}
@@ -109,10 +105,10 @@ func TestServiceDoctor(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
 			{output: []byte("feat\n")},                        // branch --merged: feat is merged
-			{output: recentCommitOutput("abc1234", "init")},  // log: main
-			{output: []byte("")},                             // dirty: main
+			{output: recentCommitOutput("abc1234", "init")},   // log: main
+			{output: []byte("")},                              // dirty: main
 			{output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{output: []byte("")},                             // dirty: feat
+			{output: []byte("")},                              // dirty: feat
 		}}
 		var buf strings.Builder
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &buf, strings.NewReader(""))
@@ -134,13 +130,13 @@ func TestServiceDoctor(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
 			{output: []byte("")},                              // branch --merged: none
-			{output: recentCommitOutput("abc1234", "init")},  // log: main
-			{output: []byte("")},                             // dirty: main
-			{err: errors.New("no upstream")},                 // rev-parse @{upstream}: main (none)
+			{output: recentCommitOutput("abc1234", "init")},   // log: main
+			{output: []byte("")},                              // dirty: main
+			{err: errors.New("no upstream")},                  // rev-parse @{upstream}: main (none)
 			{output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{output: []byte("")},                             // dirty: feat
-			{output: []byte("origin/feat\n")},                // rev-parse @{upstream}: feat has upstream
-			{output: []byte("")},                             // ls-remote: empty → branch gone
+			{output: []byte("")},                              // dirty: feat
+			{output: []byte("origin/feat\n")},                 // rev-parse @{upstream}: feat has upstream
+			{output: []byte("")},                              // ls-remote: empty → branch gone
 		}}
 		var buf strings.Builder
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &buf, strings.NewReader(""))
@@ -209,7 +205,7 @@ func TestServiceDoctor(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(featPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		t.Cleanup(func() { os.Remove(filepath.Join(featPath, ".treepad.toml")) })
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(featPath, ".treepad.toml")) })
 
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},

@@ -9,21 +9,30 @@ import (
 
 func TestRemoteBranchExists(t *testing.T) {
 	tests := []struct {
-		name         string
-		responses    []struct{ output []byte; err error }
+		name      string
+		responses []struct {
+			output []byte
+			err    error
+		}
 		wantExists   bool
 		wantUpstream bool
 		wantErrStr   string
 	}{
 		{
-			name:         "no upstream configured",
-			responses:    []struct{ output []byte; err error }{{err: errors.New("fatal: no upstream configured")}},
+			name: "no upstream configured",
+			responses: []struct {
+				output []byte
+				err    error
+			}{{err: errors.New("fatal: no upstream configured")}},
 			wantExists:   false,
 			wantUpstream: false,
 		},
 		{
 			name: "branch exists on remote",
-			responses: []struct{ output []byte; err error }{
+			responses: []struct {
+				output []byte
+				err    error
+			}{
 				{output: []byte("origin/feat\n")},
 				{output: []byte("abc123\trefs/heads/feat\n")},
 			},
@@ -32,7 +41,10 @@ func TestRemoteBranchExists(t *testing.T) {
 		},
 		{
 			name: "branch gone from remote",
-			responses: []struct{ output []byte; err error }{
+			responses: []struct {
+				output []byte
+				err    error
+			}{
 				{output: []byte("origin/feat\n")},
 				{output: []byte("")},
 			},
@@ -41,7 +53,10 @@ func TestRemoteBranchExists(t *testing.T) {
 		},
 		{
 			name: "extracts remote name from upstream ref",
-			responses: []struct{ output []byte; err error }{
+			responses: []struct {
+				output []byte
+				err    error
+			}{
 				{output: []byte("upstream-remote/feat\n")},
 				{output: []byte("abc123\trefs/heads/feat\n")},
 			},
@@ -50,7 +65,10 @@ func TestRemoteBranchExists(t *testing.T) {
 		},
 		{
 			name: "ls-remote network failure",
-			responses: []struct{ output []byte; err error }{
+			responses: []struct {
+				output []byte
+				err    error
+			}{
 				{output: []byte("origin/feat\n")},
 				{err: errors.New("network unreachable")},
 			},
