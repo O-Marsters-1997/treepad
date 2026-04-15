@@ -287,11 +287,13 @@ func TestServiceRemove(t *testing.T) {
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 
-		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
+		result, err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-
+		if !result.WorktreeRemoved || !result.WorkspaceRemoved || !result.BranchDeleted {
+			t.Errorf("expected all steps successful, got %+v", result)
+		}
 		if _, err := os.Stat(wsFile); !os.IsNotExist(err) {
 			t.Error("workspace file should have been deleted")
 		}
@@ -308,9 +310,55 @@ func TestServiceRemove(t *testing.T) {
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 
-		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
+		_, err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("best-effort: worktree remove fails but branch still deleted", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{err: errors.New("locked worktree")}, // git worktree remove fails
+			{},                                    // git branch -d still runs
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		result, err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), "locked worktree") {
+			t.Errorf("expected error containing 'locked worktree', got %v", err)
+		}
+		if result.WorktreeErr == nil {
+			t.Error("expected WorktreeErr to be set")
+		}
+		if !result.BranchDeleted {
+			t.Error("expected branch deleted despite worktree failure")
+		}
+		if runner.idx != 3 {
+			t.Errorf("runner called %d times, want 3 (all steps attempted)", runner.idx)
+		}
+	})
+
+	t.Run("recovery mode: no worktree but branch exists, cleans up branch", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: mainWorktreePorcelain(mainPath)},      // git worktree list: feat absent
+			{output: []byte("  feat\n")},                  // git branch --list feat: exists
+			{},                                             // git branch -d feat
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		result, err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error in recovery mode: %v", err)
+		}
+		if result.WorktreeRemoved {
+			t.Error("worktree should not be removed in recovery mode")
+		}
+		if !result.BranchDeleted {
+			t.Error("expected branch deleted in recovery mode")
+		}
+		if runner.idx != 3 {
+			t.Errorf("runner called %d times, want 3", runner.idx)
 		}
 	})
 
@@ -329,29 +377,21 @@ func TestServiceRemove(t *testing.T) {
 			wantErr: "git not found",
 		},
 		{
-			name:   "branch not found in worktree list",
+			name:   "branch not found in worktree list and no local branch",
 			branch: "feat",
 			runner: &seqRunner{responses: []runResponse{
-				{output: mainWorktreePorcelain(mainPath)},
+				{output: mainWorktreePorcelain(mainPath)}, // worktree list: no feat
+				{output: []byte("")},                      // git branch --list feat: empty
 			}},
 			wantErr: `no worktree found for branch "feat"`,
 		},
 		{
-			name:   "git worktree remove fails",
-			branch: "feat",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{err: errors.New("locked worktree")},
-			}},
-			wantErr: "locked worktree",
-		},
-		{
-			name:   "git branch -d fails",
+			name:   "git branch -d fails with real error",
 			branch: "feat",
 			runner: &seqRunner{responses: []runResponse{
 				{output: porcelain},
 				{},
-				{err: errors.New("branch not found")},
+				{err: errors.New("fatal: branch not found")},
 			}},
 			wantErr: "branch not found",
 		},
@@ -367,7 +407,7 @@ func TestServiceRemove(t *testing.T) {
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
-			err := svc.Remove(context.Background(), RemoveInput{Branch: tt.branch, OutputDir: outputDir})
+			_, err := svc.Remove(context.Background(), RemoveInput{Branch: tt.branch, OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
 			}
@@ -380,7 +420,7 @@ func TestServiceRemove(t *testing.T) {
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 
-		err := svc.Remove(context.Background(), RemoveInput{
+		_, err := svc.Remove(context.Background(), RemoveInput{
 			Branch:    "feat",
 			OutputDir: outputDir,
 			Cwd:       featPath,

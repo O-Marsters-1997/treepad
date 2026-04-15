@@ -34,5 +34,6 @@ func runRemove(ctx context.Context, cmd *cli.Command) error {
 		workspace.ExecOpener{Runner: runner},
 		os.Stdout,
 	)
-	return svc.Remove(ctx, workspace.RemoveInput{Branch: branch})
+	_, err := svc.Remove(ctx, workspace.RemoveInput{Branch: branch})
+	return err
 }

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -48,6 +49,21 @@ type RemoveInput struct {
 	OutputDir string
 	// Cwd overrides os.Getwd for testing the cwd-inside guard.
 	Cwd string
+}
+
+// RemoveResult captures the per-step outcome of a Remove call.
+type RemoveResult struct {
+	WorktreeRemoved  bool
+	WorktreeErr      error
+	WorkspaceRemoved bool
+	WorkspaceErr     error
+	BranchDeleted    bool
+	BranchWarning    string // non-empty when branch is unmerged and kept (not an error)
+	BranchErr        error
+}
+
+func (r RemoveResult) Err() error {
+	return errors.Join(r.WorktreeErr, r.WorkspaceErr, r.BranchErr)
 }
 
 func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
@@ -157,21 +173,23 @@ func (s *Service) Create(ctx context.Context, in CreateInput) error {
 	return nil
 }
 
-func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
+func (s *Service) Remove(ctx context.Context, in RemoveInput) (RemoveResult, error) {
+	var result RemoveResult
+
 	worktrees, err := s.listWorktrees(ctx)
 	if err != nil {
-		return err
+		return result, err
 	}
 
 	mainWT, err := worktree.MainWorktree(worktrees)
 	if err != nil {
-		return err
+		return result, err
 	}
 
 	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
 
 	if in.Branch == mainWT.Branch {
-		return fmt.Errorf("cannot remove the main worktree")
+		return result, fmt.Errorf("cannot remove the main worktree")
 	}
 
 	var target *worktree.Worktree
@@ -181,42 +199,72 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 			break
 		}
 	}
+
+	recoveryMode := false
 	if target == nil {
-		return fmt.Errorf("no worktree found for branch %q", in.Branch)
+		// Check for recovery mode: worktree is already gone but branch still exists.
+		out, listErr := s.runner.Run(ctx, "git", "branch", "--list", in.Branch)
+		if listErr != nil || strings.TrimSpace(string(out)) == "" {
+			return result, fmt.Errorf("no worktree found for branch %q", in.Branch)
+		}
+		recoveryMode = true
 	}
 
-	cwd := in.Cwd
-	if cwd == "" {
-		cwd, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("get current directory: %w", err)
+	if !recoveryMode {
+		cwd := in.Cwd
+		if cwd == "" {
+			cwd, err = os.Getwd()
+			if err != nil {
+				return result, fmt.Errorf("get current directory: %w", err)
+			}
+		}
+		if rel, relErr := filepath.Rel(target.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
+			return result, fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
 		}
 	}
-	if rel, relErr := filepath.Rel(target.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
-		return fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
+
+	// Step 1: Remove worktree (skip in recovery mode).
+	if !recoveryMode {
+		if _, err := s.runner.Run(ctx, "git", "worktree", "remove", target.Path); err != nil {
+			result.WorktreeErr = fmt.Errorf("git worktree remove: %w", err)
+			_, _ = fmt.Fprintf(s.out, "failed to remove worktree %s: %v\n", target.Path, err)
+		} else {
+			result.WorktreeRemoved = true
+			_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
+		}
 	}
 
-	if _, err := s.runner.Run(ctx, "git", "worktree", "remove", target.Path); err != nil {
-		return fmt.Errorf("git worktree remove: %w", err)
+	// Step 2: Remove workspace file.
+	outputDir, resolveErr := s.resolveOutputDir(in.OutputDir, repoSlug)
+	if resolveErr != nil {
+		result.WorkspaceErr = resolveErr
+		_, _ = fmt.Fprintf(s.out, "failed to resolve workspace directory: %v\n", resolveErr)
+	} else {
+		wsPath := filepath.Join(outputDir, codeworkspace.Filename(repoSlug, in.Branch))
+		if err := os.Remove(wsPath); err != nil && !os.IsNotExist(err) {
+			result.WorkspaceErr = fmt.Errorf("remove workspace file: %w", err)
+			_, _ = fmt.Fprintf(s.out, "failed to remove workspace file %s: %v\n", wsPath, err)
+		} else {
+			result.WorkspaceRemoved = true
+			_, _ = fmt.Fprintf(s.out, "removed workspace file: %s\n", wsPath)
+		}
 	}
-	_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
 
-	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
-	if err != nil {
-		return err
-	}
-	wsPath := filepath.Join(outputDir, codeworkspace.Filename(repoSlug, in.Branch))
-	if err := os.Remove(wsPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove workspace file: %w", err)
-	}
-	_, _ = fmt.Fprintf(s.out, "removed workspace file: %s\n", wsPath)
-
+	// Step 3: Delete local branch.
 	if _, err := s.runner.Run(ctx, "git", "branch", "-d", in.Branch); err != nil {
-		return fmt.Errorf("git branch -d: %w", err)
+		if strings.Contains(err.Error(), "not fully merged") {
+			result.BranchWarning = fmt.Sprintf("branch %s not merged; kept. Re-run with --force to delete, or run: git branch -d %s", in.Branch, in.Branch)
+			_, _ = fmt.Fprintf(s.out, "%s\n", result.BranchWarning)
+		} else {
+			result.BranchErr = fmt.Errorf("git branch -d: %w", err)
+			_, _ = fmt.Fprintf(s.out, "failed to delete branch %s: %v\n", in.Branch, err)
+		}
+	} else {
+		result.BranchDeleted = true
+		_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", in.Branch)
 	}
-	_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", in.Branch)
 
-	return nil
+	return result, result.Err()
 }
 
 type syncTarget struct {
