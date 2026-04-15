@@ -1,4 +1,4 @@
-package workspace
+package treepad
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"treepad/internal/codeworkspace"
+	"treepad/internal/artifact"
 	"treepad/internal/config"
 	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
@@ -20,11 +20,11 @@ import (
 type Service struct {
 	runner worktree.CommandRunner
 	syncer internalsync.Syncer
-	opener Opener
+	opener artifact.Opener
 	out    io.Writer
 }
 
-func NewService(runner worktree.CommandRunner, syncer internalsync.Syncer, opener Opener, out io.Writer) *Service {
+func NewService(runner worktree.CommandRunner, syncer internalsync.Syncer, opener artifact.Opener, out io.Writer) *Service {
 	return &Service{runner: runner, syncer: syncer, opener: opener, out: out}
 }
 
@@ -37,15 +37,13 @@ type GenerateInput struct {
 }
 
 type CreateInput struct {
-	Branch    string
-	Base      string
-	Open      bool
-	OutputDir string
+	Branch string
+	Base   string
+	Open   bool
 }
 
 type RemoveInput struct {
-	Branch    string
-	OutputDir string
+	Branch string
 	// Cwd overrides os.Getwd for testing the cwd-inside guard.
 	Cwd string
 }
@@ -61,7 +59,7 @@ func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 		return fmt.Errorf("get current directory: %w", err)
 	}
 
-	sourceDir, err := ResolveSourceDir(in.UseCurrentDir, in.SourcePath, cwd, worktrees)
+	sourceDir, err := resolveSourceDir(in.UseCurrentDir, in.SourcePath, cwd, worktrees)
 	if err != nil {
 		return fmt.Errorf("resolve source directory: %w", err)
 	}
@@ -76,15 +74,31 @@ func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 	}
 	slog.Debug("output directory", "dir", outputDir, "explicit", in.OutputDir != "")
 
+	cfg, err := config.Load(sourceDir)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
 	if !in.SyncOnly {
-		extensions, err := codeworkspace.ResolveExtensions(sourceDir)
-		if err != nil {
-			return fmt.Errorf("resolve extensions: %w", err)
+		spec := artifact.Spec{
+			FilenameTemplate: cfg.Artifact.FilenameTemplate,
+			ContentTemplate:  cfg.Artifact.ContentTemplate,
 		}
-		slog.Debug("resolved extensions", "count", len(extensions))
-		_, _ = fmt.Fprintf(s.out, "\ngenerating workspace files → %s\n", outputDir)
-		if err := codeworkspace.Generate(worktrees, extensions, repoSlug, outputDir, s.out); err != nil {
-			return err
+		_, _ = fmt.Fprintf(s.out, "\ngenerating artifact files → %s\n", outputDir)
+		for _, wt := range worktrees {
+			data := artifact.TemplateData{
+				Slug:      repoSlug,
+				Branch:    wt.Branch,
+				Worktrees: []artifact.Worktree{artifact.ToWorktree(wt.Branch, wt.Path, outputDir)},
+				OutputDir: outputDir,
+			}
+			written, err := artifact.Write(spec, outputDir, data)
+			if err != nil {
+				return fmt.Errorf("generate artifact for %s: %w", wt.Branch, err)
+			}
+			if written != "" {
+				_, _ = fmt.Fprintf(s.out, "  created %s\n", filepath.Base(written))
+			}
 		}
 	}
 
@@ -95,14 +109,14 @@ func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 		}
 		targets = append(targets, syncTarget{path: wt.Path, branch: wt.Branch})
 	}
-	if err := s.loadAndSync(sourceDir, in.ExtraPatterns, targets); err != nil {
+	if err := s.syncWithConfig(cfg, in.ExtraPatterns, sourceDir, targets); err != nil {
 		return err
 	}
 
 	if in.SyncOnly {
 		_, _ = fmt.Fprintln(s.out, "\ndone: config sync complete")
 	} else {
-		_, _ = fmt.Fprintln(s.out, "\ndone: workspace files generated and configs synced")
+		_, _ = fmt.Fprintln(s.out, "\ndone: artifact files generated and configs synced")
 	}
 	return nil
 }
@@ -127,31 +141,43 @@ func (s *Service) Create(ctx context.Context, in CreateInput) error {
 	}
 	_, _ = fmt.Fprintf(s.out, "created worktree at %s\n", worktreePath)
 
-	if err := s.loadAndSync(mainWT.Path, nil, []syncTarget{{path: worktreePath, branch: in.Branch}}); err != nil {
+	cfg, err := config.Load(mainWT.Path)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	if err := s.syncWithConfig(cfg, nil, mainWT.Path, []syncTarget{{path: worktreePath, branch: in.Branch}}); err != nil {
 		return err
 	}
 
-	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
+	outputDir, err := s.resolveOutputDir("", repoSlug)
 	if err != nil {
 		return err
 	}
 
-	extensions, err := codeworkspace.ResolveExtensions(mainWT.Path)
+	spec := artifact.Spec{
+		FilenameTemplate: cfg.Artifact.FilenameTemplate,
+		ContentTemplate:  cfg.Artifact.ContentTemplate,
+	}
+	newWT := artifact.ToWorktree(in.Branch, worktreePath, outputDir)
+	data := artifact.TemplateData{
+		Slug:      repoSlug,
+		Branch:    in.Branch,
+		Worktrees: []artifact.Worktree{newWT},
+		OutputDir: outputDir,
+	}
+	written, err := artifact.Write(spec, outputDir, data)
 	if err != nil {
-		return fmt.Errorf("resolve extensions: %w", err)
+		return fmt.Errorf("generate artifact file: %w", err)
 	}
+	slog.Debug("generated artifact file", "path", written, "branch", in.Branch)
 
-	newWT := worktree.Worktree{Path: worktreePath, Branch: in.Branch}
-	if err := codeworkspace.Generate([]worktree.Worktree{newWT}, extensions, repoSlug, outputDir, io.Discard); err != nil {
-		return fmt.Errorf("generate workspace file: %w", err)
-	}
-	slog.Debug("generated workspace file", "outputDir", outputDir, "branch", in.Branch)
-
-	if in.Open {
-		wsFile := filepath.Join(outputDir, codeworkspace.Filename(repoSlug, in.Branch))
-		_, _ = fmt.Fprintln(s.out, "opening workspace...")
-		if err := s.opener.Open(ctx, wsFile); err != nil {
-			return fmt.Errorf("open workspace: %w", err)
+	if in.Open && written != "" {
+		openSpec := artifact.OpenSpec{Command: cfg.Open.Command}
+		openData := artifact.OpenData{ArtifactPath: written, Worktree: newWT}
+		_, _ = fmt.Fprintln(s.out, "opening artifact...")
+		if err := s.opener.Open(ctx, openSpec, openData); err != nil {
+			return fmt.Errorf("open artifact: %w", err)
 		}
 	}
 	return nil
@@ -167,8 +193,6 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 	if err != nil {
 		return err
 	}
-
-	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
 
 	if in.Branch == mainWT.Branch {
 		return fmt.Errorf("cannot remove the main worktree")
@@ -201,15 +225,37 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 	}
 	_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
 
-	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
+	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
+	outputDir, err := s.resolveOutputDir("", repoSlug)
 	if err != nil {
 		return err
 	}
-	wsPath := filepath.Join(outputDir, codeworkspace.Filename(repoSlug, in.Branch))
-	if err := os.Remove(wsPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove workspace file: %w", err)
+
+	cfg, err := config.Load(mainWT.Path)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
 	}
-	_, _ = fmt.Fprintf(s.out, "removed workspace file: %s\n", wsPath)
+
+	spec := artifact.Spec{
+		FilenameTemplate: cfg.Artifact.FilenameTemplate,
+		ContentTemplate:  cfg.Artifact.ContentTemplate,
+	}
+	data := artifact.TemplateData{
+		Slug:      repoSlug,
+		Branch:    in.Branch,
+		Worktrees: []artifact.Worktree{artifact.ToWorktree(in.Branch, target.Path, outputDir)},
+		OutputDir: outputDir,
+	}
+	artifactPath, ok, err := artifact.Path(spec, outputDir, data)
+	if err != nil {
+		return fmt.Errorf("resolve artifact path: %w", err)
+	}
+	if ok {
+		if err := os.Remove(artifactPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove artifact file: %w", err)
+		}
+		_, _ = fmt.Fprintf(s.out, "removed artifact file: %s\n", artifactPath)
+	}
 
 	if _, err := s.runner.Run(ctx, "git", "branch", "-d", in.Branch); err != nil {
 		return fmt.Errorf("git branch -d: %w", err)
@@ -247,11 +293,7 @@ func (s *Service) resolveOutputDir(explicit string, repoSlug string) (string, er
 	return filepath.Join(home, repoSlug+"-workspaces"), nil
 }
 
-func (s *Service) loadAndSync(sourceDir string, extraPatterns []string, targets []syncTarget) error {
-	cfg, err := config.Load(sourceDir)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
+func (s *Service) syncWithConfig(cfg config.Config, extraPatterns []string, sourceDir string, targets []syncTarget) error {
 	patterns := slices.Concat(cfg.Sync.Files, extraPatterns)
 	slog.Debug("sync patterns", "patterns", patterns)
 
@@ -267,4 +309,21 @@ func (s *Service) loadAndSync(sourceDir string, extraPatterns []string, targets 
 		slog.Debug("synced worktree", "branch", t.branch, "target", t.path)
 	}
 	return nil
+}
+
+// resolveSourceDir is a pure function — no I/O.
+// cwd is pre-fetched by the caller and used only when useCurrentFlag is true.
+func resolveSourceDir(useCurrentFlag bool, sourcePath string, cwd string, worktrees []worktree.Worktree) (string, error) {
+	switch {
+	case useCurrentFlag:
+		return cwd, nil
+	case sourcePath != "":
+		return filepath.Abs(sourcePath)
+	default:
+		main, err := worktree.MainWorktree(worktrees)
+		if err != nil {
+			return "", err
+		}
+		return main.Path, nil
+	}
 }

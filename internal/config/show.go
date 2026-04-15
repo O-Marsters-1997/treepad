@@ -1,20 +1,18 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Show returns a human-readable summary of the resolved config and which
-// sources contributed (local .treepad.json, global config, or built-in defaults).
+// source contributed (local .treepad.toml, global config, or built-in defaults).
 func Show(repoRoot string) (string, error) {
-	var sources []string
-	var cfg Config
-
 	globalPath, err := GlobalConfigPath()
 	if err != nil {
 		return "", err
@@ -31,41 +29,35 @@ func Show(repoRoot string) (string, error) {
 		return "", err
 	}
 
+	var source string
+	var cfg Config
 	switch {
 	case localFound:
 		cfg = localCfg
-		sources = append(sources, fmt.Sprintf("local:  %s", localPath))
+		source = fmt.Sprintf("local:  %s", localPath)
 	case globalFound:
 		cfg = globalCfg
-		sources = append(sources, fmt.Sprintf("global: %s", globalPath))
+		source = fmt.Sprintf("global: %s", globalPath)
 	default:
-		cfg = Config{Sync: SyncConfig{Files: defaultSyncFiles()}}
-		sources = append(sources, "built-in defaults")
-	}
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal config: %w", err)
+		cfg = defaults()
+		source = "built-in defaults"
 	}
 
 	var sb strings.Builder
-	sb.WriteString("Sources:\n")
-	for _, s := range sources {
-		sb.WriteString("  ")
-		sb.WriteString(s)
-		sb.WriteByte('\n')
+	sb.WriteString("Sources:\n  ")
+	sb.WriteString(source)
+	sb.WriteString("\n\nConfig:\n")
+	if err := toml.NewEncoder(&sb).Encode(cfg); err != nil {
+		return "", fmt.Errorf("encode config: %w", err)
 	}
-	sb.WriteString("\nConfig:\n")
-	sb.Write(data)
-	sb.WriteByte('\n')
 
 	return sb.String(), nil
 }
 
-// loadFile reads and parses a single config JSON file.
-// Returns (cfg, true, nil) if found and valid with non-empty sync.files.
-// Returns (zero, false, nil) if file is missing or sync.files is empty.
-// Returns (zero, false, err) if file exists but cannot be read or parsed.
+// loadFile reads and parses a single .treepad.toml file.
+// Returns (cfg, true, nil) if found with non-empty sync.files.
+// Returns (zero, false, nil) if missing or sync.files is empty.
+// Returns (zero, false, err) if the file exists but cannot be read or parsed.
 func loadFile(path string) (Config, bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -75,7 +67,7 @@ func loadFile(path string) (Config, bool, error) {
 		return Config{}, false, fmt.Errorf("reading %s: %w", path, err)
 	}
 	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if _, err := toml.Decode(string(data), &cfg); err != nil {
 		return Config{}, false, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	if len(cfg.Sync.Files) == 0 {

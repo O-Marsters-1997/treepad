@@ -35,13 +35,13 @@ treepad [--verbose | -v] <command> [options]
 
 ### Main commands
 
-**`workspace`** — Sync configs and generate `.code-workspace` files across all git worktrees:
+**`workspace`** — Sync configs and generate artifact files across all git worktrees:
 
 ```bash
-# Sync configs and generate .code-workspace files from the main worktree
+# Sync configs and generate artifact files from the main worktree
 treepad workspace
 
-# Sync only — skip workspace file generation
+# Sync only — skip artifact file generation
 treepad workspace --sync-only
 
 # Use the current directory as the config source instead of the main worktree
@@ -54,7 +54,7 @@ treepad workspace --include ".prettierrc" --include ".eslintrc.json"
 treepad --verbose workspace
 ```
 
-**`create`** — Create a new git worktree with configs synced and workspace file generated:
+**`create`** — Create a new git worktree with configs synced and artifact file generated:
 
 ```bash
 # Create a new worktree for branch 'feature-x' branched from main
@@ -63,7 +63,7 @@ treepad create feature-x
 # Create a worktree from a different base ref
 treepad create bugfix-y --base develop
 
-# Create a worktree and open the workspace file
+# Create a worktree and open the artifact file
 treepad create feature-z --open
 ```
 
@@ -78,7 +78,7 @@ treepad remove feature-x
 **`config`** — Manage treepad configuration:
 
 ```bash
-# Write a default .treepad.json to the main worktree root
+# Write a default .treepad.toml to the main worktree root
 treepad config init
 
 # Write config to the global config path

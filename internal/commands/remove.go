@@ -7,8 +7,9 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"treepad/internal/artifact"
 	internalsync "treepad/internal/sync"
-	"treepad/internal/workspace"
+	"treepad/internal/treepad"
 	"treepad/internal/worktree"
 )
 
@@ -28,11 +29,11 @@ func runRemove(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	runner := worktree.ExecRunner{}
-	svc := workspace.NewService(
+	svc := treepad.NewService(
 		runner,
 		internalsync.FileSyncer{},
-		workspace.ExecOpener{Runner: runner},
+		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
 	)
-	return svc.Remove(ctx, workspace.RemoveInput{Branch: branch})
+	return svc.Remove(ctx, treepad.RemoveInput{Branch: branch})
 }
