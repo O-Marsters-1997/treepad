@@ -60,7 +60,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: []byte("")},                               // dirty: feat (clean)
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput())
 		if err != nil {
@@ -85,7 +85,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: []byte("M file.go\n")},                    // dirty: feat dirty
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput())
 		if err != nil {
@@ -111,7 +111,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: []byte("")},                              // dirty: feat
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput())
 		if err != nil {
@@ -139,7 +139,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: []byte("")},                              // ls-remote: empty → branch gone
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		in := DoctorInput{StaleDays: 30, Base: "main", Offline: false, OutputDir: outputDir}
 		err := svc.Doctor(context.Background(), in)
@@ -161,7 +161,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: recentCommitOutput("def5678", "feat x")},
 			{output: []byte("")},
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput())
 		if err != nil {
@@ -185,7 +185,7 @@ func TestServiceDoctor(t *testing.T) {
 		// outputDir has no artifact files on disk → both worktrees flagged missing.
 		emptyOutputDir := t.TempDir()
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput(func(in *DoctorInput) {
 			in.OutputDir = emptyOutputDir
@@ -216,7 +216,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: []byte("")},
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput())
 		if err != nil {
@@ -247,7 +247,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: []byte("")},
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput(func(in *DoctorInput) {
 			in.OutputDir = artifactDir
@@ -270,7 +270,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: []byte("")},
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput(func(in *DoctorInput) {
 			in.JSON = true
@@ -298,7 +298,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: recentCommitOutput("def5678", "feat x")},
 			{output: []byte("")},
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput(func(in *DoctorInput) {
 			in.Strict = true
@@ -325,7 +325,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: recentCommitOutput("def5678", "feat x")},
 			{output: []byte("")},
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput(func(in *DoctorInput) {
 			in.Strict = true
@@ -343,7 +343,7 @@ func TestServiceDoctor(t *testing.T) {
 			{output: []byte("")}, // branch --merged
 			// no per-worktree calls because detached is skipped
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Doctor(context.Background(), offlineInput())
 		if err != nil {
@@ -396,7 +396,7 @@ func TestServiceDoctor(t *testing.T) {
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 			err := svc.Doctor(context.Background(), offlineInput())
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)

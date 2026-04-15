@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"treepad/internal/commands"
+	"treepad/internal/ui"
 )
 
 var (
@@ -50,7 +50,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if err := cmd.Run(context.Background(), args); err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
+		ui.New(stderr).Err(err.Error())
 		return 1
 	}
 	return 0

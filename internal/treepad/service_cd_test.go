@@ -31,7 +31,7 @@ func TestServiceCD(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
-			svc := NewService(fakeRunner{output: twoWorktreePorcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""))
+			svc := NewService(fakeRunner{output: twoWorktreePorcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""), nil)
 
 			err := svc.CD(context.Background(), CDInput{Branch: tt.branch})
 

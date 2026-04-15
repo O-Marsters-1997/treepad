@@ -1,0 +1,4 @@
+# An unrecognised subcommand should exit non-zero.
+# urfave/cli handles unknown commands internally (exit 3), so [ERR] tagging
+# does not apply here — asserting non-zero exit is sufficient.
+! exec tp bogus

@@ -1,0 +1,6 @@
+# cd into a branch with no worktree should exit non-zero; stdout must not contain __TREEPAD_CD__.
+tp-init-repo
+! exec tp cd ghost
+stderr '\[ERR\]'
+stderr 'no worktree found'
+! stdout '__TREEPAD_CD__'

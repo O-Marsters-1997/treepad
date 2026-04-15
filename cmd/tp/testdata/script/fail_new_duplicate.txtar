@@ -1,0 +1,6 @@
+# Creating a worktree with a branch name that already exists should fail.
+tp-init-repo
+exec tp new feature-x
+! exec tp new feature-x
+stderr '\[ERR\]'
+stderr 'already'

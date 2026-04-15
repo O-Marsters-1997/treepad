@@ -16,6 +16,7 @@ import (
 	"treepad/internal/hook"
 	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
+	"treepad/internal/ui"
 	"treepad/internal/worktree"
 )
 
@@ -24,12 +25,13 @@ type Service struct {
 	syncer     internalsync.Syncer
 	opener     artifact.Opener
 	hookRunner hook.Runner
-	out        io.Writer
+	out        io.Writer   // stdout: machine-consumed payloads only
 	in         io.Reader
+	log        *ui.Printer // stderr: structured narrative output
 }
 
-func NewService(runner worktree.CommandRunner, syncer internalsync.Syncer, opener artifact.Opener, hookRunner hook.Runner, out io.Writer, in io.Reader) *Service {
-	return &Service{runner: runner, syncer: syncer, opener: opener, hookRunner: hookRunner, out: out, in: in}
+func NewService(runner worktree.CommandRunner, syncer internalsync.Syncer, opener artifact.Opener, hookRunner hook.Runner, out io.Writer, in io.Reader, log *ui.Printer) *Service {
+	return &Service{runner: runner, syncer: syncer, opener: opener, hookRunner: hookRunner, out: out, in: in, log: log}
 }
 
 type GenerateInput struct {
@@ -80,7 +82,7 @@ func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 		return fmt.Errorf("resolve source directory: %w", err)
 	}
 	slog.Debug("resolved source directory", "sourceDir", sourceDir, "useCurrentDir", in.UseCurrentDir, "sourcePath", in.SourcePath)
-	_, _ = fmt.Fprintf(s.out, "using config source: %s\n", sourceDir)
+	s.log.Info("using config source: %s", sourceDir)
 
 	repoSlug := slug.Slug(filepath.Base(sourceDir))
 
@@ -103,7 +105,7 @@ func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 	}
 
 	if !in.SyncOnly {
-		_, _ = fmt.Fprintf(s.out, "\ngenerating artifact files → %s\n", outputDir)
+		s.log.Step("generating artifact files → %s", outputDir)
 		for _, wt := range worktrees {
 			data := s.templateData(repoSlug, wt.Branch, wt.Path, outputDir)
 			path, err := artifact.Write(artifactSpec(cfg.Artifact), outputDir, data)
@@ -111,15 +113,15 @@ func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 				return fmt.Errorf("write artifact for %s: %w", wt.Branch, err)
 			}
 			if path != "" {
-				_, _ = fmt.Fprintf(s.out, "  created %s\n", filepath.Base(path))
+				s.log.Info("created %s", filepath.Base(path))
 			}
 		}
 	}
 
 	if in.SyncOnly {
-		_, _ = fmt.Fprintln(s.out, "\ndone: config sync complete")
+		s.log.OK("config sync complete")
 	} else {
-		_, _ = fmt.Fprintln(s.out, "\ndone: artifact files generated and configs synced")
+		s.log.OK("artifact files generated and configs synced")
 	}
 	return nil
 }
@@ -154,10 +156,11 @@ func (s *Service) New(ctx context.Context, in NewInput) error {
 		return fmt.Errorf("pre_new hook: %w", err)
 	}
 
+	s.log.Step("creating worktree %s", in.Branch)
 	if _, err := s.runner.Run(ctx, "git", "worktree", "add", "-b", in.Branch, worktreePath, in.Base); err != nil {
 		return fmt.Errorf("git worktree add: %w", err)
 	}
-	_, _ = fmt.Fprintf(s.out, "created worktree at %s\n", worktreePath)
+	s.log.OK("created worktree at %s", worktreePath)
 
 	if err := s.syncTargets(ctx, cfg, mainWT.Path, nil, []syncTarget{{path: worktreePath, branch: in.Branch}}, repoSlug, outputDir); err != nil {
 		return err
@@ -177,7 +180,7 @@ func (s *Service) New(ctx context.Context, in NewInput) error {
 		if artifactPath != "" {
 			openPath = artifactPath
 		}
-		_, _ = fmt.Fprintln(s.out, "opening...")
+		s.log.Step("opening...")
 		openSpec := artifact.OpenSpec{Command: cfg.Open.Command}
 		openData := artifact.OpenData{
 			ArtifactPath: openPath,
@@ -287,20 +290,20 @@ func (s *Service) Prune(ctx context.Context, in PruneInput) error {
 			continue
 		}
 		if rel, relErr := filepath.Rel(wt.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
-			_, _ = fmt.Fprintf(s.out, "skipping %s: currently in this worktree\n", wt.Branch)
+			s.log.Warn("skipping %s: currently in this worktree", wt.Branch)
 			continue
 		}
 		candidates = append(candidates, wt)
 	}
 
 	if len(candidates) == 0 {
-		_, _ = fmt.Fprintln(s.out, "no merged worktrees to remove")
+		s.log.Info("no merged worktrees to remove")
 		return nil
 	}
 
 	if in.DryRun {
 		for _, c := range candidates {
-			_, _ = fmt.Fprintf(s.out, "would remove: %s (%s)\n", c.Branch, c.Path)
+			s.log.Info("would remove: %s (%s)", c.Branch, c.Path)
 		}
 		return nil
 	}
@@ -308,7 +311,7 @@ func (s *Service) Prune(ctx context.Context, in PruneInput) error {
 	var failed []string
 	for _, c := range candidates {
 		if err := s.removeWorktree(ctx, c, mainWT, outputDir); err != nil {
-			_, _ = fmt.Fprintf(s.out, "error removing %s: %v\n", c.Branch, err)
+			s.log.Err("error removing %s: %v", c.Branch, err)
 			failed = append(failed, c.Branch)
 		}
 	}
@@ -334,33 +337,33 @@ func (s *Service) pruneAll(ctx context.Context, worktrees []worktree.Worktree, m
 	}
 
 	if len(candidates) == 0 {
-		_, _ = fmt.Fprintln(s.out, "no worktrees to remove")
+		s.log.Info("no worktrees to remove")
 		return nil
 	}
 
 	if dryRun {
 		for _, c := range candidates {
-			_, _ = fmt.Fprintf(s.out, "would remove: %s (%s)\n", c.Branch, c.Path)
+			s.log.Info("would remove: %s (%s)", c.Branch, c.Path)
 		}
 		return nil
 	}
 
-	_, _ = fmt.Fprintln(s.out, "the following worktrees will be force-removed:")
+	s.log.Step("the following worktrees will be force-removed:")
 	for _, c := range candidates {
-		_, _ = fmt.Fprintf(s.out, "  %s  %s\n", c.Branch, c.Path)
+		s.log.Info("  %s  %s", c.Branch, c.Path)
 	}
-	_, _ = fmt.Fprint(s.out, "continue? [y/N]: ")
+	s.log.Prompt("continue? [y/N]: ")
 
 	line, _ := bufio.NewReader(s.in).ReadString('\n')
 	if answer := strings.ToLower(strings.TrimSpace(line)); answer != "y" && answer != "yes" {
-		_, _ = fmt.Fprintln(s.out, "aborted")
+		s.log.Warn("aborted")
 		return nil
 	}
 
 	var failed []string
 	for _, c := range candidates {
 		if err := s.forceRemoveWorktree(ctx, c, mainWT, outputDir); err != nil {
-			_, _ = fmt.Fprintf(s.out, "error removing %s: %v\n", c.Branch, err)
+			s.log.Err("error removing %s: %v", c.Branch, err)
 			failed = append(failed, c.Branch)
 		}
 	}
@@ -386,7 +389,7 @@ func (s *Service) removeWorktree(ctx context.Context, target worktree.Worktree, 
 	if _, err := s.runner.Run(ctx, "git", "worktree", "remove", target.Path); err != nil {
 		return fmt.Errorf("git worktree remove: %w", err)
 	}
-	_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
+	s.log.OK("removed worktree: %s", target.Path)
 
 	data := s.templateData(repoSlug, target.Branch, target.Path, outputDir)
 	artifactPath, ok, err := artifact.Path(artifactSpec(cfg.Artifact), outputDir, data)
@@ -397,13 +400,13 @@ func (s *Service) removeWorktree(ctx context.Context, target worktree.Worktree, 
 		if err := os.Remove(artifactPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove artifact: %w", err)
 		}
-		_, _ = fmt.Fprintf(s.out, "removed artifact: %s\n", artifactPath)
+		s.log.OK("removed artifact: %s", artifactPath)
 	}
 
 	if _, err := s.runner.Run(ctx, "git", "branch", "-d", target.Branch); err != nil {
 		return fmt.Errorf("git branch -d: %w", err)
 	}
-	_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", target.Branch)
+	s.log.OK("deleted branch: %s", target.Branch)
 
 	s.runPostHook(ctx, hook.PostRemove, cfg.Hooks.For(hook.PostRemove), hData)
 
@@ -425,7 +428,7 @@ func (s *Service) forceRemoveWorktree(ctx context.Context, target worktree.Workt
 	if _, err := s.runner.Run(ctx, "git", "worktree", "remove", "--force", target.Path); err != nil {
 		return fmt.Errorf("git worktree remove --force: %w", err)
 	}
-	_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
+	s.log.OK("removed worktree: %s", target.Path)
 
 	data := s.templateData(repoSlug, target.Branch, target.Path, outputDir)
 	artifactPath, ok, err := artifact.Path(artifactSpec(cfg.Artifact), outputDir, data)
@@ -436,13 +439,13 @@ func (s *Service) forceRemoveWorktree(ctx context.Context, target worktree.Workt
 		if err := os.Remove(artifactPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove artifact: %w", err)
 		}
-		_, _ = fmt.Fprintf(s.out, "removed artifact: %s\n", artifactPath)
+		s.log.OK("removed artifact: %s", artifactPath)
 	}
 
 	if _, err := s.runner.Run(ctx, "git", "branch", "-D", target.Branch); err != nil {
 		return fmt.Errorf("git branch -D: %w", err)
 	}
-	_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", target.Branch)
+	s.log.OK("deleted branch: %s", target.Branch)
 
 	s.runPostHook(ctx, hook.PostRemove, cfg.Hooks.For(hook.PostRemove), hData)
 
@@ -498,9 +501,9 @@ func (s *Service) syncTargets(ctx context.Context, cfg config.Config, sourceDir 
 	patterns := slices.Concat(cfg.Sync.Files, extraPatterns)
 	slog.Debug("sync patterns", "patterns", patterns)
 
-	_, _ = fmt.Fprintln(s.out, "\nsyncing configs to worktrees...")
+	s.log.Step("syncing configs to worktrees...")
 	for _, t := range targets {
-		_, _ = fmt.Fprintf(s.out, "  → %s (%s)\n", t.branch, t.path)
+		s.log.Info("  → %s (%s)", t.branch, t.path)
 		hData := s.hookData(repoSlug, t.branch, t.path, outputDir)
 		if err := s.runPreHook(ctx, hook.PreSync, cfg.Hooks.For(hook.PreSync), hData); err != nil {
 			return fmt.Errorf("pre_sync hook for %s: %w", t.branch, err)
@@ -559,6 +562,6 @@ func (s *Service) runPostHook(ctx context.Context, event hook.Event, hooks []str
 	}
 	data.HookType = string(event)
 	if err := s.hookRunner.Run(ctx, hooks, data); err != nil {
-		_, _ = fmt.Fprintf(s.out, "warning: post hook %s failed: %v\n", event, err)
+		s.log.Warn("post hook %s failed: %v", event, err)
 	}
 }

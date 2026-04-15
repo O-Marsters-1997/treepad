@@ -5,7 +5,7 @@ exists ../repo-feat-a
 exists ../repo-feat-b
 stdin $WORK/confirm.txt
 exec tp prune --all
-stdout 'force-removed'
+stderr 'force-removed'
 ! exists ../repo-feat-a
 ! exists ../repo-feat-b
 
