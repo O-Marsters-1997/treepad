@@ -1,0 +1,5 @@
+tp-init-repo
+exec tp workspace
+stdout 'generating artifact files'
+stdout 'workspaces'
+exists $HOME/repo-workspaces

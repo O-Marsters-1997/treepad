@@ -1,0 +1,6 @@
+tp-init-repo
+exec tp new feature-x
+exists ../repo-feature-x
+exec tp remove feature-x
+stdout 'removed worktree'
+! exists ../repo-feature-x

@@ -1,0 +1,5 @@
+tp-init-repo
+exec tp config init
+stdout 'Wrote config to'
+exists .treepad.toml
+grep 'sync' .treepad.toml

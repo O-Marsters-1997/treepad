@@ -17,6 +17,8 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test ./...
+      - name: Run e2e tests
+        run: go test -tags=e2e ./cmd/tp/...
 
   lint:
     runs-on: ubuntu-latest
