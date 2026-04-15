@@ -1,0 +1,4 @@
+tp-init-repo
+exec tp new feature-x
+exec tp cd feature-x
+stdout '__TREEPAD_CD__'

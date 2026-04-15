@@ -160,12 +160,29 @@ tp config show
 
 See [docs/commands.md](docs/commands.md) for the full command reference.
 
+## Testing
+
+`tp` has two test layers:
+
+- **Unit/integration** — mocked git runner, runs with `just test` (`go test ./...`). Fast inner-loop feedback.
+- **End-to-end** — builds `tp` in-process, drives it against a real throwaway git repo per scenario, asserts on stdout, exit codes, and filesystem state. Runs with `just test-e2e` (`go test -tags=e2e ./cmd/tp/...`).
+
+### Adding an e2e test
+
+1. Create `cmd/tp/testdata/script/<name>.txtar`.
+2. Start the script with `tp-init-repo` (creates a clean git repo and `cd`s into it).
+3. Call `exec tp <command> [args...]` to run the binary.
+4. Assert with `stdout <pattern>`, `exists <path>`, `! exists <path>`, or `grep <pattern> <file>`.
+
+See the [testscript docs](https://pkg.go.dev/github.com/rogpeppe/go-internal/testscript) for the full command reference.
+
 ## Development
 
-| Command      | Description                    |
-| ------------ | ------------------------------ |
-| `just build` | Compile the binary             |
-| `just test`  | Run all tests                  |
-| `just lint`  | Run golangci-lint (via Docker) |
-| `just fmt`   | Format all Go files            |
-| `just ci`    | Lint, build, and test          |
+| Command           | Description                    |
+| ----------------- | ------------------------------ |
+| `just build`      | Compile the binary             |
+| `just test`       | Run all unit/integration tests |
+| `just test-e2e`   | Run end-to-end tests           |
+| `just lint`       | Run golangci-lint (via Docker) |
+| `just fmt`        | Format all Go files            |
+| `just ci`         | Lint, build, and test          |

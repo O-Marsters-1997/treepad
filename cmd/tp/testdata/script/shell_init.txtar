@@ -1,0 +1,3 @@
+exec tp shell-init
+stdout 'tp\(\)'
+stdout '__TREEPAD_CD__'

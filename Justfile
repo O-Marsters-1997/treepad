@@ -10,6 +10,9 @@ run *args:
 test:
     go test ./...
 
+test-e2e:
+    go test -tags=e2e ./cmd/tp/...
+
 lint:
     docker run --rm \
         -v "$(pwd):/app" \
@@ -32,3 +35,4 @@ ci:
     golangci-lint run ./...
     just build
     just test
+    just test-e2e

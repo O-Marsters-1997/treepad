@@ -1,0 +1,4 @@
+tp-init-repo
+exec tp config init
+exec tp config show
+stdout 'sync'

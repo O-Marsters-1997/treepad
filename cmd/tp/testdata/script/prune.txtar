@@ -1,0 +1,13 @@
+tp-init-repo
+tp-add-worktree feat-a
+tp-add-worktree feat-b
+exists ../repo-feat-a
+exists ../repo-feat-b
+stdin $WORK/confirm.txt
+exec tp prune --all
+stdout 'force-removed'
+! exists ../repo-feat-a
+! exists ../repo-feat-b
+
+-- confirm.txt --
+y
