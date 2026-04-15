@@ -8,5 +8,6 @@ func Router() []*cli.Command {
 		configCommand(),
 		createCommand(),
 		removeCommand(),
+		pruneCommand(),
 	}
 }

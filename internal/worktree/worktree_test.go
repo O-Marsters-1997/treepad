@@ -106,6 +106,67 @@ func TestParsePorcelain_doesNotSetIsMain(t *testing.T) {
 	}
 }
 
+func TestMergedBranches(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		output  []byte
+		err     error
+		base    string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:   "returns merged branches excluding base",
+			output: []byte("main\nfeat\nfix/bug\n"),
+			base:   "main",
+			want:   []string{"feat", "fix/bug"},
+		},
+		{
+			name:   "blank lines ignored",
+			output: []byte("\nfeat\n\n"),
+			base:   "main",
+			want:   []string{"feat"},
+		},
+		{
+			name:   "nothing merged besides base",
+			output: []byte("main\n"),
+			base:   "main",
+			want:   nil,
+		},
+		{
+			name:    "runner error",
+			err:     errors.New("git not found"),
+			base:    "main",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := MergedBranches(ctx, fakeRunner{output: tt.output, err: tt.err}, tt.base)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("got[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestMainWorktree(t *testing.T) {
 	tests := []struct {
 		name      string

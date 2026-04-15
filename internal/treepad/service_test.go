@@ -393,6 +393,161 @@ func TestServiceRemove(t *testing.T) {
 	})
 }
 
+func threeWorktreePorcelainWithMain(mainPath, feat1Path, feat2Path string) []byte {
+	return fmt.Appendf(nil,
+		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\nworktree %s\nHEAD def456\nbranch refs/heads/feat\n\nworktree %s\nHEAD ghi789\nbranch refs/heads/other\n\n",
+		mainPath, feat1Path, feat2Path,
+	)
+}
+
+func TestServicePrune(t *testing.T) {
+	mainPath := t.TempDir()
+	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	featPath := mainPath + "-feat"
+	otherPath := mainPath + "-other"
+	outputDir := t.TempDir()
+	repoSlug := slug.Slug(filepath.Base(mainPath))
+	twoPorcelain := twoWorktreePorcelainWithMain(mainPath, featPath)
+	threePorcelain := threeWorktreePorcelainWithMain(mainPath, featPath, otherPath)
+
+	t.Run("dry-run lists candidates without removing", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: twoPorcelain},    // git worktree list
+			{output: []byte("feat\n")}, // git branch --merged
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if runner.idx != 2 {
+			t.Errorf("runner called %d times, want 2 (no removes in dry-run)", runner.idx)
+		}
+	})
+
+	t.Run("confirm removes merged worktree, artifact, and branch", func(t *testing.T) {
+		wsFile := filepath.Join(outputDir, repoSlug+"-feat.code-workspace")
+		if err := os.WriteFile(wsFile, []byte("{}"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		runner := &seqRunner{responses: []runResponse{
+			{output: twoPorcelain},    // git worktree list
+			{output: []byte("feat\n")}, // git branch --merged
+			{},                         // git worktree remove
+			{},                         // git branch -d
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir, Confirm: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if runner.idx != 4 {
+			t.Errorf("runner called %d times, want 4", runner.idx)
+		}
+		if _, statErr := os.Stat(wsFile); !os.IsNotExist(statErr) {
+			t.Error("artifact file should have been deleted")
+		}
+	})
+
+	t.Run("skips unmerged worktrees", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: twoPorcelain},
+			{output: []byte("")}, // nothing merged
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if runner.idx != 2 {
+			t.Errorf("runner called %d times, want 2", runner.idx)
+		}
+	})
+
+	t.Run("skips target when cwd is inside it, continues others", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: threePorcelain},
+			{output: []byte("feat\nother\n")}, // both merged
+			{},                                // git worktree remove (other)
+			{},                                // git branch -d (other)
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		// cwd is inside featPath — feat should be skipped, other should be removed
+		err := svc.Prune(context.Background(), PruneInput{
+			Base:      "main",
+			OutputDir: outputDir,
+			Confirm:   true,
+			Cwd:       featPath,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if runner.idx != 4 {
+			t.Errorf("runner called %d times, want 4 (skip feat, remove other)", runner.idx)
+		}
+	})
+
+	t.Run("per-target failure does not stop remaining removals", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: threePorcelain},
+			{output: []byte("feat\nother\n")},
+			{err: errors.New("locked worktree")}, // git worktree remove feat fails
+			{},                                    // git worktree remove other
+			{},                                    // git branch -d other
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir, Confirm: true})
+		if err == nil {
+			t.Fatal("expected error summarising failures, got nil")
+		}
+		if !strings.Contains(err.Error(), "feat") {
+			t.Errorf("error %q should mention failed branch", err)
+		}
+		if runner.idx != 5 {
+			t.Errorf("runner called %d times, want 5", runner.idx)
+		}
+	})
+
+	errorTests := []struct {
+		name    string
+		runner  *seqRunner
+		wantErr string
+	}{
+		{
+			name: "git worktree list fails",
+			runner: &seqRunner{responses: []runResponse{
+				{err: errors.New("git not found")},
+			}},
+			wantErr: "git not found",
+		},
+		{
+			name: "git branch --merged fails",
+			runner: &seqRunner{responses: []runResponse{
+				{output: twoPorcelain},
+				{err: errors.New("unknown branch")},
+			}},
+			wantErr: "unknown branch",
+		},
+	}
+	for _, tt := range errorTests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+			err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestResolveSourceDir(t *testing.T) {
 	withMain := []worktree.Worktree{
 		{Path: "/repo/feat", Branch: "feat", IsMain: false},

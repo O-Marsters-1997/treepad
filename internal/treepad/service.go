@@ -50,6 +50,14 @@ type RemoveInput struct {
 	Cwd string
 }
 
+type PruneInput struct {
+	Base      string // branch to check merges against, e.g. "main"
+	OutputDir string
+	Confirm   bool
+	// Cwd overrides os.Getwd for testing the cwd-inside guard.
+	Cwd string
+}
+
 func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 	worktrees, err := s.listWorktrees(ctx)
 	if err != nil {
@@ -204,22 +212,105 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 		return fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
 	}
 
-	if _, err := s.runner.Run(ctx, "git", "worktree", "remove", target.Path); err != nil {
-		return fmt.Errorf("git worktree remove: %w", err)
-	}
-	_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
-
 	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
 	if err != nil {
 		return err
 	}
+
+	return s.removeWorktree(ctx, *target, mainWT, outputDir)
+}
+
+func (s *Service) Prune(ctx context.Context, in PruneInput) error {
+	worktrees, err := s.listWorktrees(ctx)
+	if err != nil {
+		return err
+	}
+
+	mainWT, err := worktree.MainWorktree(worktrees)
+	if err != nil {
+		return err
+	}
+
+	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
+	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
+	if err != nil {
+		return err
+	}
+
+	merged, err := worktree.MergedBranches(ctx, s.runner, in.Base)
+	if err != nil {
+		return err
+	}
+
+	mergedSet := make(map[string]bool, len(merged))
+	for _, b := range merged {
+		mergedSet[b] = true
+	}
+
+	cwd := in.Cwd
+	if cwd == "" {
+		cwd, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get current directory: %w", err)
+		}
+	}
+
+	var candidates []worktree.Worktree
+	for _, wt := range worktrees {
+		if wt.IsMain || wt.Branch == mainWT.Branch || wt.Branch == "(detached)" {
+			continue
+		}
+		if !mergedSet[wt.Branch] {
+			continue
+		}
+		if rel, relErr := filepath.Rel(wt.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
+			_, _ = fmt.Fprintf(s.out, "skipping %s: currently in this worktree\n", wt.Branch)
+			continue
+		}
+		candidates = append(candidates, wt)
+	}
+
+	if len(candidates) == 0 {
+		_, _ = fmt.Fprintln(s.out, "no merged worktrees to remove")
+		return nil
+	}
+
+	for _, c := range candidates {
+		_, _ = fmt.Fprintf(s.out, "would remove: %s (%s)\n", c.Branch, c.Path)
+	}
+
+	if !in.Confirm {
+		_, _ = fmt.Fprintln(s.out, "\nre-run with --confirm to execute")
+		return nil
+	}
+
+	var failed []string
+	for _, c := range candidates {
+		if err := s.removeWorktree(ctx, c, mainWT, outputDir); err != nil {
+			_, _ = fmt.Fprintf(s.out, "error removing %s: %v\n", c.Branch, err)
+			failed = append(failed, c.Branch)
+		}
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to remove: %s", strings.Join(failed, ", "))
+	}
+	return nil
+}
+
+func (s *Service) removeWorktree(ctx context.Context, target worktree.Worktree, mainWT worktree.Worktree, outputDir string) error {
+	if _, err := s.runner.Run(ctx, "git", "worktree", "remove", target.Path); err != nil {
+		return fmt.Errorf("git worktree remove: %w", err)
+	}
+	_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
 
 	cfg, err := config.Load(mainWT.Path)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	data := s.templateData(repoSlug, in.Branch, target.Path, outputDir)
+	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
+	data := s.templateData(repoSlug, target.Branch, target.Path, outputDir)
 	artifactPath, ok, err := artifact.Path(artifactSpec(cfg.Artifact), outputDir, data)
 	if err != nil {
 		return fmt.Errorf("resolve artifact path: %w", err)
@@ -231,10 +322,10 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 		_, _ = fmt.Fprintf(s.out, "removed artifact: %s\n", artifactPath)
 	}
 
-	if _, err := s.runner.Run(ctx, "git", "branch", "-d", in.Branch); err != nil {
+	if _, err := s.runner.Run(ctx, "git", "branch", "-d", target.Branch); err != nil {
 		return fmt.Errorf("git branch -d: %w", err)
 	}
-	_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", in.Branch)
+	_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", target.Branch)
 
 	return nil
 }

@@ -107,6 +107,23 @@ func parsePorcelain(data []byte) ([]Worktree, error) {
 	return worktrees, nil
 }
 
+// MergedBranches returns local branches already merged into base, excluding base itself.
+func MergedBranches(ctx context.Context, runner CommandRunner, base string) ([]string, error) {
+	out, err := runner.Run(ctx, "git", "branch", "--merged", base, "--format=%(refname:short)")
+	if err != nil {
+		return nil, fmt.Errorf("git branch --merged: %w", err)
+	}
+	var branches []string
+	for line := range strings.SplitSeq(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line == base {
+			continue
+		}
+		branches = append(branches, line)
+	}
+	return branches, nil
+}
+
 func isMainWorktree(path string) bool {
 	info, err := os.Stat(filepath.Join(path, ".git"))
 	return err == nil && info.IsDir()
