@@ -49,7 +49,7 @@ func cmdTPInitRepo(ts *testscript.TestScript, neg bool, _ []string) {
 		}
 	}
 
-	run("git", "init")
+	run("git", "init", "-b", "main")
 	run("git", "config", "user.email", "test@example.com")
 	run("git", "config", "user.name", "Test User")
 	ts.Check(os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644))

@@ -50,7 +50,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if err := cmd.Run(context.Background(), args); err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 	return 0
