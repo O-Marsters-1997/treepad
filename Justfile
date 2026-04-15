@@ -2,10 +2,10 @@ default:
     @just --list
 
 build:
-    go build -o treepad ./cmd/workspace
+    go build -o treepad ./cmd/treepad
 
 run *args:
-    go run ./cmd/workspace/main.go {{args}}
+    go run ./cmd/treepad/main.go {{args}}
 
 test:
     go test ./...

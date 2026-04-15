@@ -11,10 +11,17 @@ import (
 	"treepad/internal/commands"
 )
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	cmd := &cli.Command{
-		Name:  "treepad",
-		Usage: "CLI for managing git worktrees",
+		Name:    "treepad",
+		Usage:   "CLI for managing git worktrees",
+		Version: version + " (commit: " + commit + ", built: " + date + ")",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "verbose",
