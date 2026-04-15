@@ -30,6 +30,7 @@ func runStatus(ctx context.Context, cmd *cli.Command) error {
 		internalsync.FileSyncer{},
 		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
+		os.Stdin,
 	)
 	return svc.Status(ctx, treepad.StatusInput{JSON: cmd.Bool("json")})
 }

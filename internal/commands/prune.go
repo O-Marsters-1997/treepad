@@ -19,6 +19,7 @@ func pruneCommand() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "base", Value: "main", Usage: "base branch to check merges against"},
 			&cli.BoolFlag{Name: "dry-run", Usage: "preview removals without executing"},
+			&cli.BoolFlag{Name: "all", Usage: "force-remove all non-main worktrees (must be run from main)"},
 		},
 		Action: runPrune,
 	}
@@ -31,9 +32,11 @@ func runPrune(ctx context.Context, cmd *cli.Command) error {
 		internalsync.FileSyncer{},
 		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
+		os.Stdin,
 	)
 	return svc.Prune(ctx, treepad.PruneInput{
 		Base:   cmd.String("base"),
 		DryRun: cmd.Bool("dry-run"),
+		All:    cmd.Bool("all"),
 	})
 }

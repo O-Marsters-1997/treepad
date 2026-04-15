@@ -24,7 +24,8 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 - `workspaceCommand()` — top-level workspace command definition
 - `runWorkspace(ctx, cmd)` — action handler for workspace operations
   - Parses flags: `--use-current`, `--sync-only`, `--output-dir`, `--include`
-  - Instantiates `treepad.Service` and calls `Generate()`
+  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
+  - Calls `Generate()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`
 
 ### `new.go`
@@ -32,7 +33,8 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 - `newCommand()` — top-level new command definition
 - `runNew(ctx, cmd)` — action handler for creating new worktrees
   - Parses flags: `--base` (default: "main"), `--open`, `--current (-c)`
-  - Instantiates `treepad.Service` and calls `New()`
+  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
+  - Calls `New()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
 
 ### `shell_init.go`
@@ -45,15 +47,17 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 - `removeCommand()` — top-level remove command definition
 - `runRemove(ctx, cmd)` — action handler for removing worktrees
   - Parses branch argument (required)
-  - Instantiates `treepad.Service` and calls `Remove()`
+  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
+  - Calls `Remove()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`
 
 ### `prune.go`
 
 - `pruneCommand()` — top-level prune command definition
 - `runPrune(ctx, cmd)` — action handler for pruning merged worktrees
-  - Parses flags: `--base` (default: "main"), `--dry-run`
-  - Instantiates `treepad.Service` and calls `Prune()`
+  - Parses flags: `--base` (default: "main"), `--dry-run`, `--all` (force-remove all non-main)
+  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
+  - Calls `Prune()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
 
 ### `config.go`
@@ -72,7 +76,8 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 - `statusCommand()` — top-level status command definition
 - `runStatus(ctx, cmd)` — action handler for listing worktree status
   - Parses flag: `--json` (emit JSON instead of table)
-  - Instantiates `treepad.Service` and calls `Status()`
+  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
+  - Calls `Status()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
 
 ## Config Package (`internal/config/`)
@@ -118,7 +123,8 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
 ### `service.go`
 
 - `Service` struct — coordinates syncing and artifact generation
-  - `NewService(runner, syncer, opener, out)` — constructor
+  - Fields: `runner` (CommandRunner), `syncer` (Syncer), `opener` (Opener), `out` (io.Writer), `in` (io.Reader)
+  - `NewService(runner, syncer, opener, out, in)` — constructor takes io.Reader for stdin access
   - `Generate(ctx, GenerateInput)` — generates artifact files and syncs configs
     - Input: `UseCurrentDir`, `SourcePath`, `SyncOnly`, `OutputDir`, `ExtraPatterns`
     - Resolves config source, loads config, syncs files, generates artifact files
@@ -129,9 +135,10 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
     - Input: `Branch`, `OutputDir`, `Cwd` (for testing)
     - Pre-flight guards: prevents removing main worktree, prevents removing from within the target worktree
     - Three-step removal: git worktree remove → delete artifact file → git branch -d
-  - `Prune(ctx, PruneInput)` — batch removes worktrees whose branches are merged
-    - Input: `Base`, `OutputDir`, `DryRun`, `Cwd` (for testing)
-    - Finds merged branches, filters out main/detached/current worktree
+  - `Prune(ctx, PruneInput)` — batch removes worktrees or force-removes all non-main
+    - Input: `Base`, `OutputDir`, `DryRun`, `All` (force-remove all non-main), `Cwd` (for testing)
+    - If `All=true`: validates running from main worktree, lists all non-main worktrees, prompts for confirmation, force-removes all via `forceRemoveWorktree()`
+    - If `All=false`: finds merged branches, filters out main/detached/current worktree
     - Executes removals by default; `DryRun: true` previews without removing
     - Returns error if any removals fail (after attempting all)
   - `Status(ctx, StatusInput)` — lists all worktrees with repo-wide status snapshot
@@ -139,7 +146,9 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
     - Output: builds `[]StatusRow` with branch, dirty state, ahead/behind count, last commit info, artifact mtime
     - Renders as aligned table via `text/tabwriter` by default, or JSON array with `--json` flag
 - Private helpers:
-  - `removeWorktree(ctx, target, mainWT, outputDir)` — removes a single worktree, deletes artifact, deletes branch
+  - `removeWorktree(ctx, target, mainWT, outputDir)` — removes a single worktree (merge-safe removal), deletes artifact, deletes branch
+  - `forceRemoveWorktree(ctx, target, mainWT, outputDir)` — force-removes a worktree via `git worktree remove --force`, deletes artifact, force-deletes branch via `git branch -D`
+  - `pruneAll(ctx, worktrees, mainWT, outputDir, cwd, dryRun)` — helper for `--all` mode; lists candidates, prompts user, force-removes each
   - `listWorktrees(ctx)` — lists all worktrees in repo
   - `resolveOutputDir(explicit, repoSlug)` — resolves artifact output directory
   - `loadAndSync(sourceDir, extraPatterns, targets)` — loads config and syncs to targets; returns `config.Config` so artifact config is available
@@ -234,7 +243,8 @@ treepad [--verbose] <command>
 ├── remove <branch>
 ├── prune [options]
 │   ├── --base (default: main)
-│   └── --dry-run
+│   ├── --dry-run
+│   └── --all (force-remove all non-main, must be from main)
 ├── status [options]
 │   └── --json
 └── config
@@ -305,17 +315,24 @@ treepad [--verbose] <command>
    - Deletes artifact file from output directory (missing file is not an error)
    - Deletes branch locally via `git branch -d`
 
-## Data Flow Example: `treepad prune [--base main] [--dry-run]`
+## Data Flow Example: `treepad prune [--base main] [--dry-run] [--all]`
 
 1. `main.go` parses flags and calls `commands.Router()`
 2. `commands.pruneCommand()` defines CLI interface
 3. `runPrune()` parses flags, instantiates `treepad.Service`, calls `Prune()`
-4. `Service.Prune()` executes:
-   - Lists all worktrees via `worktree.List()`
-   - Gets merged branches via `worktree.MergedBranches(ctx, runner, base)`
-   - Filters candidates: merged, not main, not detached, not current worktree
-   - If `--dry-run` flag set, prints candidates and returns
-   - Otherwise removes each candidate via `removeWorktree()`
+4. `Service.Prune()` dispatches based on `All` flag:
+   - **If `--all` flag set:** calls `pruneAll()`
+     - Validates running from main worktree (safety guard)
+     - Lists all non-main worktrees
+     - Displays candidates and prompts user: "continue? [y/N]:"
+     - If confirmed, force-removes each via `forceRemoveWorktree()` (git worktree remove --force, git branch -D)
+     - If not confirmed, outputs "aborted" and returns
+   - **If `--all` flag not set:** standard merge-based mode
+     - Lists all worktrees via `worktree.List()`
+     - Gets merged branches via `worktree.MergedBranches(ctx, runner, base)`
+     - Filters candidates: merged, not main, not detached, not current worktree
+     - If `--dry-run` flag set, prints candidates and returns
+     - Otherwise removes each candidate via `removeWorktree()` (safe removal via git worktree remove, git branch -d)
    - Returns error if any removals failed
 
 ## Data Flow Example: `treepad status [--json]`
@@ -336,4 +353,4 @@ treepad [--verbose] <command>
 
 ---
 
-**Last Updated:** April 15, 2026 (added `status` command for repo-wide worktree status snapshot)
+**Last Updated:** April 15, 2026 (added `--all` flag to `prune` command for force-removing all non-main worktrees with confirmation prompt; added `io.Reader` to `Service` for stdin access)

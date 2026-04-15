@@ -51,6 +51,7 @@ func runNew(ctx context.Context, cmd *cli.Command) error {
 		internalsync.FileSyncer{},
 		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
+		os.Stdin,
 	)
 	return svc.New(ctx, treepad.NewInput{
 		Branch:  branch,
