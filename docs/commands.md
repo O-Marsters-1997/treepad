@@ -5,7 +5,7 @@
 Syncs editor configs and generates artifact files across all git worktrees. By default, generates VS Code `.code-workspace` files.
 
 ```
-treepad workspace [options] [source-path]
+tp workspace [options] [source-path]
 ```
 
 By default, uses the main worktree (the one with a `.git` directory) as the config source. Configs from `.vscode/`, `.claude/`, and `.env` files are copied to every other worktree. The artifact file generated is controlled by `.treepad.toml` and can be customized for any editor.
@@ -28,22 +28,22 @@ By default, uses the main worktree (the one with a `.git` directory) as the conf
 
 ```bash
 # Generate artifact files and sync configs from the main worktree
-treepad workspace
+tp workspace
 
 # Sync configs only (no artifact files generated)
-treepad workspace --sync-only
+tp workspace --sync-only
 
 # Use the current directory as the config source
-treepad workspace --use-current
+tp workspace --use-current
 
 # Write artifact files to a custom directory
-treepad workspace --output-dir ~/my-workspaces
+tp workspace --output-dir ~/my-workspaces
 
 # Use an explicit repo path as the config source
-treepad workspace /path/to/repo
+tp workspace /path/to/repo
 
 # Include extra file patterns in the sync
-treepad workspace --include ".prettierrc" --include "*.md"
+tp workspace --include ".prettierrc" --include "*.md"
 ```
 
 ### Configuration
@@ -55,7 +55,7 @@ See [configuration.md](configuration.md) for the full schema, defaults, and exam
 Create a new git worktree, sync configs from the main worktree, and generate an artifact file for it.
 
 ```
-treepad new [options] <branch>
+tp new [options] <branch>
 ```
 
 Creates a new worktree branched from a specified ref (default: `main`), syncs editor configs from the main worktree, and generates an artifact file as configured in `.treepad.toml`. By default, cd's into the new worktree directory when invoked via the shell wrapper (see [Shell integration](#shell-integration) below).
@@ -72,16 +72,16 @@ Creates a new worktree branched from a specified ref (default: `main`), syncs ed
 
 ```bash
 # Create a new worktree for branch 'feature-x' branched from main
-treepad new feature-x
+tp new feature-x
 
 # Create a worktree from a different base ref
-treepad new bugfix-y --base develop
+tp new bugfix-y --base develop
 
 # Create a worktree and open the generated artifact file
-treepad new feature-z --open
+tp new feature-z --open
 
 # Stay in the current directory instead of cd-ing in
-treepad new my-branch -c
+tp new my-branch -c
 ```
 
 ## cd
@@ -89,58 +89,58 @@ treepad new my-branch -c
 cd into an existing worktree by branch name.
 
 ```
-treepad cd <branch>
+tp cd <branch>
 ```
 
 Looks up the worktree registered under `<branch>` from `git worktree list` and emits a `__TREEPAD_CD__` directive. The shell wrapper installed by `shell-init` intercepts it and changes the current directory. No flags — positional branch argument only.
 
-If the branch has no associated worktree, an error is returned with a suggestion to use `treepad new <branch>`.
+If the branch has no associated worktree, an error is returned with a suggestion to use `tp new <branch>`.
 
 ### Setup
 
 Requires the shell wrapper (same as `new`):
 
 ```sh
-eval "$(treepad shell-init)"
+eval "$(tp shell-init)"
 ```
 
 ### Examples
 
 ```bash
 # cd into an existing worktree
-treepad cd feature-x
+tp cd feature-x
 
 # Run the binary directly to inspect the directive
-command treepad cd feature-x
+command tp cd feature-x
 # => __TREEPAD_CD__	/path/to/repo-feature-x
 ```
 
 ## shell-init
 
-Print a shell wrapper function that enables `treepad new` to cd into the new worktree automatically.
+Print a shell wrapper function that enables `tp new` to cd into the new worktree automatically.
 
 ```
-treepad shell-init
+tp shell-init
 ```
 
-Because a child process cannot change the parent shell's working directory, `treepad new` emits a `__TREEPAD_CD__` directive in its output. The shell wrapper function intercepts this directive, strips it from the visible output, and cd's into the path.
+Because a child process cannot change the parent shell's working directory, `tp new` emits a `__TREEPAD_CD__` directive in its output. The shell wrapper function intercepts this directive, strips it from the visible output, and cd's into the path.
 
 ### Setup
 
 Add to your `~/.zshrc` or `~/.bashrc`:
 
 ```sh
-eval "$(treepad shell-init)"
+eval "$(tp shell-init)"
 ```
 
-After sourcing, `treepad new <branch>` will automatically cd into the new worktree. Pass `-c` / `--current` to skip the cd.
+After sourcing, `tp new <branch>` will automatically cd into the new worktree. Pass `-c` / `--current` to skip the cd.
 
 ## config
 
-Manage treepad configuration files.
+Manage tp configuration files.
 
 ```
-treepad config <subcommand>
+tp config <subcommand>
 ```
 
 ### config init
@@ -148,7 +148,7 @@ treepad config <subcommand>
 Write a config file with default values.
 
 ```
-treepad config init [--global]
+tp config init [--global]
 ```
 
 By default, writes `.treepad.toml` to the main worktree root (the directory containing `.git`). Use the `--global` flag to write to the global config path instead.
@@ -163,10 +163,10 @@ By default, writes `.treepad.toml` to the main worktree root (the directory cont
 
 ```bash
 # Write default config to the main worktree root
-treepad config init
+tp config init
 
 # Write default config to the global config path
-treepad config init --global
+tp config init --global
 ```
 
 ### config show
@@ -174,7 +174,7 @@ treepad config init --global
 Print the resolved config and which sources contributed.
 
 ```
-treepad config show
+tp config show
 ```
 
 Displays the final configuration that would be used, along with information about which source(s) contributed to it. Resolution order is:
@@ -186,7 +186,7 @@ Displays the final configuration that would be used, along with information abou
 
 ```bash
 # Show the resolved config and its sources
-treepad config show
+tp config show
 ```
 
 This will output something like:
@@ -211,7 +211,7 @@ See [configuration.md](configuration.md) for details on the configuration schema
 Remove a git worktree, delete its artifact file, and delete the local branch.
 
 ```
-treepad remove <branch>
+tp remove <branch>
 ```
 
 Removes the worktree for the specified branch, cleans up its associated artifact file (if any), and deletes the branch locally. Includes pre-flight safety guards to prevent accidental data loss.
@@ -225,11 +225,11 @@ Removes the worktree for the specified branch, cleans up its associated artifact
 
 ```bash
 # Remove a completed feature branch
-treepad remove feature-x
+tp remove feature-x
 
 # Remove after switching out of the worktree
 cd ../main-repo  # or any other location
-treepad remove feature-x
+tp remove feature-x
 ```
 
 ### Errors
@@ -246,7 +246,7 @@ cannot remove the worktree you are currently in; cd elsewhere first
 Remove all worktrees whose branches are already merged into a base branch, or force-remove all non-main worktrees. Useful for batch-cleaning completed work.
 
 ```
-treepad prune [options]
+tp prune [options]
 ```
 
 Automatically identifies and removes worktrees whose branches have been merged into a base branch (default: `main`). Executes removals directly; pass `--dry-run` to preview without making changes. Use `--all` to force-remove all non-main worktrees (with confirmation prompt).
@@ -276,22 +276,22 @@ When using `--all`:
 
 ```bash
 # Remove all worktrees merged into main
-treepad prune
+tp prune
 
 # Preview without executing
-treepad prune --dry-run
+tp prune --dry-run
 
 # Check merges against a different base branch
-treepad prune --base develop
+tp prune --base develop
 
 # Preview against a different base
-treepad prune --base develop --dry-run
+tp prune --base develop --dry-run
 
 # Force-remove all non-main worktrees (with confirmation)
-treepad prune --all
+tp prune --all
 
 # Preview force-removal without executing
-treepad prune --all --dry-run
+tp prune --all --dry-run
 ```
 
 ### Output Examples
@@ -361,7 +361,7 @@ deleted branch: feature-y
 List all worktrees in the repo with their branch, dirty state, ahead/behind count vs upstream, last commit, and last-touched time (from artifact file mtime).
 
 ```
-treepad status [options]
+tp status [options]
 ```
 
 Provides a repo-wide snapshot of all active worktrees, showing which ones have uncommitted changes, how they diverge from their upstream branches, and when they were last modified by agents or editors.
@@ -387,14 +387,14 @@ Provides a repo-wide snapshot of all active worktrees, showing which ones have u
 
 ```bash
 # Show status of all worktrees in a table
-treepad status
+tp status
 
 # Emit JSON for scripting or dashboards
-treepad status --json
+tp status --json
 
 # Combine with standard tools
-treepad status | grep dirty
-treepad status --json | jq '.[] | select(.dirty == true)'
+tp status | grep dirty
+tp status --json | jq '.[] | select(.dirty == true)'
 ```
 
 ### Output Examples

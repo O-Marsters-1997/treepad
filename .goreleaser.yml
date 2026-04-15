@@ -5,9 +5,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: treepad
-    main: ./cmd/treepad
-    binary: treepad
+  - id: tp
+    main: ./cmd/tp
+    binary: tp
     env:
       - CGO_ENABLED=0
     goos:
@@ -44,13 +44,13 @@ changelog:
 homebrew_casks:
   - name: treepad
     binaries:
-      - treepad
+      - tp
     homepage: "https://github.com/O-Marsters-1997/treepad"
     description: "CLI for managing git worktrees"
     hooks:
       post:
         install: |
-          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/treepad"]
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tp"]
     url:
       template: "https://github.com/O-Marsters-1997/treepad/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
       verified: "github.com/O-Marsters-1997/treepad/"

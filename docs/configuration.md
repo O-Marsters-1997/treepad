@@ -1,6 +1,6 @@
 # Configuration
 
-`treepad` works with zero configuration. To customize behavior, add a `.treepad.toml` file to your repo root or write a global config file.
+`tp` works with zero configuration. To customize behavior, add a `.treepad.toml` file to your repo root or write a global config file.
 
 ## Configuration Format
 
@@ -68,7 +68,7 @@ content = """{
 
 ### `[open]` section
 
-Command to run when `treepad new --open` is used. Each element is a Go text/template string evaluated against the open context.
+Command to run when `tp new --open` is used. Each element is a Go text/template string evaluated against the open context.
 
 | Field     | Type     | Description                                                    |
 | --------- | -------- | -------------------------------------------------------------- |
@@ -115,7 +115,7 @@ Configuration is resolved in the following order (first match wins):
    - `~/.config/treepad/config.toml` (fallback)
 3. **Built-in defaults** — used when no config files are present
 
-Use `treepad config show` to see which configuration source is being used.
+Use `tp config show` to see which configuration source is being used.
 
 ## Example Configurations
 
@@ -153,7 +153,7 @@ content = """
 command = ["open", "{{.ArtifactPath}}"]
 ```
 
-Run `treepad config init` to write this configuration.
+Run `tp config init` to write this configuration.
 
 ### JetBrains IDEs (IntelliJ IDEA, GoLand, WebStorm, etc.)
 

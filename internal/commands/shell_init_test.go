@@ -24,7 +24,7 @@ func TestShellInitCommand(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"treepad()", "__TREEPAD_CD__"} {
+	for _, want := range []string{"tp()", "__TREEPAD_CD__"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("shell-init output missing %q; got:\n%s", want, out)
 		}
