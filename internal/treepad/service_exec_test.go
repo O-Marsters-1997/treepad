@@ -3,6 +3,7 @@ package treepad
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func (f *fakePassthroughRunner) Run(_ context.Context, dir, name string, args ..
 
 // worktreePorcelainWithPath builds porcelain output with a controllable path.
 func worktreePorcelainWithPath(branch, path string) []byte {
-	return []byte("worktree " + path + "\nHEAD abc123\nbranch refs/heads/" + branch + "\n\n")
+	return fmt.Appendf(nil, "worktree %s\nHEAD abc123\nbranch refs/heads/%s\n\n", path, branch)
 }
 
 func TestExec_unknownBranch(t *testing.T) {
@@ -48,7 +49,7 @@ func TestExec_unknownBranch(t *testing.T) {
 func TestExec_scriptDispatch(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build ./...\n"), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write justfile: %v", err)
 	}
 
 	porcelain := worktreePorcelainWithPath("feat", dir)
@@ -56,7 +57,7 @@ func TestExec_scriptDispatch(t *testing.T) {
 	var out bytes.Buffer
 	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""))
 
-	result, err := svc.Exec(context.Background(), ExecInput{
+	exitCode, err := svc.Exec(context.Background(), ExecInput{
 		Branch:  "feat",
 		Command: "build",
 		Args:    []string{"--verbose"},
@@ -66,8 +67,8 @@ func TestExec_scriptDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.ExitCode != 0 {
-		t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+	if exitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0", exitCode)
 	}
 	if len(pt.calls) != 1 {
 		t.Fatalf("want 1 call, got %d", len(pt.calls))
@@ -88,7 +89,7 @@ func TestExec_scriptDispatch(t *testing.T) {
 func TestExec_rawFallback(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build ./...\n"), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write justfile: %v", err)
 	}
 
 	porcelain := worktreePorcelainWithPath("feat", dir)
@@ -118,69 +119,68 @@ func TestExec_rawFallback(t *testing.T) {
 	}
 }
 
-func TestExec_npmArgsDoubleDash(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"test":"jest"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "package-lock.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	porcelain := worktreePorcelainWithPath("feat", dir)
-	pt := &fakePassthroughRunner{}
-	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
-
-	_, err := svc.Exec(context.Background(), ExecInput{
-		Branch:  "feat",
-		Command: "test",
-		Args:    []string{"--watch"},
-		Cwd:     "/some/other",
-		Runner:  pt,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	call := pt.calls[0]
-	wantArgs := []string{"run", "test", "--", "--watch"}
-	if !equalStringSlice(call.args, wantArgs) {
-		t.Errorf("args = %v, want %v", call.args, wantArgs)
-	}
-}
-
-func TestExec_npmNoDoubleDashWithoutArgs(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"build":"tsc"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "package-lock.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
+func TestExec_npmArgs(t *testing.T) {
+	tests := []struct {
+		name        string
+		packageJSON string
+		command     string
+		args        []string
+		wantArgs    []string
+	}{
+		{
+			name:        "double dash injected when args present",
+			packageJSON: `{"scripts":{"test":"jest"}}`,
+			command:     "test",
+			args:        []string{"--watch"},
+			wantArgs:    []string{"run", "test", "--", "--watch"},
+		},
+		{
+			name:        "no double dash when no args",
+			packageJSON: `{"scripts":{"build":"tsc"}}`,
+			command:     "build",
+			args:        nil,
+			wantArgs:    []string{"run", "build"},
+		},
 	}
 
-	porcelain := worktreePorcelainWithPath("feat", dir)
-	pt := &fakePassthroughRunner{}
-	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(tt.packageJSON), 0o644); err != nil {
+				t.Fatalf("write package.json: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "package-lock.json"), []byte("{}"), 0o644); err != nil {
+				t.Fatalf("write package-lock.json: %v", err)
+			}
 
-	_, err := svc.Exec(context.Background(), ExecInput{
-		Branch:  "feat",
-		Command: "build",
-		Cwd:     "/some/other",
-		Runner:  pt,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	call := pt.calls[0]
-	wantArgs := []string{"run", "build"}
-	if !equalStringSlice(call.args, wantArgs) {
-		t.Errorf("args = %v, want %v", call.args, wantArgs)
+			porcelain := worktreePorcelainWithPath("feat", dir)
+			pt := &fakePassthroughRunner{}
+			svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
+
+			_, err := svc.Exec(context.Background(), ExecInput{
+				Branch:  "feat",
+				Command: tt.command,
+				Args:    tt.args,
+				Cwd:     "/some/other",
+				Runner:  pt,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(pt.calls) == 0 {
+				t.Fatal("expected a call")
+			}
+			if !equalStringSlice(pt.calls[0].args, tt.wantArgs) {
+				t.Errorf("args = %v, want %v", pt.calls[0].args, tt.wantArgs)
+			}
+		})
 	}
 }
 
 func TestExec_zeroArgListsScripts(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build\ntest:\n  go test\n"), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write justfile: %v", err)
 	}
 
 	porcelain := worktreePorcelainWithPath("feat", dir)
@@ -188,7 +188,7 @@ func TestExec_zeroArgListsScripts(t *testing.T) {
 	var out bytes.Buffer
 	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""))
 
-	result, err := svc.Exec(context.Background(), ExecInput{
+	exitCode, err := svc.Exec(context.Background(), ExecInput{
 		Branch: "feat",
 		Cwd:    "/some/other",
 		Runner: pt,
@@ -196,8 +196,8 @@ func TestExec_zeroArgListsScripts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.ExitCode != 0 {
-		t.Errorf("ExitCode = %d, want 0", result.ExitCode)
+	if exitCode != 0 {
+		t.Errorf("ExitCode = %d, want 0", exitCode)
 	}
 	if len(pt.calls) != 0 {
 		t.Errorf("expected no exec calls, got %d", len(pt.calls))
@@ -214,7 +214,7 @@ func TestExec_zeroArgListsScripts(t *testing.T) {
 func TestExec_sameWorktreeWarns(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build\n"), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write justfile: %v", err)
 	}
 
 	porcelain := worktreePorcelainWithPath("feat", dir)
@@ -239,14 +239,14 @@ func TestExec_sameWorktreeWarns(t *testing.T) {
 func TestExec_exitCodePropagated(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("fail:\n  exit 1\n"), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write justfile: %v", err)
 	}
 
 	porcelain := worktreePorcelainWithPath("feat", dir)
 	pt := &fakePassthroughRunner{exitCode: 42}
 	svc := NewService(fakeRunner{output: porcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &bytes.Buffer{}, strings.NewReader(""))
 
-	result, err := svc.Exec(context.Background(), ExecInput{
+	exitCode, err := svc.Exec(context.Background(), ExecInput{
 		Branch:  "feat",
 		Command: "ls", // raw exec, exitCode still comes from fake
 		Cwd:     "/some/other",
@@ -255,8 +255,8 @@ func TestExec_exitCodePropagated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.ExitCode != 42 {
-		t.Errorf("ExitCode = %d, want 42", result.ExitCode)
+	if exitCode != 42 {
+		t.Errorf("ExitCode = %d, want 42", exitCode)
 	}
 }
 
@@ -264,13 +264,13 @@ func TestExec_configOverrideRunner(t *testing.T) {
 	dir := t.TempDir()
 	// Has package.json but .treepad.toml says runner=just
 	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"start":"node"}}`), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write package.json: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "justfile"), []byte("build:\n  go build\n"), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write justfile: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, ".treepad.toml"), []byte("[exec]\nrunner = \"just\"\n"), 0o644); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write .treepad.toml: %v", err)
 	}
 
 	porcelain := worktreePorcelainWithPath("feat", dir)

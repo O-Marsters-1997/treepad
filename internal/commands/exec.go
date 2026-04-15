@@ -46,7 +46,7 @@ func runExec(ctx context.Context, cmd *cli.Command) error {
 		os.Stdout,
 		os.Stdin,
 	)
-	result, err := svc.Exec(ctx, treepad.ExecInput{
+	exitCode, err := svc.Exec(ctx, treepad.ExecInput{
 		Branch:  branch,
 		Command: command,
 		Args:    cmdArgs,
@@ -54,8 +54,8 @@ func runExec(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	if result.ExitCode != 0 {
-		return cli.Exit("", result.ExitCode)
+	if exitCode != 0 {
+		return cli.Exit("", exitCode)
 	}
 	return nil
 }

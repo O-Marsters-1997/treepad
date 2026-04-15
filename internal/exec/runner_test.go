@@ -13,172 +13,138 @@ func writeFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-func TestDetect_just(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "justfile", "build:\n  go build ./...\ntest:\n  go test ./...\n_private:\n  echo secret\n")
+func TestDetect(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    map[string]string
+		override string
+		wantName string
+		wantErr  bool
+		// wantScripts, if non-nil, asserts Scripts exactly.
+		wantScripts []string
+		// wantNoScripts asserts Scripts is empty (for make).
+		wantNoScripts bool
+	}{
+		{
+			name: "just",
+			files: map[string]string{
+				"justfile": "build:\n  go build ./...\ntest:\n  go test ./...\n_private:\n  echo secret\n",
+			},
+			wantName:    "just",
+			wantScripts: []string{"build", "test"},
+		},
+		{
+			name: "justfile capitalised",
+			files: map[string]string{
+				"Justfile": "lint:\n  golangci-lint run\n",
+			},
+			wantName: "just",
+		},
+		{
+			name: "package.json with bun lockfile",
+			files: map[string]string{
+				"package.json": `{"scripts":{"dev":"vite","build":"vite build"}}`,
+				"bun.lockb":    "",
+			},
+			wantName:    "bun",
+			wantScripts: []string{"build", "dev"},
+		},
+		{
+			name: "package.json with pnpm lockfile",
+			files: map[string]string{
+				"package.json":   `{"scripts":{"start":"node index.js"}}`,
+				"pnpm-lock.yaml": "",
+			},
+			wantName: "pnpm",
+		},
+		{
+			name: "package.json with packageManager field",
+			files: map[string]string{
+				"package.json": `{"packageManager":"yarn@4.0.0","scripts":{"build":"tsc"}}`,
+			},
+			wantName: "yarn",
+		},
+		{
+			name: "package.json defaults to npm",
+			files: map[string]string{
+				"package.json": `{"scripts":{"test":"jest"}}`,
+			},
+			wantName: "npm",
+		},
+		{
+			name: "pyproject.toml poetry",
+			files: map[string]string{
+				"pyproject.toml": "[tool.poetry]\nname = \"myapp\"\n\n[tool.poetry.scripts]\nmyapp = \"myapp.cli:main\"\n",
+			},
+			wantName:    "poetry",
+			wantScripts: []string{"myapp"},
+		},
+		{
+			name: "pyproject.toml uv",
+			files: map[string]string{
+				"pyproject.toml": "[project]\nname = \"myapp\"\n\n[project.scripts]\nrun = \"myapp.main:main\"\n",
+			},
+			wantName: "uv",
+		},
+		{
+			name: "make",
+			files: map[string]string{
+				"Makefile": "build:\n\tgo build ./...\n",
+			},
+			wantName:      "make",
+			wantNoScripts: true,
+		},
+		{
+			name: "ambiguous runners error",
+			files: map[string]string{
+				"justfile":     "build:\n  go build\n",
+				"package.json": `{"scripts":{"build":"tsc"}}`,
+			},
+			wantErr: true,
+		},
+		{
+			name:    "no runner found error",
+			files:   map[string]string{},
+			wantErr: true,
+		},
+		{
+			name: "override selects runner despite ambiguity",
+			files: map[string]string{
+				"package.json": `{"scripts":{"test":"jest"}}`,
+				"justfile":     "check:\n  go vet ./...\n",
+			},
+			override: "just",
+			wantName: "just",
+		},
+	}
 
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "just" {
-		t.Errorf("Name = %q, want %q", r.Name, "just")
-	}
-	want := []string{"build", "test"}
-	if !equalStrSlice(r.Scripts, want) {
-		t.Errorf("Scripts = %v, want %v", r.Scripts, want)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range tt.files {
+				writeFile(t, dir, name, content)
+			}
 
-func TestDetect_justfileCapitalised(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "Justfile", "lint:\n  golangci-lint run\n")
-
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "just" {
-		t.Errorf("Name = %q, want %q", r.Name, "just")
-	}
-}
-
-func TestDetect_packageJSON_lockfileBun(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "package.json", `{"scripts":{"dev":"vite","build":"vite build"}}`)
-	writeFile(t, dir, "bun.lockb", "")
-
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "bun" {
-		t.Errorf("Name = %q, want %q", r.Name, "bun")
-	}
-	want := []string{"build", "dev"}
-	if !equalStrSlice(r.Scripts, want) {
-		t.Errorf("Scripts = %v, want %v", r.Scripts, want)
-	}
-}
-
-func TestDetect_packageJSON_lockfilePnpm(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "package.json", `{"scripts":{"start":"node index.js"}}`)
-	writeFile(t, dir, "pnpm-lock.yaml", "")
-
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "pnpm" {
-		t.Errorf("Name = %q, want %q", r.Name, "pnpm")
-	}
-}
-
-func TestDetect_packageJSON_packageManagerField(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "package.json", `{"packageManager":"yarn@4.0.0","scripts":{"build":"tsc"}}`)
-
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "yarn" {
-		t.Errorf("Name = %q, want %q", r.Name, "yarn")
-	}
-}
-
-func TestDetect_packageJSON_defaultNPM(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "package.json", `{"scripts":{"test":"jest"}}`)
-
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "npm" {
-		t.Errorf("Name = %q, want %q", r.Name, "npm")
-	}
-}
-
-func TestDetect_pyprojectPoetry(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "pyproject.toml", "[tool.poetry]\nname = \"myapp\"\n\n[tool.poetry.scripts]\nmyapp = \"myapp.cli:main\"\n")
-
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "poetry" {
-		t.Errorf("Name = %q, want %q", r.Name, "poetry")
-	}
-	want := []string{"myapp"}
-	if !equalStrSlice(r.Scripts, want) {
-		t.Errorf("Scripts = %v, want %v", r.Scripts, want)
-	}
-}
-
-func TestDetect_pyprojectUV(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "pyproject.toml", "[project]\nname = \"myapp\"\n\n[project.scripts]\nrun = \"myapp.main:main\"\n")
-
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "uv" {
-		t.Errorf("Name = %q, want %q", r.Name, "uv")
-	}
-}
-
-func TestDetect_make(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "Makefile", "build:\n\tgo build ./...\n")
-
-	r, err := Detect(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "make" {
-		t.Errorf("Name = %q, want %q", r.Name, "make")
-	}
-	if len(r.Scripts) != 0 {
-		t.Errorf("make Scripts should be empty, got %v", r.Scripts)
-	}
-}
-
-func TestDetect_ambiguous_error(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "justfile", "build:\n  go build\n")
-	writeFile(t, dir, "package.json", `{"scripts":{"build":"tsc"}}`)
-
-	_, err := Detect(dir, "")
-	if err == nil {
-		t.Fatal("expected error for ambiguous runners")
-	}
-}
-
-func TestDetect_noneFound_error(t *testing.T) {
-	dir := t.TempDir()
-
-	_, err := Detect(dir, "")
-	if err == nil {
-		t.Fatal("expected error when no runners detected")
-	}
-}
-
-func TestDetect_override(t *testing.T) {
-	dir := t.TempDir()
-	// Has package.json but we force just via override
-	writeFile(t, dir, "package.json", `{"scripts":{"test":"jest"}}`)
-	writeFile(t, dir, "justfile", "check:\n  go vet ./...\n")
-
-	r, err := Detect(dir, "just")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r.Name != "just" {
-		t.Errorf("Name = %q, want %q", r.Name, "just")
+			r, err := Detect(dir, tt.override)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if r.Name != tt.wantName {
+				t.Errorf("Name = %q, want %q", r.Name, tt.wantName)
+			}
+			if tt.wantScripts != nil && !equalStrSlice(r.Scripts, tt.wantScripts) {
+				t.Errorf("Scripts = %v, want %v", r.Scripts, tt.wantScripts)
+			}
+			if tt.wantNoScripts && len(r.Scripts) != 0 {
+				t.Errorf("Scripts should be empty, got %v", r.Scripts)
+			}
+		})
 	}
 }
 
@@ -186,7 +152,7 @@ func TestListScripts_justRecipeWithArgs(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "justfile", "build target='debug':\n  go build -tags {{target}}\ntest:\n  go test\n")
 
-	scripts, err := ListScripts(dir, "just")
+	scripts, err := listScripts(dir, "just")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -197,7 +163,7 @@ func TestListScripts_justRecipeWithArgs(t *testing.T) {
 }
 
 func TestScriptCmd(t *testing.T) {
-	cases := []struct {
+	tests := []struct {
 		runner string
 		want   []string
 	}{
@@ -210,11 +176,13 @@ func TestScriptCmd(t *testing.T) {
 		{"uv", []string{"uv", "run"}},
 		{"make", []string{"make"}},
 	}
-	for _, tc := range cases {
-		got := scriptCmd(tc.runner)
-		if !equalStrSlice(got, tc.want) {
-			t.Errorf("scriptCmd(%q) = %v, want %v", tc.runner, got, tc.want)
-		}
+	for _, tt := range tests {
+		t.Run(tt.runner, func(t *testing.T) {
+			got := scriptCmd(tt.runner)
+			if !equalStrSlice(got, tt.want) {
+				t.Errorf("scriptCmd(%q) = %v, want %v", tt.runner, got, tt.want)
+			}
+		})
 	}
 }
 

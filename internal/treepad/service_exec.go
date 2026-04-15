@@ -17,13 +17,12 @@ import (
 // calling process. Returns the child's exit code (non-zero does not produce an
 // error; a non-nil error indicates a launch failure such as binary not found).
 type PassthroughRunner interface {
-	Run(ctx context.Context, dir, name string, args ...string) (exitCode int, err error)
+	Run(ctx context.Context, dir, name string, args ...string) (int, error)
 }
 
-// OSPassthroughRunner is the real PassthroughRunner that uses os/exec.
-type OSPassthroughRunner struct{}
+type osPassthroughRunner struct{}
 
-func (OSPassthroughRunner) Run(ctx context.Context, dir, name string, args ...string) (int, error) {
+func (osPassthroughRunner) Run(ctx context.Context, dir, name string, args ...string) (int, error) {
 	cmd := osexec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Stdin = os.Stdin
@@ -50,29 +49,25 @@ type ExecInput struct {
 	Runner PassthroughRunner
 }
 
-// ExecResult carries the child process exit code.
-type ExecResult struct {
-	ExitCode int
-}
-
 // Exec runs a command in the named worktree, routing through the detected task
-// runner when the command matches a known script.
-func (s *Service) Exec(ctx context.Context, in ExecInput) (ExecResult, error) {
+// runner when the command matches a known script. Returns the child process exit
+// code (non-zero does not produce an error).
+func (s *Service) Exec(ctx context.Context, in ExecInput) (int, error) {
 	worktrees, err := s.listWorktrees(ctx)
 	if err != nil {
-		return ExecResult{}, err
+		return 0, err
 	}
 
 	wt, ok := worktree.FindByBranch(worktrees, in.Branch)
 	if !ok {
-		return ExecResult{}, fmt.Errorf("no worktree found for branch %q; run `tp workspace` to list worktrees", in.Branch)
+		return 0, fmt.Errorf("no worktree found for branch %q; run `tp workspace` to list worktrees", in.Branch)
 	}
 
 	cwd := in.Cwd
 	if cwd == "" {
 		cwd, err = os.Getwd()
 		if err != nil {
-			return ExecResult{}, fmt.Errorf("get current directory: %w", err)
+			return 0, fmt.Errorf("get current directory: %w", err)
 		}
 	}
 	if filepath.Clean(wt.Path) == filepath.Clean(cwd) {
@@ -81,30 +76,26 @@ func (s *Service) Exec(ctx context.Context, in ExecInput) (ExecResult, error) {
 
 	cfg, err := config.Load(wt.Path)
 	if err != nil {
-		return ExecResult{}, fmt.Errorf("load config: %w", err)
+		return 0, fmt.Errorf("load config: %w", err)
 	}
 
 	runner, err := tpexec.Detect(wt.Path, cfg.Exec.Runner)
 	if err != nil {
-		return ExecResult{}, err
+		return 0, err
 	}
 
 	if in.Command == "" {
 		s.printScripts(runner)
-		return ExecResult{}, nil
+		return 0, nil
 	}
 
 	name, args := s.buildCommand(runner, in.Command, in.Args)
 
 	pt := in.Runner
 	if pt == nil {
-		pt = OSPassthroughRunner{}
+		pt = osPassthroughRunner{}
 	}
-	exitCode, err := pt.Run(ctx, wt.Path, name, args...)
-	if err != nil {
-		return ExecResult{}, err
-	}
-	return ExecResult{ExitCode: exitCode}, nil
+	return pt.Run(ctx, wt.Path, name, args...)
 }
 
 func (s *Service) printScripts(runner tpexec.Runner) {

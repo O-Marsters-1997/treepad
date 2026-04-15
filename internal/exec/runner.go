@@ -26,7 +26,7 @@ type Runner struct {
 // Returns an error if multiple runners are detected and override is empty.
 func Detect(worktreePath, override string) (Runner, error) {
 	if override != "" {
-		scripts, err := ListScripts(worktreePath, override)
+		scripts, err := listScripts(worktreePath, override)
 		if err != nil {
 			return Runner{}, err
 		}
@@ -64,7 +64,7 @@ func Detect(worktreePath, override string) (Runner, error) {
 	}
 
 	name := detected[0]
-	scripts, err := ListScripts(worktreePath, name)
+	scripts, err := listScripts(worktreePath, name)
 	if err != nil {
 		return Runner{}, err
 	}
@@ -75,9 +75,9 @@ func Detect(worktreePath, override string) (Runner, error) {
 	}, nil
 }
 
-// ListScripts returns the known script names for the named runner in worktreePath.
+// listScripts returns the known script names for the named runner in worktreePath.
 // Returns nil for runners that do not support script enumeration (make, pip).
-func ListScripts(worktreePath, runnerName string) ([]string, error) {
+func listScripts(worktreePath, runnerName string) ([]string, error) {
 	switch runnerName {
 	case "just":
 		return listJustRecipes(worktreePath)
