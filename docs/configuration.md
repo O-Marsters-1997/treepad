@@ -24,13 +24,14 @@ command = ["open", "{{.ArtifactPath}}"]
 
 File patterns to copy from the source worktree to all other worktrees.
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field   | Type     | Description                                     |
+| ------- | -------- | ----------------------------------------------- |
 | `files` | string[] | Glob patterns of files to sync across worktrees |
 
 When `sync.files` is set, it **replaces** the defaults entirely. Use the `--include` flag to append additional patterns to whatever `sync.files` resolves to.
 
 **Default files** (used when no `[sync]` section or empty `files` array):
+
 - `.claude/settings.local.json`
 - `.env`
 - `.env.docker-compose`
@@ -44,12 +45,13 @@ When `sync.files` is set, it **replaces** the defaults entirely. Use the `--incl
 
 Per-worktree file to generate (e.g., VS Code `.code-workspace` files, JetBrains `.idea` config, etc.). Both fields are Go text/template strings evaluated against the template context. Leave the `[artifact]` section out entirely to skip artifact generation.
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field      | Type   | Description                                                       |
+| ---------- | ------ | ----------------------------------------------------------------- |
 | `filename` | string | Template for the artifact filename (relative to output directory) |
-| `content` | string | Template for the artifact file content |
+| `content`  | string | Template for the artifact file content                            |
 
 **Default** (when no `[artifact]` section is present):
+
 ```toml
 [artifact]
 filename = "{{.Slug}}-{{.Branch}}.code-workspace"
@@ -68,11 +70,12 @@ content = """{
 
 Command to run when `treepad create --open` is used. Each element is a Go text/template string evaluated against the open context.
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field     | Type     | Description                                                    |
+| --------- | -------- | -------------------------------------------------------------- |
 | `command` | string[] | Command template slice (e.g., `["open", "{{.ArtifactPath}}"]`) |
 
 **Default**:
+
 ```toml
 [open]
 command = ["open", "{{.ArtifactPath}}"]
@@ -113,16 +116,6 @@ Configuration is resolved in the following order (first match wins):
 3. **Built-in defaults** — used when no config files are present
 
 Use `treepad config show` to see which configuration source is being used.
-
-## Migration from JSON
-
-If you have a legacy `.treepad.json` file, `treepad` will show an error message:
-
-```
-found .treepad.json but treepad now uses TOML; move your config to .treepad.toml or re-run `treepad config init`
-```
-
-Run `treepad config init` to generate a new `.treepad.toml` with defaults, then manually add any custom settings from your old JSON file.
 
 ## Example Configurations
 
