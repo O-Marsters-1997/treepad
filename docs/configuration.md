@@ -66,6 +66,27 @@ content = """{
 """
 ```
 
+### `[hooks]` section
+
+Shell commands to run at lifecycle points in `tp` operations. See [hooks.md](hooks.md) for the full reference.
+
+Each field is a list of shell command strings (Go `text/template` strings rendered before execution). An empty or absent list is a no-op.
+
+| Field | Type | Description |
+|---|---|---|
+| `pre_new` | string[] | Run before `git worktree add`; non-zero exit aborts the operation |
+| `post_new` | string[] | Run after artifact file is written; failure logs a warning |
+| `pre_remove` | string[] | Run before `git worktree remove`; non-zero exit aborts the operation |
+| `post_remove` | string[] | Run after `git branch -d`; failure logs a warning |
+| `pre_sync` | string[] | Run before each worktree's file sync; non-zero exit aborts that sync |
+| `post_sync` | string[] | Run after each worktree's file sync; failure logs a warning |
+
+```toml
+[hooks]
+post_new   = ["direnv allow {{.WorktreePath}}"]
+pre_remove = ["git -C {{.WorktreePath}} diff --exit-code HEAD"]
+```
+
 ### `[open]` section
 
 Command to run when `tp new --open` is used. Each element is a Go text/template string evaluated against the open context.
