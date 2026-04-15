@@ -317,24 +317,28 @@ func TestServiceRemove(t *testing.T) {
 	errorTests := []struct {
 		name    string
 		runner  *seqRunner
+		branch  string
 		wantErr string
 	}{
 		{
-			name: "git worktree list fails",
+			name:   "git worktree list fails",
+			branch: "feat",
 			runner: &seqRunner{responses: []runResponse{
 				{err: errors.New("git not found")},
 			}},
 			wantErr: "git not found",
 		},
 		{
-			name: "branch not found in worktree list",
+			name:   "branch not found in worktree list",
+			branch: "feat",
 			runner: &seqRunner{responses: []runResponse{
 				{output: mainWorktreePorcelain(mainPath)},
 			}},
 			wantErr: `no worktree found for branch "feat"`,
 		},
 		{
-			name: "git worktree remove fails",
+			name:   "git worktree remove fails",
+			branch: "feat",
 			runner: &seqRunner{responses: []runResponse{
 				{output: porcelain},
 				{err: errors.New("locked worktree")},
@@ -342,7 +346,8 @@ func TestServiceRemove(t *testing.T) {
 			wantErr: "locked worktree",
 		},
 		{
-			name: "git branch -d fails",
+			name:   "git branch -d fails",
+			branch: "feat",
 			runner: &seqRunner{responses: []runResponse{
 				{output: porcelain},
 				{},
@@ -350,16 +355,43 @@ func TestServiceRemove(t *testing.T) {
 			}},
 			wantErr: "branch not found",
 		},
+		{
+			name:   "refuses to remove main worktree",
+			branch: "main",
+			runner: &seqRunner{responses: []runResponse{
+				{output: mainWorktreePorcelain(mainPath)},
+			}},
+			wantErr: "main worktree",
+		},
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
-			err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
+			err := svc.Remove(context.Background(), RemoveInput{Branch: tt.branch, OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
 			}
 		})
 	}
+
+	t.Run("refuses to remove worktree user is currently in", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Remove(context.Background(), RemoveInput{
+			Branch:    "feat",
+			OutputDir: outputDir,
+			Cwd:       featPath,
+		})
+		if err == nil || !strings.Contains(err.Error(), "currently in") {
+			t.Errorf("got error %v, want error containing %q", err, "currently in")
+		}
+		if runner.idx != 1 {
+			t.Errorf("runner called %d times after guard, want 1 (list only)", runner.idx)
+		}
+	})
 }
 
 func TestResolveSourceDir(t *testing.T) {
