@@ -351,6 +351,28 @@ func TestServiceRemove(t *testing.T) {
 		}
 	})
 
+	t.Run("unmerged branch without --force: worktree+workspace removed, branch kept, exit 0", func(t *testing.T) {
+		wsFile := filepath.Join(outputDir, codeworkspace.Filename(repoSlug, "feat"))
+		if err := os.WriteFile(wsFile, []byte("{}"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{}, // git worktree remove
+			{err: errors.New("error: The branch 'feat' is not fully merged.")},
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("expected nil error on unmerged-clean path, got: %v", err)
+		}
+		if _, err := os.Stat(wsFile); !os.IsNotExist(err) {
+			t.Error("workspace file should have been deleted")
+		}
+	})
+
 	t.Run("workspace file missing is not an error", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
