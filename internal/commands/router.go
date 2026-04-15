@@ -6,7 +6,8 @@ func Router() []*cli.Command {
 	return []*cli.Command{
 		workspaceCommand(),
 		configCommand(),
-		createCommand(),
+		newCommand(),
+		shellInitCommand(),
 		removeCommand(),
 		pruneCommand(),
 	}

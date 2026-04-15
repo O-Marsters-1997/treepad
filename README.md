@@ -78,18 +78,27 @@ treepad workspace --include ".prettierrc" --include ".eslintrc.json"
 treepad --verbose workspace
 ```
 
-**`create`** — Create a new git worktree with configs synced and artifact file generated:
+**`new`** — Create a new git worktree with configs synced and artifact file generated:
 
 ```bash
-# Create a new worktree for branch 'feature-x' branched from main
-treepad create feature-x
+# Create a new worktree for branch 'feature-x' branched from main (cd's into it automatically)
+treepad new feature-x
 
 # Create a worktree from a different base ref
-treepad create bugfix-y --base develop
+treepad new bugfix-y --base develop
 
 # Create a worktree and open the artifact file
-treepad create feature-z --open
+treepad new feature-z --open
+
+# Stay in the current directory instead of cd-ing into the new worktree
+treepad new feature-z -c
 ```
+
+> **Shell integration:** `treepad new` prints a cd directive that is acted on by a shell wrapper function. Add the following to your `~/.zshrc` or `~/.bashrc`:
+>
+> ```sh
+> eval "$(treepad shell-init)"
+> ```
 
 **`remove`** — Remove a git worktree and its associated files:
 

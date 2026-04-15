@@ -36,10 +36,11 @@ type GenerateInput struct {
 	ExtraPatterns []string
 }
 
-type CreateInput struct {
+type NewInput struct {
 	Branch    string
 	Base      string
 	Open      bool
+	Current   bool
 	OutputDir string
 }
 
@@ -118,7 +119,7 @@ func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 	return nil
 }
 
-func (s *Service) Create(ctx context.Context, in CreateInput) error {
+func (s *Service) New(ctx context.Context, in NewInput) error {
 	worktrees, err := s.listWorktrees(ctx)
 	if err != nil {
 		return err
@@ -169,6 +170,9 @@ func (s *Service) Create(ctx context.Context, in CreateInput) error {
 		if err := s.opener.Open(ctx, openSpec, openData); err != nil {
 			return fmt.Errorf("open: %w", err)
 		}
+	}
+	if !in.Current {
+		_, _ = fmt.Fprintf(s.out, "__TREEPAD_CD__\t%s\n", worktreePath)
 	}
 	return nil
 }
