@@ -104,9 +104,9 @@ func TestExec_dispatch(t *testing.T) {
 			wantOutput:   []string{"warning"},
 		},
 		{
-			name:    "no command lists detected runner and scripts",
-			files:   map[string]string{"justfile": "build:\n  go build\ntest:\n  go test\n"},
-			command: "",
+			name:       "no command lists detected runner and scripts",
+			files:      map[string]string{"justfile": "build:\n  go build\ntest:\n  go test\n"},
+			command:    "",
 			wantOutput: []string{"Runner: just", "build", "test"},
 		},
 		{
