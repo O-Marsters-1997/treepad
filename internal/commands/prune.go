@@ -6,12 +6,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/artifact"
-	"treepad/internal/hook"
-	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
 )
 
 func pruneCommand() *cli.Command {
@@ -28,17 +23,8 @@ func pruneCommand() *cli.Command {
 }
 
 func runPrune(ctx context.Context, cmd *cli.Command) error {
-	runner := worktree.ExecRunner{}
-	svc := treepad.NewService(
-		runner,
-		internalsync.FileSyncer{},
-		artifact.ExecOpener{Runner: runner},
-		hook.ExecRunner{Runner: runner},
-		cmd.Root().Writer,
-		os.Stdin,
-		ui.New(cmd.Root().ErrWriter),
-	)
-	return svc.Prune(ctx, treepad.PruneInput{
+	d := treepad.DefaultDeps(cmd.Root().Writer, os.Stdin)
+	return treepad.Prune(ctx, d, treepad.PruneInput{
 		Base:   cmd.String("base"),
 		DryRun: cmd.Bool("dry-run"),
 		All:    cmd.Bool("all"),

@@ -7,11 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/hook"
-	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
 )
 
 func workspaceCommand() *cli.Command {
@@ -51,9 +47,8 @@ func runWorkspace(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	runner := worktree.ExecRunner{}
-	svc := treepad.NewService(runner, internalsync.FileSyncer{}, nil, hook.ExecRunner{Runner: runner}, cmd.Root().Writer, os.Stdin, ui.New(cmd.Root().ErrWriter))
-	return svc.Generate(ctx, treepad.GenerateInput{
+	d := treepad.DefaultDeps(cmd.Root().Writer, os.Stdin)
+	return treepad.Generate(ctx, d, treepad.GenerateInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,
 		SyncOnly:      cmd.Bool("sync-only"),

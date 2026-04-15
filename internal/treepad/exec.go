@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -52,8 +53,8 @@ type ExecInput struct {
 // Exec runs a command in the named worktree, routing through the detected task
 // runner when the command matches a known script. Returns the child process exit
 // code (non-zero does not produce an error).
-func (s *Service) Exec(ctx context.Context, in ExecInput) (int, error) {
-	worktrees, err := s.listWorktrees(ctx)
+func Exec(ctx context.Context, d Deps, in ExecInput) (int, error) {
+	worktrees, err := listWorktrees(ctx, d)
 	if err != nil {
 		return 0, err
 	}
@@ -71,7 +72,7 @@ func (s *Service) Exec(ctx context.Context, in ExecInput) (int, error) {
 		}
 	}
 	if filepath.Clean(wt.Path) == filepath.Clean(cwd) {
-		_, _ = fmt.Fprintln(s.out, "warning: already in this worktree; consider invoking the runner directly")
+		_, _ = fmt.Fprintln(d.Out, "warning: already in this worktree; consider invoking the runner directly")
 	}
 
 	cfg, err := config.Load(wt.Path)
@@ -85,11 +86,11 @@ func (s *Service) Exec(ctx context.Context, in ExecInput) (int, error) {
 	}
 
 	if in.Command == "" {
-		s.printScripts(runner)
+		printScripts(d.Out, runner)
 		return 0, nil
 	}
 
-	name, args := s.buildCommand(runner, in.Command, in.Args)
+	name, args := buildCommand(runner, in.Command, in.Args)
 
 	pt := in.Runner
 	if pt == nil {
@@ -98,21 +99,21 @@ func (s *Service) Exec(ctx context.Context, in ExecInput) (int, error) {
 	return pt.Run(ctx, wt.Path, name, args...)
 }
 
-func (s *Service) printScripts(runner tpexec.Runner) {
-	_, _ = fmt.Fprintf(s.out, "Runner: %s\n", runner.Name)
+func printScripts(out io.Writer, runner tpexec.Runner) {
+	_, _ = fmt.Fprintf(out, "Runner: %s\n", runner.Name)
 	if len(runner.Scripts) == 0 {
-		_, _ = fmt.Fprintln(s.out, "Scripts: (none)")
+		_, _ = fmt.Fprintln(out, "Scripts: (none)")
 		return
 	}
-	_, _ = fmt.Fprintln(s.out, "Scripts:")
+	_, _ = fmt.Fprintln(out, "Scripts:")
 	for _, sc := range runner.Scripts {
-		_, _ = fmt.Fprintf(s.out, "  %s\n", sc)
+		_, _ = fmt.Fprintf(out, "  %s\n", sc)
 	}
 }
 
 // buildCommand returns the executable name and arguments for the given command,
 // routing through the runner when the command matches an enumerated script.
-func (s *Service) buildCommand(runner tpexec.Runner, command string, extraArgs []string) (string, []string) {
+func buildCommand(runner tpexec.Runner, command string, extraArgs []string) (string, []string) {
 	scriptSet := make(map[string]bool, len(runner.Scripts))
 	for _, sc := range runner.Scripts {
 		scriptSet[sc] = true

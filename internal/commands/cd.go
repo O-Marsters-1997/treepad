@@ -7,12 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/artifact"
-	"treepad/internal/hook"
-	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
 )
 
 func cdCommand() *cli.Command {
@@ -30,15 +25,6 @@ func runCD(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("branch name is required")
 	}
 
-	runner := worktree.ExecRunner{}
-	svc := treepad.NewService(
-		runner,
-		internalsync.FileSyncer{},
-		artifact.ExecOpener{Runner: runner},
-		hook.ExecRunner{Runner: runner},
-		cmd.Root().Writer,
-		os.Stdin,
-		ui.New(cmd.Root().ErrWriter),
-	)
-	return svc.CD(ctx, treepad.CDInput{Branch: branch})
+	d := treepad.DefaultDeps(cmd.Root().Writer, os.Stdin)
+	return treepad.CD(ctx, d, treepad.CDInput{Branch: branch})
 }
