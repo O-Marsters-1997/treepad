@@ -80,18 +80,30 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
   - Calls `Status()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
 
+### `exec.go`
+
+- `execCommand()` — top-level exec command definition
+  - Usage: `tp exec <branch> [command] [args...]`
+  - Parses branch argument (required), optional command, and variadic args
+- `runExec(ctx, cmd)` — action handler for executing commands in worktrees
+  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
+  - Calls `Exec()` with branch, command, and args
+  - Returns exit code from child process via `cli.Exit("")
+
 ## Config Package (`internal/config/`)
 
 Handles TOML configuration file loading, initialization, and display.
 
 ### `config.go`
 
-- `Config` struct — root config object with `Sync`, `Artifact`, `Open` fields
+- `Config` struct — root config object with `Sync`, `Artifact`, `Open`, `Exec` fields
 - `SyncConfig` struct — contains `Files` (string array)
 - `ArtifactConfig` struct — contains `FilenameTemplate` and `ContentTemplate` (text/template strings)
   - `IsZero()` — reports whether artifact is configured
 - `OpenConfig` struct — contains `Command` (string slice of template strings)
   - `IsZero()` — reports whether open command is configured
+- `ExecConfig` struct — contains `Runner` (string; valid values: just, npm, pnpm, yarn, bun, make, pip, poetry, uv)
+  - `IsZero()` — reports whether exec runner is explicitly configured
 - `GlobalConfigPath()` — resolves global config path
   - Resolution order: `$TREEPAD_CONFIG` → `$XDG_CONFIG_HOME/treepad/config.toml` → `~/.config/treepad/config.toml`
 - `Load(repoRoot)` — loads `.treepad.toml` from repo, falls back to defaults
@@ -115,6 +127,28 @@ Handles TOML configuration file loading, initialization, and display.
 - `loadFile(path)` — reads and parses a single `.treepad.toml` file
   - Returns triple: (Config, found bool, error)
   - Handles missing files and parse errors
+
+## Exec Package (`internal/exec/`)
+
+Task runner detection and script enumeration for the `tp exec` command.
+
+### `runner.go`
+
+- `Runner` struct — describes a detected task runner
+  - Fields: `Name` (e.g. "just", "pnpm"), `ScriptCmd` (prefix before script name, e.g. ["pnpm", "run"]), `Scripts` (enumerated script names, sorted)
+- `Detect(worktreePath, override)` — identifies task runner in worktree
+  - Checks for marker files in order: justfile, package.json, Makefile, pyproject.toml
+  - Returns error if multiple runners detected and no override specified
+  - Uses override if provided (from `[exec] runner` in `.treepad.toml`)
+  - Enumerates available scripts via `ListScripts()`
+- `ListScripts(worktreePath, runnerName)` — enumerates scripts for a given runner
+  - Supports: just, npm, pnpm, yarn, bun, poetry, uv, make, pip
+  - Returns nil for runners without script enumeration (make, pip)
+- `detectJSManager(dir)` — selects npm/pnpm/yarn/bun based on lockfile presence and package.json `packageManager` field
+- `detectPythonRunner(dir)` — selects poetry or uv based on pyproject.toml contents
+- `listJustRecipes(dir)` — parses justfile and extracts recipe names (excludes private recipes starting with `_`)
+- `listPackageJSONScripts(dir)` — parses package.json and extracts script names
+- `listPyprojectScripts(dir)` — parses pyproject.toml and extracts script names (checks `[project]` scripts first, then `[tool.poetry]`)
 
 ## Treepad Package (`internal/treepad/`)
 
@@ -145,6 +179,12 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
     - Input: `JSON` (emit JSON instead of table), `OutputDir` (for artifact path resolution)
     - Output: builds `[]StatusRow` with branch, dirty state, ahead/behind count, last commit info, artifact mtime
     - Renders as aligned table via `text/tabwriter` by default, or JSON array with `--json` flag
+  - `Exec(ctx, ExecInput)` — runs a command in a named worktree with full stdio passthrough
+    - Input: `Branch`, `Command`, `Args`, `Cwd` (for testing), `Runner` (PassthroughRunner override)
+    - Detects task runner via `internal/exec.Detect()` using config override if available
+    - If `Command` is empty: lists detected runner and available scripts, returns
+    - Otherwise: builds command via `buildCommand()` (routes through runner if command matches enumerated script)
+    - Executes via PassthroughRunner and returns child process exit code (non-zero does not produce an error)
 - Private helpers:
   - `removeWorktree(ctx, target, mainWT, outputDir)` — removes a single worktree (merge-safe removal), deletes artifact, deletes branch
   - `forceRemoveWorktree(ctx, target, mainWT, outputDir)` — force-removes a worktree via `git worktree remove --force`, deletes artifact, force-deletes branch via `git branch -D`
@@ -152,6 +192,8 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
   - `listWorktrees(ctx)` — lists all worktrees in repo
   - `resolveOutputDir(explicit, repoSlug)` — resolves artifact output directory
   - `loadAndSync(sourceDir, extraPatterns, targets)` — loads config and syncs to targets; returns `config.Config` so artifact config is available
+  - `printScripts(runner)` — prints runner name and enumerated scripts to output
+  - `buildCommand(runner, command, extraArgs)` — returns executable name and arguments, routing through runner if command matches a known script (adds `--` for npm with extra args)
 
 ### `source.go`
 
@@ -247,6 +289,10 @@ tp [--verbose] <command>
 │   └── --all (force-remove all non-main, must be from main)
 ├── status [options]
 │   └── --json
+├── exec <branch> [command] [args...]
+│   └── Auto-detects task runner (just, npm, pnpm, yarn, bun, make, poetry, uv)
+│       Routes through runner if command matches enumerated script
+│       Override with [exec] runner in .treepad.toml
 └── config
     ├── init [--global]
     └── show
@@ -351,6 +397,22 @@ tp [--verbose] <command>
    - If `--json` flag set, encodes as JSON array; otherwise renders via `text/tabwriter` table
    - Writes to `s.out` and returns
 
+## Data Flow Example: `tp exec <branch> [command] [args...]`
+
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
+2. `commands.execCommand()` defines CLI interface
+3. `runExec()` parses branch, optional command, and variadic args; instantiates `treepad.Service`, calls `Exec()`
+4. `Service.Exec()` executes:
+   - Lists all worktrees via `worktree.List()` and finds target by branch
+   - Checks if already in target worktree (emits warning if so)
+   - Loads config and detects task runner via `exec.Detect()` (uses override if configured)
+   - If command is empty: prints runner name and available scripts via `printScripts()`
+   - Otherwise: builds command via `buildCommand()`:
+     - If command matches enumerated script: routes through runner (e.g. "build" → ["pnpm", "run", "build"])
+     - Otherwise: executes raw command in worktree root
+   - Executes via PassthroughRunner with full stdio passthrough (inherits stdin/stdout/stderr from tp process)
+   - Returns exit code from child process (non-zero exit does not produce an error; launch failures do)
+
 ---
 
-**Last Updated:** April 15, 2026 (added `--all` flag to `prune` command for force-removing all non-main worktrees with confirmation prompt; added `io.Reader` to `Service` for stdin access)
+**Last Updated:** April 15, 2026 (added `tp exec` command with task runner detection, script enumeration, and full stdio passthrough; added `internal/exec` package and `service_exec.go`; added `ExecConfig` to config package)

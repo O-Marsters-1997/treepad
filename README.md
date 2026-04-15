@@ -145,6 +145,21 @@ tp status
 tp status --json
 ```
 
+**`exec`** — Run a command in a specific worktree with full stdio passthrough:
+
+```bash
+# Run a script (detected task runner handles it automatically)
+tp exec feature-x build
+
+# Run a raw command in the worktree root
+tp exec feature-x cargo test
+
+# List available scripts and detected runner for a worktree
+tp exec feature-x
+```
+
+The `exec` command auto-detects the project task runner (just, npm/pnpm/yarn/bun, make, poetry/uv) by checking for marker files. If the command matches an enumerated script, it routes through the runner (e.g. `just build`, `pnpm run build`). Otherwise, it executes the command directly in the worktree root. Override auto-detection via `[exec] runner = "just"` in `.treepad.toml`.
+
 **`config`** — Manage tp configuration:
 
 ```bash
