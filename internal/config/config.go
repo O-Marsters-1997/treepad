@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 
 	"github.com/BurntSushi/toml"
+
+	"treepad/internal/hook"
 )
 
 const configFileName = ".treepad.toml"
@@ -80,6 +82,7 @@ type Config struct {
 	Sync     SyncConfig     `toml:"sync"`
 	Artifact ArtifactConfig `toml:"artifact"`
 	Open     OpenConfig     `toml:"open"`
+	Hooks    hook.Config    `toml:"hooks"`
 }
 
 // GlobalConfigPath returns the path to the global config file.
@@ -134,6 +137,9 @@ func Load(repoRoot string) (Config, error) {
 	}
 	if !fileCfg.Open.IsZero() {
 		cfg.Open = fileCfg.Open
+	}
+	if !fileCfg.Hooks.IsZero() {
+		cfg.Hooks = fileCfg.Hooks
 	}
 
 	slog.Debug("loaded .treepad.toml", "dir", repoRoot, "syncFiles", cfg.Sync.Files)

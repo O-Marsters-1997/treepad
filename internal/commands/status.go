@@ -7,6 +7,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"treepad/internal/artifact"
+	"treepad/internal/hook"
 	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
 	"treepad/internal/worktree"
@@ -29,6 +30,7 @@ func runStatus(ctx context.Context, cmd *cli.Command) error {
 		runner,
 		internalsync.FileSyncer{},
 		artifact.ExecOpener{Runner: runner},
+		hook.ExecRunner{Runner: runner},
 		os.Stdout,
 		os.Stdin,
 	)

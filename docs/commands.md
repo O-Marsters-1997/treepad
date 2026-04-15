@@ -10,6 +10,8 @@ tp workspace [options] [source-path]
 
 By default, uses the main worktree (the one with a `.git` directory) as the config source. Configs from `.vscode/`, `.claude/`, and `.env` files are copied to every other worktree. The artifact file generated is controlled by `.treepad.toml` and can be customized for any editor.
 
+**Hooks fired:** `pre_sync`/`post_sync` around each worktree's file sync. See [hooks.md](hooks.md).
+
 **Source resolution precedence:**
 1. Explicit `source-path` argument
 2. `--use-current` flag (current directory)
@@ -59,6 +61,8 @@ tp new [options] <branch>
 ```
 
 Creates a new worktree branched from a specified ref (default: `main`), syncs editor configs from the main worktree, and generates an artifact file as configured in `.treepad.toml`. By default, cd's into the new worktree directory when invoked via the shell wrapper (see [Shell integration](#shell-integration) below).
+
+**Hooks fired:** `pre_new` (before `git worktree add`), `pre_sync`/`post_sync` (around file sync), `post_new` (after artifact write). See [hooks.md](hooks.md).
 
 ### Flags
 
@@ -215,6 +219,8 @@ tp remove <branch>
 ```
 
 Removes the worktree for the specified branch, cleans up its associated artifact file (if any), and deletes the branch locally. Includes pre-flight safety guards to prevent accidental data loss.
+
+**Hooks fired:** `pre_remove` (before `git worktree remove`), `post_remove` (after `git branch -d`). See [hooks.md](hooks.md).
 
 ### Pre-flight guards
 
