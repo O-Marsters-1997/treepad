@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"treepad/internal/codeworkspace"
+	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
 	"treepad/internal/worktree"
 )
@@ -248,6 +250,111 @@ func TestServiceCreate(t *testing.T) {
 				Base:      "main",
 				OutputDir: outputDir,
 			})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func twoWorktreePorcelainWithMain(mainPath, featPath string) []byte {
+	return fmt.Appendf(nil,
+		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\nworktree %s\nHEAD def456\nbranch refs/heads/feat\n\n",
+		mainPath, featPath,
+	)
+}
+
+func TestServiceRemove(t *testing.T) {
+	mainPath := t.TempDir()
+	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	featPath := mainPath + "-feat"
+	outputDir := t.TempDir()
+	repoSlug := slug.Slug(filepath.Base(mainPath))
+	porcelain := twoWorktreePorcelainWithMain(mainPath, featPath)
+
+	t.Run("removes worktree, workspace file, and branch", func(t *testing.T) {
+		wsFile := filepath.Join(outputDir, codeworkspace.Filename(repoSlug, "feat"))
+		if err := os.WriteFile(wsFile, []byte("{}"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain}, // git worktree list
+			{},                  // git worktree remove
+			{},                  // git branch -d
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, err := os.Stat(wsFile); !os.IsNotExist(err) {
+			t.Error("workspace file should have been deleted")
+		}
+		if runner.idx != 3 {
+			t.Errorf("runner called %d times, want 3", runner.idx)
+		}
+	})
+
+	t.Run("workspace file missing is not an error", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{},
+			{},
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	errorTests := []struct {
+		name    string
+		runner  *seqRunner
+		wantErr string
+	}{
+		{
+			name: "git worktree list fails",
+			runner: &seqRunner{responses: []runResponse{
+				{err: errors.New("git not found")},
+			}},
+			wantErr: "git not found",
+		},
+		{
+			name: "branch not found in worktree list",
+			runner: &seqRunner{responses: []runResponse{
+				{output: mainWorktreePorcelain(mainPath)},
+			}},
+			wantErr: `no worktree found for branch "feat"`,
+		},
+		{
+			name: "git worktree remove fails",
+			runner: &seqRunner{responses: []runResponse{
+				{output: porcelain},
+				{err: errors.New("locked worktree")},
+			}},
+			wantErr: "locked worktree",
+		},
+		{
+			name: "git branch -d fails",
+			runner: &seqRunner{responses: []runResponse{
+				{output: porcelain},
+				{},
+				{err: errors.New("branch not found")},
+			}},
+			wantErr: "branch not found",
+		},
+	}
+	for _, tt := range errorTests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+			err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
 			}
