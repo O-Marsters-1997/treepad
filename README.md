@@ -54,6 +54,27 @@ treepad workspace --include ".prettierrc" --include ".eslintrc.json"
 treepad --verbose workspace
 ```
 
+**`create`** — Create a new git worktree with configs synced and workspace file generated:
+
+```bash
+# Create a new worktree for branch 'feature-x' branched from main
+treepad create feature-x
+
+# Create a worktree from a different base ref
+treepad create bugfix-y --base develop
+
+# Create a worktree and open the workspace file
+treepad create feature-z --open
+```
+
+**`remove`** — Remove a git worktree and its associated files:
+
+```bash
+# Remove a completed feature branch (switch out of it first)
+cd ../main-repo
+treepad remove feature-x
+```
+
 **`config`** — Manage treepad configuration:
 
 ```bash
