@@ -1,21 +1,37 @@
-// Package config loads optional per-repo configuration from .treepad.json.
+// Package config loads optional per-repo configuration from .treepad.toml.
 // All fields have sane defaults so the file is never required.
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/BurntSushi/toml"
 )
 
-const configFileName = ".treepad.json"
+const configFileName = ".treepad.toml"
 
-// DefaultSyncFiles is the baseline list of files synced across worktrees when
-// no .treepad.json is present or when sync.files is unset. Includes .vscode/*
-// patterns which work for VS Code, Cursor, and Windsurf out of the box.
+// legacyConfigFileName is the old JSON config name. Its presence triggers a
+// migration hint so users know to update.
+const legacyConfigFileName = ".treepad.json"
+
+// defaultArtifactFilenameTemplate and defaultArtifactContentTemplate produce
+// VS Code .code-workspace files — the default editor experience — when no
+// [artifact] block is present in .treepad.toml.
+const defaultArtifactFilenameTemplate = `{{.Slug}}-{{.Branch}}.code-workspace`
+const defaultArtifactContentTemplate = `{
+  "folders": [
+    {{- range $i, $w := .Worktrees}}
+    {{- if $i}},{{end}}
+    {"name": "{{$w.Branch}}", "path": "{{$w.RelPath}}"}
+    {{- end}}
+  ]
+}
+`
+
 func defaultSyncFiles() []string {
 	return []string{
 		".claude/settings.local.json",
@@ -29,17 +45,45 @@ func defaultSyncFiles() []string {
 	}
 }
 
+// SyncConfig holds file patterns to copy across worktrees.
 type SyncConfig struct {
-	// Files replaces DefaultSyncFiles entirely when non-empty.
-	Files []string `json:"files"`
+	// Files replaces defaultSyncFiles entirely when non-empty.
+	Files []string `toml:"files"`
 }
 
+// ArtifactConfig describes the per-worktree file to generate.
+// Both fields are text/template strings. Leave FilenameTemplate empty to skip
+// artifact generation.
+type ArtifactConfig struct {
+	FilenameTemplate string `toml:"filename"`
+	ContentTemplate  string `toml:"content"`
+}
+
+// IsZero reports whether no artifact is configured.
+func (a ArtifactConfig) IsZero() bool {
+	return a.FilenameTemplate == ""
+}
+
+// OpenConfig describes the command used by --open.
+// Each element of Command is a text/template string.
+type OpenConfig struct {
+	Command []string `toml:"command"`
+}
+
+// IsZero reports whether no open command is configured.
+func (o OpenConfig) IsZero() bool {
+	return len(o.Command) == 0
+}
+
+// Config is the full resolved configuration for a repo.
 type Config struct {
-	Sync SyncConfig `json:"sync"`
+	Sync     SyncConfig     `toml:"sync"`
+	Artifact ArtifactConfig `toml:"artifact"`
+	Open     OpenConfig     `toml:"open"`
 }
 
 // GlobalConfigPath returns the path to the global config file.
-// Resolution order: $TREEPAD_CONFIG → $XDG_CONFIG_HOME/treepad/config.json → ~/.config/treepad/config.json
+// Resolution order: $TREEPAD_CONFIG → $XDG_CONFIG_HOME/treepad/config.toml → ~/.config/treepad/config.toml
 func GlobalConfigPath() (string, error) {
 	if envPath := os.Getenv("TREEPAD_CONFIG"); envPath != "" {
 		return envPath, nil
@@ -52,18 +96,24 @@ func GlobalConfigPath() (string, error) {
 		}
 		xdg = filepath.Join(home, ".config")
 	}
-	return filepath.Join(xdg, "treepad", "config.json"), nil
+	return filepath.Join(xdg, "treepad", "config.toml"), nil
 }
 
-// Load reads .treepad.json from repoRoot. Returns defaults when the file is absent.
+// Load reads .treepad.toml from repoRoot. Returns defaults when the file is absent.
+// Returns an error with a migration hint when only the legacy .treepad.json is present.
 func Load(repoRoot string) (Config, error) {
-	cfg := Config{
-		Sync: SyncConfig{Files: defaultSyncFiles()},
-	}
+	cfg := defaults()
 
-	data, err := os.ReadFile(filepath.Join(repoRoot, configFileName))
+	tomlPath := filepath.Join(repoRoot, configFileName)
+	data, err := os.ReadFile(tomlPath)
 	if errors.Is(err, os.ErrNotExist) {
-		slog.Debug("no .treepad.json found, using defaults", "dir", repoRoot)
+		if _, jsonErr := os.Stat(filepath.Join(repoRoot, legacyConfigFileName)); jsonErr == nil {
+			return cfg, fmt.Errorf(
+				"found %s but treepad now uses TOML; move your config to %s or re-run `treepad config init --local`",
+				legacyConfigFileName, configFileName,
+			)
+		}
+		slog.Debug("no .treepad.toml found, using defaults", "dir", repoRoot)
 		return cfg, nil
 	}
 	if err != nil {
@@ -71,15 +121,32 @@ func Load(repoRoot string) (Config, error) {
 	}
 
 	var fileCfg Config
-	if err := json.Unmarshal(data, &fileCfg); err != nil {
+	if _, err := toml.Decode(string(data), &fileCfg); err != nil {
 		return cfg, fmt.Errorf("parsing %s: %w", configFileName, err)
 	}
 
-	// An explicit empty array ("files": []) is treated the same as unset — defaults apply.
+	// An explicit empty files array is treated as unset — defaults apply.
 	if len(fileCfg.Sync.Files) > 0 {
 		cfg.Sync.Files = fileCfg.Sync.Files
 	}
+	if !fileCfg.Artifact.IsZero() {
+		cfg.Artifact = fileCfg.Artifact
+	}
+	if !fileCfg.Open.IsZero() {
+		cfg.Open = fileCfg.Open
+	}
 
-	slog.Debug("loaded .treepad.json", "dir", repoRoot, "syncFiles", cfg.Sync.Files)
+	slog.Debug("loaded .treepad.toml", "dir", repoRoot, "syncFiles", cfg.Sync.Files)
 	return cfg, nil
+}
+
+func defaults() Config {
+	return Config{
+		Sync: SyncConfig{Files: defaultSyncFiles()},
+		Artifact: ArtifactConfig{
+			FilenameTemplate: defaultArtifactFilenameTemplate,
+			ContentTemplate:  defaultArtifactContentTemplate,
+		},
+		Open: OpenConfig{Command: []string{"open", "{{.ArtifactPath}}"}},
+	}
 }

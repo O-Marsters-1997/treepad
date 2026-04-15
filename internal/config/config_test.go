@@ -20,70 +20,114 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 func TestLoad(t *testing.T) {
-	tests := []struct {
-		name      string
-		setup     func(dir string)
-		wantFiles []string
-		wantErr   string
-	}{
-		{
-			name:      "no config file returns defaults",
-			setup:     func(dir string) {},
-			wantFiles: defaultSyncFiles(),
-		},
-		{
-			name: "valid config with custom files",
-			setup: func(dir string) {
-				writeFile(t, filepath.Join(dir, ".treepad.json"), `{"sync":{"files":["custom.txt"]}}`)
-			},
-			wantFiles: []string{"custom.txt"},
-		},
-		{
-			name: "empty files array falls back to defaults",
-			setup: func(dir string) {
-				writeFile(t, filepath.Join(dir, ".treepad.json"), `{"sync":{"files":[]}}`)
-			},
-			wantFiles: defaultSyncFiles(),
-		},
-		{
-			name: "invalid JSON returns error",
-			setup: func(dir string) {
-				writeFile(t, filepath.Join(dir, ".treepad.json"), `{invalid`)
-			},
-			wantErr: "parsing",
-		},
-		{
-			name: "unreadable file returns error",
-			setup: func(dir string) {
-				if err := os.Mkdir(filepath.Join(dir, ".treepad.json"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			},
-			wantErr: "reading",
-		},
-	}
+	t.Run("no config file returns defaults", func(t *testing.T) {
+		cfg, err := Load(t.TempDir())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(cfg.Sync.Files, defaultSyncFiles()) {
+			t.Errorf("Sync.Files = %v, want defaults", cfg.Sync.Files)
+		}
+		if cfg.Artifact.IsZero() {
+			t.Error("default Artifact should not be zero")
+		}
+		if cfg.Open.IsZero() {
+			t.Error("default Open should not be zero")
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			tt.setup(dir)
+	t.Run("valid config with custom sync files", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
+[sync]
+files = ["custom.txt"]
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(cfg.Sync.Files, []string{"custom.txt"}) {
+			t.Errorf("Sync.Files = %v, want [custom.txt]", cfg.Sync.Files)
+		}
+	})
 
-			cfg, err := Load(dir)
+	t.Run("empty files array falls back to defaults", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
+[sync]
+files = []
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(cfg.Sync.Files, defaultSyncFiles()) {
+			t.Errorf("Sync.Files = %v, want defaults", cfg.Sync.Files)
+		}
+	})
 
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("got error %v, want error containing %q", err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if !reflect.DeepEqual(cfg.Sync.Files, tt.wantFiles) {
-				t.Errorf("Sync.Files = %v, want %v", cfg.Sync.Files, tt.wantFiles)
-			}
-		})
-	}
+	t.Run("custom artifact section is loaded", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
+[artifact]
+filename = "{{.Slug}}.sublime-project"
+content = "{}"
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Artifact.FilenameTemplate != "{{.Slug}}.sublime-project" {
+			t.Errorf("Artifact.FilenameTemplate = %q", cfg.Artifact.FilenameTemplate)
+		}
+	})
+
+	t.Run("omitting artifact section retains default", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
+[sync]
+files = ["a.txt"]
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Artifact.IsZero() {
+			t.Error("omitting [artifact] should retain the default template")
+		}
+	})
+
+	t.Run("legacy .treepad.json returns migration error", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.json"), `{"sync":{"files":["a.txt"]}}`)
+
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), ".treepad.json") {
+			t.Fatalf("got error %v, want error mentioning .treepad.json", err)
+		}
+	})
+
+	t.Run("invalid TOML returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), `{invalid`)
+
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), "parsing") {
+			t.Fatalf("got error %v, want error containing %q", err, "parsing")
+		}
+	})
+
+	t.Run("unreadable file returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Mkdir(filepath.Join(dir, ".treepad.toml"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), "reading") {
+			t.Fatalf("got error %v, want error containing %q", err, "reading")
+		}
+	})
 }
 
 func TestDefaultSyncFiles(t *testing.T) {

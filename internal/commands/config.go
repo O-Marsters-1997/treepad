@@ -28,7 +28,7 @@ func configInitCommand() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "global",
-				Usage: "write to the global config path instead of .treepad.json in the main worktree",
+				Usage: "write to the global config path instead of .treepad.toml in the main worktree",
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {

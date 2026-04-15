@@ -8,14 +8,14 @@ import (
 	"github.com/urfave/cli/v3"
 
 	internalsync "treepad/internal/sync"
-	"treepad/internal/workspace"
+	"treepad/internal/treepad"
 	"treepad/internal/worktree"
 )
 
 func workspaceCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "workspace",
-		Usage:     "sync editor configs and generate workspace files across git worktrees",
+		Usage:     "sync configs and generate artifact files across git worktrees",
 		ArgsUsage: "[source-path]",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
@@ -25,16 +25,16 @@ func workspaceCommand() *cli.Command {
 			},
 			&cli.BoolFlag{
 				Name:  "sync-only",
-				Usage: "sync configs to all worktrees; skip workspace file generation",
+				Usage: "sync configs to all worktrees; skip artifact file generation",
 			},
 			&cli.StringFlag{
 				Name:    "output-dir",
 				Aliases: []string{"o"},
-				Usage:   "directory for generated workspace files (default: ~/<repo-slug>-workspaces/)",
+				Usage:   "directory for generated artifact files (default: ~/<repo-slug>-workspaces/)",
 			},
 			&cli.StringSliceFlag{
 				Name:  "include",
-				Usage: "additional file patterns to sync (appended to sync.files in .treepad.json)",
+				Usage: "additional file patterns to sync (appended to sync.files in .treepad.toml)",
 			},
 		},
 		Action: runWorkspace,
@@ -49,8 +49,8 @@ func runWorkspace(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	svc := workspace.NewService(worktree.ExecRunner{}, internalsync.FileSyncer{}, nil, os.Stdout)
-	return svc.Generate(ctx, workspace.GenerateInput{
+	svc := treepad.NewService(worktree.ExecRunner{}, internalsync.FileSyncer{}, nil, os.Stdout)
+	return svc.Generate(ctx, treepad.GenerateInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,
 		SyncOnly:      cmd.Bool("sync-only"),

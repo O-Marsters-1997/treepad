@@ -7,15 +7,16 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"treepad/internal/artifact"
 	internalsync "treepad/internal/sync"
-	"treepad/internal/workspace"
+	"treepad/internal/treepad"
 	"treepad/internal/worktree"
 )
 
 func createCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "create",
-		Usage:     "create a new git worktree, sync configs, and generate a workspace file",
+		Usage:     "create a new git worktree, sync configs, and generate an artifact file",
 		ArgsUsage: "<branch>",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -26,7 +27,7 @@ func createCommand() *cli.Command {
 			&cli.BoolFlag{
 				Name:    "open",
 				Aliases: []string{"o"},
-				Usage:   "open the generated workspace file after creation",
+				Usage:   "open the generated artifact file after creation",
 			},
 		},
 		Action: runCreate,
@@ -40,13 +41,13 @@ func runCreate(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	runner := worktree.ExecRunner{}
-	svc := workspace.NewService(
+	svc := treepad.NewService(
 		runner,
 		internalsync.FileSyncer{},
-		workspace.ExecOpener{Runner: runner},
+		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
 	)
-	return svc.Create(ctx, workspace.CreateInput{
+	return svc.Create(ctx, treepad.CreateInput{
 		Branch: branch,
 		Base:   cmd.String("base"),
 		Open:   cmd.Bool("open"),

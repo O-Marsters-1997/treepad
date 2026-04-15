@@ -2,13 +2,13 @@
 
 ## workspace
 
-Syncs editor configs and generates `.code-workspace` files across all git worktrees. Works with VS Code, Cursor, and Windsurf out of the box.
+Syncs editor configs and generates artifact files across all git worktrees. By default, generates VS Code `.code-workspace` files.
 
 ```
 treepad workspace [options] [source-path]
 ```
 
-By default, uses the main worktree (the one with a `.git` directory) as the config source. Configs from `.vscode/`, `.claude/`, and `.env` files are copied to every other worktree.
+By default, uses the main worktree (the one with a `.git` directory) as the config source. Configs from `.vscode/`, `.claude/`, and `.env` files are copied to every other worktree. The artifact file generated is controlled by `.treepad.toml` and can be customized for any editor.
 
 **Source resolution precedence:**
 1. Explicit `source-path` argument
@@ -20,23 +20,23 @@ By default, uses the main worktree (the one with a `.git` directory) as the conf
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--use-current` | `-c` | Use current directory as config source instead of the main worktree |
-| `--sync-only` | | Sync configs only; skip `.code-workspace` file generation |
-| `--output-dir` | `-o` | Directory for generated `.code-workspace` files (default: `~/<repo-slug>-workspaces/`) |
-| `--include` | | Additional file patterns to sync (appended to `sync.files` in `.treepad.json`) |
+| `--sync-only` | | Sync configs only; skip artifact file generation |
+| `--output-dir` | `-o` | Directory for generated artifact files (default: `~/<repo-slug>-workspaces/`) |
+| `--include` | | Additional file patterns to sync (appended to `sync.files` in `.treepad.toml`) |
 
 ### Examples
 
 ```bash
-# Generate .code-workspace files and sync configs from the main worktree
+# Generate artifact files and sync configs from the main worktree
 treepad workspace
 
-# Sync configs only (no workspace files generated)
+# Sync configs only (no artifact files generated)
 treepad workspace --sync-only
 
 # Use the current directory as the config source
 treepad workspace --use-current
 
-# Write workspace files to a custom directory
+# Write artifact files to a custom directory
 treepad workspace --output-dir ~/my-workspaces
 
 # Use an explicit repo path as the config source
@@ -52,20 +52,20 @@ See [configuration.md](configuration.md) for the full schema, defaults, and exam
 
 ## create
 
-Create a new git worktree, sync configs from the main worktree, and generate a workspace file for it.
+Create a new git worktree, sync configs from the main worktree, and generate an artifact file for it.
 
 ```
 treepad create [options] <branch>
 ```
 
-Creates a new worktree branched from a specified ref (default: `main`), syncs editor configs from the main worktree, and generates a `.code-workspace` file for quick access.
+Creates a new worktree branched from a specified ref (default: `main`), syncs editor configs from the main worktree, and generates an artifact file as configured in `.treepad.toml`.
 
 ### Flags
 
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--base` | | Ref to branch the new worktree from (default: `main`) |
-| `--open` | `-o` | Open the generated workspace file immediately after creation |
+| `--open` | `-o` | Open the generated artifact file (using the command specified in `[open].command`) |
 
 ### Examples
 
@@ -76,7 +76,7 @@ treepad create feature-x
 # Create a worktree from a different base ref
 treepad create bugfix-y --base develop
 
-# Create a worktree and open the generated workspace file
+# Create a worktree and open the generated artifact file
 treepad create feature-z --open
 
 # Shorthand with flags combined
@@ -99,13 +99,13 @@ Write a config file with default values.
 treepad config init [--global]
 ```
 
-By default, writes `.treepad.json` to the main worktree root (the directory containing `.git`). Use the `--global` flag to write to the global config path instead.
+By default, writes `.treepad.toml` to the main worktree root (the directory containing `.git`). Use the `--global` flag to write to the global config path instead.
 
 #### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--global` | Write to the global config path instead of `.treepad.json` in the main worktree |
+| `--global` | Write to the global config path instead of `.treepad.toml` in the main worktree |
 
 #### Examples
 
@@ -126,8 +126,8 @@ treepad config show
 ```
 
 Displays the final configuration that would be used, along with information about which source(s) contributed to it. Resolution order is:
-1. Local `.treepad.json` in the main worktree
-2. Global config file (from `$TREEPAD_CONFIG`, `$XDG_CONFIG_HOME`, or `~/.config`)
+1. Local `.treepad.toml` in the main worktree
+2. Global config file (from `$TREEPAD_CONFIG`, `$XDG_CONFIG_HOME/treepad/config.toml`, or `~/.config/treepad/config.toml`)
 3. Built-in defaults
 
 #### Examples
@@ -141,30 +141,28 @@ This will output something like:
 
 ```
 Sources:
-  local:  /path/to/repo/.treepad.json
+  local:  /path/to/repo/.treepad.toml
 
 Config:
-{
-  "sync": {
-    "files": [
-      ".claude/settings.local.json",
-      ".env"
-    ]
-  }
-}
+[sync]
+files = [".claude/settings.local.json", ".env"]
+
+[artifact]
+filename = "myrepo-{{.Branch}}.code-workspace"
+content = "..."
 ```
 
 See [configuration.md](configuration.md) for details on the configuration schema and defaults.
 
 ## remove
 
-Remove a git worktree, delete its `.code-workspace` file, and delete the local branch.
+Remove a git worktree, delete its artifact file, and delete the local branch.
 
 ```
 treepad remove <branch>
 ```
 
-Removes the worktree for the specified branch, cleans up its associated `.code-workspace` file, and deletes the branch locally. Includes pre-flight safety guards to prevent accidental data loss.
+Removes the worktree for the specified branch, cleans up its associated artifact file (if any), and deletes the branch locally. Includes pre-flight safety guards to prevent accidental data loss.
 
 ### Pre-flight guards
 
