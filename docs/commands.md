@@ -84,6 +84,37 @@ treepad new feature-z --open
 treepad new my-branch -c
 ```
 
+## cd
+
+cd into an existing worktree by branch name.
+
+```
+treepad cd <branch>
+```
+
+Looks up the worktree registered under `<branch>` from `git worktree list` and emits a `__TREEPAD_CD__` directive. The shell wrapper installed by `shell-init` intercepts it and changes the current directory. No flags — positional branch argument only.
+
+If the branch has no associated worktree, an error is returned with a suggestion to use `treepad new <branch>`.
+
+### Setup
+
+Requires the shell wrapper (same as `new`):
+
+```sh
+eval "$(treepad shell-init)"
+```
+
+### Examples
+
+```bash
+# cd into an existing worktree
+treepad cd feature-x
+
+# Run the binary directly to inspect the directive
+command treepad cd feature-x
+# => __TREEPAD_CD__	/path/to/repo-feature-x
+```
+
 ## shell-init
 
 Print a shell wrapper function that enables `treepad new` to cd into the new worktree automatically.
