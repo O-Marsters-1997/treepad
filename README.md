@@ -112,6 +112,16 @@ treepad prune --dry-run
 treepad prune --base develop
 ```
 
+**`status`** — List all worktrees with their branch, dirty state, ahead/behind count, and last commit:
+
+```bash
+# Show status of all worktrees in a table
+treepad status
+
+# Emit JSON for scripting or dashboards
+treepad status --json
+```
+
 **`config`** — Manage treepad configuration:
 
 ```bash

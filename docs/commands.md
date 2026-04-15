@@ -265,3 +265,78 @@ removed worktree: /path/to/repo/repo-feature-y
 removed artifact: /home/user/repo-workspaces/repo-feature-y.code-workspace
 deleted branch: feature-y
 ```
+
+## status
+
+List all worktrees in the repo with their branch, dirty state, ahead/behind count vs upstream, last commit, and last-touched time (from artifact file mtime).
+
+```
+treepad status [options]
+```
+
+Provides a repo-wide snapshot of all active worktrees, showing which ones have uncommitted changes, how they diverge from their upstream branches, and when they were last modified by agents or editors.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Emit JSON array instead of an aligned table |
+
+### Output Columns (Table Format)
+
+| Column | Meaning |
+|--------|---------|
+| `BRANCH` | Branch name, with `*` suffix if main worktree |
+| `STATUS` | `clean` or `dirty` (has uncommitted changes) |
+| `AHEAD/BEHIND` | `↑N ↓M` vs upstream, or `—` if no upstream configured |
+| `LAST COMMIT` | Short SHA, subject, and relative time (e.g. `abc1234 fix thing · 3m`) |
+| `TOUCHED` | Relative time since artifact file was last modified, or `—` if no artifact |
+| `PATH` | Absolute path (collapsed to `~/...` when under home directory) |
+
+### Examples
+
+```bash
+# Show status of all worktrees in a table
+treepad status
+
+# Emit JSON for scripting or dashboards
+treepad status --json
+
+# Combine with standard tools
+treepad status | grep dirty
+treepad status --json | jq '.[] | select(.dirty == true)'
+```
+
+### Output Examples
+
+**Table output:**
+
+```
+BRANCH                   STATUS  AHEAD/BEHIND  LAST COMMIT                            TOUCHED  PATH
+main *                   dirty   ↑0 ↓0         ea69222 Merge PR #33 · 1h             1d       ~/treepad
+feat/status              clean   —             ea69222 Merge PR #33 · 1h             18m      ~/treepad-feat-status
+task/remove-guards       clean   ↑0 ↓6         8305b88 add pre-flight guards · 6h    —        ~/treepad-remove-guards
+```
+
+**JSON output (pretty-printed):**
+
+```json
+[
+  {
+    "branch": "main",
+    "path": "/Users/user/treepad",
+    "is_main": true,
+    "dirty": true,
+    "ahead": 0,
+    "behind": 0,
+    "has_upstream": true,
+    "last_commit": {
+      "sha": "ea69222",
+      "subject": "Merge pull request #33",
+      "committed": "2026-04-15T15:07:51+01:00"
+    },
+    "artifact_path": "/Users/user/treepad-workspaces/treepad-main.code-workspace",
+    "last_touched": "2026-04-13T20:07:27.882Z"
+  }
+]
+```

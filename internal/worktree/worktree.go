@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type CommandRunner interface {
@@ -122,6 +124,73 @@ func MergedBranches(ctx context.Context, runner CommandRunner, base string) ([]s
 		branches = append(branches, line)
 	}
 	return branches, nil
+}
+
+// CommitInfo holds summary information about a single git commit.
+type CommitInfo struct {
+	ShortSHA  string    `json:"sha"`
+	Subject   string    `json:"subject"`
+	Committed time.Time `json:"committed"`
+}
+
+// Dirty reports whether the worktree at path has uncommitted changes.
+func Dirty(ctx context.Context, runner CommandRunner, path string) (bool, error) {
+	out, err := runner.Run(ctx, "git", "-C", path, "status", "--porcelain")
+	if err != nil {
+		return false, fmt.Errorf("git status: %w", err)
+	}
+	return len(bytes.TrimSpace(out)) > 0, nil
+}
+
+// AheadBehind returns the number of commits the branch at path is ahead of and
+// behind its upstream. hasUpstream is false when no upstream is configured; this
+// is not an error.
+func AheadBehind(ctx context.Context, runner CommandRunner, path string) (ahead, behind int, hasUpstream bool, err error) {
+	if _, err := runner.Run(ctx, "git", "-C", path, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil {
+		return 0, 0, false, nil
+	}
+	out, err := runner.Run(ctx, "git", "-C", path, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
+	if err != nil {
+		return 0, 0, true, fmt.Errorf("git rev-list: %w", err)
+	}
+	parts := strings.Fields(strings.TrimSpace(string(out)))
+	if len(parts) != 2 {
+		return 0, 0, true, fmt.Errorf("unexpected rev-list output: %q", string(out))
+	}
+	a, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, true, fmt.Errorf("parse ahead count: %w", err)
+	}
+	b, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, true, fmt.Errorf("parse behind count: %w", err)
+	}
+	return a, b, true, nil
+}
+
+// LastCommit returns summary information about the HEAD commit of the worktree at path.
+func LastCommit(ctx context.Context, runner CommandRunner, path string) (CommitInfo, error) {
+	out, err := runner.Run(ctx, "git", "-C", path, "log", "-1", "--format=%h%x00%s%x00%cI")
+	if err != nil {
+		return CommitInfo{}, fmt.Errorf("git log: %w", err)
+	}
+	trimmed := strings.TrimRight(string(out), "\n")
+	if trimmed == "" {
+		return CommitInfo{}, nil
+	}
+	parts := strings.SplitN(trimmed, "\x00", 3)
+	if len(parts) != 3 {
+		return CommitInfo{}, fmt.Errorf("unexpected log output: %q", string(out))
+	}
+	committed, err := time.Parse(time.RFC3339, parts[2])
+	if err != nil {
+		return CommitInfo{}, fmt.Errorf("parse commit time %q: %w", parts[2], err)
+	}
+	return CommitInfo{
+		ShortSHA:  parts[0],
+		Subject:   parts[1],
+		Committed: committed,
+	}, nil
 }
 
 func isMainWorktree(path string) bool {
