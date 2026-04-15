@@ -45,6 +45,7 @@ type CreateInput struct {
 
 type RemoveInput struct {
 	Branch    string
+	Force     bool
 	OutputDir string
 	// Cwd overrides os.Getwd for testing the cwd-inside guard.
 	Cwd string
@@ -196,7 +197,11 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 		return fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
 	}
 
-	if _, err := s.runner.Run(ctx, "git", "worktree", "remove", target.Path); err != nil {
+	wtRemoveArgs := []string{"worktree", "remove", target.Path}
+	if in.Force {
+		wtRemoveArgs = []string{"worktree", "remove", "--force", target.Path}
+	}
+	if _, err := s.runner.Run(ctx, "git", wtRemoveArgs...); err != nil {
 		return fmt.Errorf("git worktree remove: %w", err)
 	}
 	_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
@@ -211,8 +216,12 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 	}
 	_, _ = fmt.Fprintf(s.out, "removed workspace file: %s\n", wsPath)
 
-	if _, err := s.runner.Run(ctx, "git", "branch", "-d", in.Branch); err != nil {
-		return fmt.Errorf("git branch -d: %w", err)
+	branchFlag := "-d"
+	if in.Force {
+		branchFlag = "-D"
+	}
+	if _, err := s.runner.Run(ctx, "git", "branch", branchFlag, in.Branch); err != nil {
+		return fmt.Errorf("git branch %s: %w", branchFlag, err)
 	}
 	_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", in.Branch)
 

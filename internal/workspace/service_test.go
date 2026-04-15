@@ -57,6 +57,23 @@ func (s *seqRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error
 	return r.output, r.err
 }
 
+// recRunner records every call's args in order alongside its canned response.
+type recRunner struct {
+	responses []runResponse
+	calls     [][]string
+	idx       int
+}
+
+func (r *recRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	r.calls = append(r.calls, append([]string{name}, args...))
+	if r.idx >= len(r.responses) {
+		return nil, fmt.Errorf("unexpected runner call %d", r.idx)
+	}
+	resp := r.responses[r.idx]
+	r.idx++
+	return resp.output, resp.err
+}
+
 // fakeOpener records calls and returns a configured error.
 type fakeOpener struct {
 	calls []string
@@ -257,6 +274,15 @@ func TestServiceCreate(t *testing.T) {
 	}
 }
 
+func contains(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 func twoWorktreePorcelainWithMain(mainPath, featPath string) []byte {
 	return fmt.Appendf(nil,
 		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\nworktree %s\nHEAD def456\nbranch refs/heads/feat\n\n",
@@ -297,6 +323,31 @@ func TestServiceRemove(t *testing.T) {
 		}
 		if runner.idx != 3 {
 			t.Errorf("runner called %d times, want 3", runner.idx)
+		}
+	})
+
+	t.Run("--force uses git worktree remove --force and git branch -D", func(t *testing.T) {
+		runner := &recRunner{responses: []runResponse{
+			{output: porcelain},
+			{}, // git worktree remove --force
+			{}, // git branch -D
+		}}
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
+
+		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", Force: true, OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(runner.calls) != 3 {
+			t.Fatalf("runner called %d times, want 3", len(runner.calls))
+		}
+		wtArgs := runner.calls[1]
+		if len(wtArgs) < 2 || wtArgs[1] != "worktree" || !contains(wtArgs, "--force") {
+			t.Errorf("expected 'git worktree remove --force ...', got %v", wtArgs)
+		}
+		branchArgs := runner.calls[2]
+		if len(branchArgs) < 2 || !contains(branchArgs, "-D") {
+			t.Errorf("expected 'git branch -D ...', got %v", branchArgs)
 		}
 	})
 
