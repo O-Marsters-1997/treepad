@@ -17,7 +17,14 @@ func removeCommand() *cli.Command {
 		Name:      "remove",
 		Usage:     "remove a git worktree and its associated files",
 		ArgsUsage: "<branch>",
-		Action:    runRemove,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "force",
+				Aliases: []string{"f"},
+				Usage:   "discard uncommitted changes and force-delete unmerged branch",
+			},
+		},
+		Action: runRemove,
 	}
 }
 
@@ -34,5 +41,8 @@ func runRemove(ctx context.Context, cmd *cli.Command) error {
 		workspace.ExecOpener{Runner: runner},
 		os.Stdout,
 	)
-	return svc.Remove(ctx, workspace.RemoveInput{Branch: branch})
+	return svc.Remove(ctx, workspace.RemoveInput{
+		Branch: branch,
+		Force:  cmd.Bool("force"),
+	})
 }
