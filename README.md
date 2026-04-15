@@ -121,6 +121,15 @@ treepad prune --dry-run
 treepad prune --base develop
 ```
 
+**`switch`** — cd into an existing worktree by branch name:
+
+```bash
+# Switch into an existing worktree (cd's automatically via shell integration)
+treepad switch feature-x
+```
+
+> Requires `eval "$(treepad shell-init)"` in your shell rc — the same wrapper used by `new`.
+
 **`status`** — List all worktrees with their branch, dirty state, ahead/behind count, and last commit:
 
 ```bash

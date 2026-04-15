@@ -193,6 +193,16 @@ func LastCommit(ctx context.Context, runner CommandRunner, path string) (CommitI
 	}, nil
 }
 
+// FindByBranch returns the worktree whose Branch matches exactly, or false if none.
+func FindByBranch(wts []Worktree, branch string) (Worktree, bool) {
+	for _, wt := range wts {
+		if wt.Branch == branch {
+			return wt, true
+		}
+	}
+	return Worktree{}, false
+}
+
 func isMainWorktree(path string) bool {
 	info, err := os.Stat(filepath.Join(path, ".git"))
 	return err == nil && info.IsDir()
