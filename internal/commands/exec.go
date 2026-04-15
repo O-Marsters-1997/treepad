@@ -33,7 +33,7 @@ func runExec(ctx context.Context, cmd *cli.Command) error {
 		cmdArgs = args[2:]
 	}
 
-	d := treepad.DefaultDeps(cmd.Root().Writer, os.Stdin)
+	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
 	exitCode, err := treepad.Exec(ctx, d, treepad.ExecInput{
 		Branch:  branch,
 		Command: command,

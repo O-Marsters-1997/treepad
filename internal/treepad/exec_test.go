@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"treepad/internal/ui"
 )
 
 // fakePassthroughRunner records calls and returns a canned exit code.
@@ -101,7 +103,7 @@ func TestExec_dispatch(t *testing.T) {
 			cwdSame:      true,
 			wantCallName: "just",
 			wantCallArgs: []string{"build"},
-			wantOutput:   []string{"warning"},
+			wantOutput:   []string{"already in this worktree"},
 		},
 		{
 			name:       "no command lists detected runner and scripts",
@@ -143,7 +145,7 @@ func TestExec_dispatch(t *testing.T) {
 			pt := &fakePassthroughRunner{exitCode: tt.fakeExitCode}
 			var out bytes.Buffer
 			porcelain := worktreePorcelainWithPath("feat", dir)
-			d := Deps{Runner: fakeRunner{output: porcelain}, Syncer: &fakeSyncer{}, Out: &out, In: strings.NewReader("")}
+			d := Deps{Runner: fakeRunner{output: porcelain}, Syncer: &fakeSyncer{}, Out: &out, Log: ui.New(&out), In: strings.NewReader("")}
 
 			exitCode, err := Exec(context.Background(), d, ExecInput{
 				Branch:  "feat",

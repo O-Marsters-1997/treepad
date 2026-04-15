@@ -23,7 +23,7 @@ func pruneCommand() *cli.Command {
 }
 
 func runPrune(ctx context.Context, cmd *cli.Command) error {
-	d := treepad.DefaultDeps(cmd.Root().Writer, os.Stdin)
+	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
 	return treepad.Prune(ctx, d, treepad.PruneInput{
 		Base:   cmd.String("base"),
 		DryRun: cmd.Bool("dry-run"),

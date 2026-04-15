@@ -57,20 +57,20 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 			continue
 		}
 		if rel, relErr := filepath.Rel(wt.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
-			_, _ = fmt.Fprintf(d.Out, "skipping %s: currently in this worktree\n", wt.Branch)
+			d.Log.Warn("skipping %s: currently in this worktree", wt.Branch)
 			continue
 		}
 		candidates = append(candidates, wt)
 	}
 
 	if len(candidates) == 0 {
-		_, _ = fmt.Fprintln(d.Out, "no merged worktrees to remove")
+		d.Log.Info("no merged worktrees to remove")
 		return nil
 	}
 
 	if in.DryRun {
 		for _, c := range candidates {
-			_, _ = fmt.Fprintf(d.Out, "would remove: %s (%s)\n", c.Branch, c.Path)
+			d.Log.Info("would remove: %s (%s)", c.Branch, c.Path)
 		}
 		return nil
 	}
@@ -78,7 +78,7 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 	var failed []string
 	for _, c := range candidates {
 		if err := removeWorktreeAndArtifact(ctx, d, c, rc.Main, rc.OutputDir, false); err != nil {
-			_, _ = fmt.Fprintf(d.Out, "error removing %s: %v\n", c.Branch, err)
+			d.Log.Err("error removing %s: %v", c.Branch, err)
 			failed = append(failed, c.Branch)
 		}
 	}
@@ -104,33 +104,33 @@ func pruneAll(ctx context.Context, d Deps, worktrees []worktree.Worktree, main w
 	}
 
 	if len(candidates) == 0 {
-		_, _ = fmt.Fprintln(d.Out, "no worktrees to remove")
+		d.Log.Info("no worktrees to remove")
 		return nil
 	}
 
 	if dryRun {
 		for _, c := range candidates {
-			_, _ = fmt.Fprintf(d.Out, "would remove: %s (%s)\n", c.Branch, c.Path)
+			d.Log.Info("would remove: %s (%s)", c.Branch, c.Path)
 		}
 		return nil
 	}
 
-	_, _ = fmt.Fprintln(d.Out, "the following worktrees will be force-removed:")
+	d.Log.Step("the following worktrees will be force-removed:")
 	for _, c := range candidates {
-		_, _ = fmt.Fprintf(d.Out, "  %s  %s\n", c.Branch, c.Path)
+		d.Log.Info("%s  %s", c.Branch, c.Path)
 	}
-	_, _ = fmt.Fprint(d.Out, "continue? [y/N]: ")
+	d.Log.Prompt("continue? [y/N]: ")
 
 	line, _ := bufio.NewReader(d.In).ReadString('\n')
 	if answer := strings.ToLower(strings.TrimSpace(line)); answer != "y" && answer != "yes" {
-		_, _ = fmt.Fprintln(d.Out, "aborted")
+		d.Log.Warn("aborted")
 		return nil
 	}
 
 	var failed []string
 	for _, c := range candidates {
 		if err := removeWorktreeAndArtifact(ctx, d, c, main, outputDir, true); err != nil {
-			_, _ = fmt.Fprintf(d.Out, "error removing %s: %v\n", c.Branch, err)
+			d.Log.Err("error removing %s: %v", c.Branch, err)
 			failed = append(failed, c.Branch)
 		}
 	}

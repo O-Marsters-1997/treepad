@@ -72,7 +72,7 @@ func Exec(ctx context.Context, d Deps, in ExecInput) (int, error) {
 		}
 	}
 	if filepath.Clean(wt.Path) == filepath.Clean(cwd) {
-		_, _ = fmt.Fprintln(d.Out, "warning: already in this worktree; consider invoking the runner directly")
+		d.Log.Warn("already in this worktree; consider invoking the runner directly")
 	}
 
 	cfg, err := config.Load(wt.Path)

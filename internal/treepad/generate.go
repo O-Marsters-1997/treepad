@@ -35,7 +35,7 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 		return fmt.Errorf("resolve source directory: %w", err)
 	}
 	slog.Debug("resolved source directory", "sourceDir", sourceDir, "useCurrentDir", in.UseCurrentDir, "sourcePath", in.SourcePath)
-	_, _ = fmt.Fprintf(d.Out, "using config source: %s\n", sourceDir)
+	d.Log.Info("using config source: %s", sourceDir)
 
 	repoSlug := slug.Slug(filepath.Base(sourceDir))
 
@@ -58,7 +58,7 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 	}
 
 	if !in.SyncOnly {
-		_, _ = fmt.Fprintf(d.Out, "\ngenerating artifact files → %s\n", outputDir)
+		d.Log.Step("generating artifact files → %s", outputDir)
 		for _, wt := range worktrees {
 			data := templateData(repoSlug, wt.Branch, wt.Path, outputDir)
 			path, err := artifact.Write(artifactSpec(cfg.Artifact), outputDir, data)
@@ -66,15 +66,15 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 				return fmt.Errorf("write artifact for %s: %w", wt.Branch, err)
 			}
 			if path != "" {
-				_, _ = fmt.Fprintf(d.Out, "  created %s\n", filepath.Base(path))
+				d.Log.OK("created %s", filepath.Base(path))
 			}
 		}
 	}
 
 	if in.SyncOnly {
-		_, _ = fmt.Fprintln(d.Out, "\ndone: config sync complete")
+		d.Log.OK("done: config sync complete")
 	} else {
-		_, _ = fmt.Fprintln(d.Out, "\ndone: artifact files generated and configs synced")
+		d.Log.OK("done: artifact files generated and configs synced")
 	}
 	return nil
 }

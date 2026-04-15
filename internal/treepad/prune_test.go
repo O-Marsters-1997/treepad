@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"treepad/internal/slug"
+	"treepad/internal/ui"
 )
 
 func TestPrune(t *testing.T) {
@@ -185,7 +186,7 @@ func TestPrune(t *testing.T) {
 			{output: threePorcelain}, // git worktree list
 		}}
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("")}
 
 		err := Prune(context.Background(), deps, PruneInput{
 			All:       true,
@@ -213,7 +214,7 @@ func TestPrune(t *testing.T) {
 			{output: twoPorcelain}, // git worktree list
 		}}
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("n\n")}
+		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("n\n")}
 
 		err := Prune(context.Background(), deps, PruneInput{
 			All:       true,

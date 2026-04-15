@@ -30,9 +30,9 @@ func loadAndSync(d Deps, sourceDir string, extraPatterns []string, targets []syn
 	patterns := slices.Concat(cfg.Sync.Files, extraPatterns)
 	slog.Debug("sync patterns", "patterns", patterns)
 
-	_, _ = fmt.Fprintln(d.Out, "\nsyncing configs to worktrees...")
+	d.Log.Step("syncing configs to worktrees...")
 	for _, t := range targets {
-		_, _ = fmt.Fprintf(d.Out, "  → %s (%s)\n", t.branch, t.path)
+		d.Log.Info("→ %s (%s)", t.branch, t.path)
 		if err := d.Syncer.Sync(patterns, internalsync.Config{
 			SourceDir: sourceDir,
 			TargetDir: t.path,

@@ -30,7 +30,7 @@ func New(ctx context.Context, d Deps, in NewInput) error {
 	if _, err := d.Runner.Run(ctx, "git", "worktree", "add", "-b", in.Branch, worktreePath, in.Base); err != nil {
 		return fmt.Errorf("git worktree add: %w", err)
 	}
-	_, _ = fmt.Fprintf(d.Out, "created worktree at %s\n", worktreePath)
+	d.Log.OK("created worktree at %s", worktreePath)
 
 	cfg, err := loadAndSync(d, rc.Main.Path, nil, []syncTarget{{path: worktreePath, branch: in.Branch}})
 	if err != nil {
@@ -49,7 +49,7 @@ func New(ctx context.Context, d Deps, in NewInput) error {
 		if artifactPath != "" {
 			openPath = artifactPath
 		}
-		_, _ = fmt.Fprintln(d.Out, "opening...")
+		d.Log.Step("opening...")
 		openSpec := artifact.OpenSpec{Command: cfg.Open.Command}
 		openData := artifact.OpenData{
 			ArtifactPath: openPath,

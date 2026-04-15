@@ -47,7 +47,7 @@ func runWorkspace(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
 	}
 
-	d := treepad.DefaultDeps(cmd.Root().Writer, os.Stdin)
+	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
 	return treepad.Generate(ctx, d, treepad.GenerateInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,

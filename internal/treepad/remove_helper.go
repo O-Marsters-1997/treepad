@@ -30,7 +30,7 @@ func removeWorktreeAndArtifact(ctx context.Context, d Deps, target, main worktre
 	if _, err := d.Runner.Run(ctx, "git", removeArgs...); err != nil {
 		return fmt.Errorf("%s: %w", removeVerb, err)
 	}
-	_, _ = fmt.Fprintf(d.Out, "removed worktree: %s\n", target.Path)
+	d.Log.OK("removed worktree: %s", target.Path)
 
 	cfg, err := config.Load(main.Path)
 	if err != nil {
@@ -47,13 +47,13 @@ func removeWorktreeAndArtifact(ctx context.Context, d Deps, target, main worktre
 		if err := os.Remove(artifactPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove artifact: %w", err)
 		}
-		_, _ = fmt.Fprintf(d.Out, "removed artifact: %s\n", artifactPath)
+		d.Log.OK("removed artifact: %s", artifactPath)
 	}
 
 	if _, err := d.Runner.Run(ctx, "git", "branch", branchFlag, target.Branch); err != nil {
 		return fmt.Errorf("%s: %w", branchVerb, err)
 	}
-	_, _ = fmt.Fprintf(d.Out, "deleted branch: %s\n", target.Branch)
+	d.Log.OK("deleted branch: %s", target.Branch)
 
 	return nil
 }
