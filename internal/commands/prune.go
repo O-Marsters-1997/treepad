@@ -18,7 +18,7 @@ func pruneCommand() *cli.Command {
 		Usage: "remove worktrees whose branches are merged into a base branch",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "base", Value: "main", Usage: "base branch to check merges against"},
-			&cli.BoolFlag{Name: "confirm", Usage: "execute removals (default: dry-run)"},
+			&cli.BoolFlag{Name: "dry-run", Usage: "preview removals without executing"},
 		},
 		Action: runPrune,
 	}
@@ -33,7 +33,7 @@ func runPrune(ctx context.Context, cmd *cli.Command) error {
 		os.Stdout,
 	)
 	return svc.Prune(ctx, treepad.PruneInput{
-		Base:    cmd.String("base"),
-		Confirm: cmd.Bool("confirm"),
+		Base:   cmd.String("base"),
+		DryRun: cmd.Bool("dry-run"),
 	})
 }

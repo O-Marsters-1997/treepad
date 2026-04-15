@@ -188,3 +188,80 @@ Attempting to remove the main worktree or the worktree you're currently in will 
 cannot remove the main worktree
 cannot remove the worktree you are currently in; cd elsewhere first
 ```
+
+## prune
+
+Remove all worktrees whose branches are already merged into a base branch. Useful for batch-cleaning completed work.
+
+```
+treepad prune [options]
+```
+
+Automatically identifies and removes worktrees whose branches have been merged into a base branch (default: `main`). Executes removals directly; pass `--dry-run` to preview without making changes.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--base` | Ref to check merges against (default: `main`) |
+| `--dry-run` | Preview removals without executing |
+
+### Filtering
+
+Prune automatically skips:
+- The main worktree
+- Detached HEAD worktrees
+- The worktree you are currently in (continues to next rather than failing)
+
+### Examples
+
+```bash
+# Remove all worktrees merged into main
+treepad prune
+
+# Preview without executing
+treepad prune --dry-run
+
+# Check merges against a different base branch
+treepad prune --base develop
+
+# Preview against a different base
+treepad prune --base develop --dry-run
+```
+
+### Output Examples
+
+**Execution output (default):**
+
+```
+removed worktree: /path/to/repo/repo-feature-x
+removed artifact: /home/user/repo-workspaces/repo-feature-x.code-workspace
+deleted branch: feature-x
+removed worktree: /path/to/repo/repo-feature-y
+removed artifact: /home/user/repo-workspaces/repo-feature-y.code-workspace
+deleted branch: feature-y
+```
+
+**Dry-run output (`--dry-run`):**
+
+```
+would remove: feature-x (/path/to/repo/repo-feature-x)
+would remove: feature-y (/path/to/repo/repo-feature-y)
+```
+
+**No merged worktrees:**
+
+```
+no merged worktrees to remove
+```
+
+### Skipping current worktree
+
+If you're currently inside a merged worktree, prune skips it and continues with the rest:
+
+```
+skipping feature-x: currently in this worktree
+removed worktree: /path/to/repo/repo-feature-y
+removed artifact: /home/user/repo-workspaces/repo-feature-y.code-workspace
+deleted branch: feature-y
+```

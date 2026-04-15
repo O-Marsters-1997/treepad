@@ -53,7 +53,7 @@ type RemoveInput struct {
 type PruneInput struct {
 	Base      string // branch to check merges against, e.g. "main"
 	OutputDir string
-	Confirm   bool
+	DryRun    bool
 	// Cwd overrides os.Getwd for testing the cwd-inside guard.
 	Cwd string
 }
@@ -275,12 +275,10 @@ func (s *Service) Prune(ctx context.Context, in PruneInput) error {
 		return nil
 	}
 
-	for _, c := range candidates {
-		_, _ = fmt.Fprintf(s.out, "would remove: %s (%s)\n", c.Branch, c.Path)
-	}
-
-	if !in.Confirm {
-		_, _ = fmt.Fprintln(s.out, "\nre-run with --confirm to execute")
+	if in.DryRun {
+		for _, c := range candidates {
+			_, _ = fmt.Fprintf(s.out, "would remove: %s (%s)\n", c.Branch, c.Path)
+		}
 		return nil
 	}
 

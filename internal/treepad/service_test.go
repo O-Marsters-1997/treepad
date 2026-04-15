@@ -414,12 +414,12 @@ func TestServicePrune(t *testing.T) {
 
 	t.Run("dry-run lists candidates without removing", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
-			{output: twoPorcelain},    // git worktree list
+			{output: twoPorcelain},     // git worktree list
 			{output: []byte("feat\n")}, // git branch --merged
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 
-		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
+		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir, DryRun: true})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -428,21 +428,21 @@ func TestServicePrune(t *testing.T) {
 		}
 	})
 
-	t.Run("confirm removes merged worktree, artifact, and branch", func(t *testing.T) {
+	t.Run("default removes merged worktree, artifact, and branch", func(t *testing.T) {
 		wsFile := filepath.Join(outputDir, repoSlug+"-feat.code-workspace")
 		if err := os.WriteFile(wsFile, []byte("{}"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 
 		runner := &seqRunner{responses: []runResponse{
-			{output: twoPorcelain},    // git worktree list
+			{output: twoPorcelain},     // git worktree list
 			{output: []byte("feat\n")}, // git branch --merged
 			{},                         // git worktree remove
 			{},                         // git branch -d
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 
-		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir, Confirm: true})
+		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -483,7 +483,6 @@ func TestServicePrune(t *testing.T) {
 		err := svc.Prune(context.Background(), PruneInput{
 			Base:      "main",
 			OutputDir: outputDir,
-			Confirm:   true,
 			Cwd:       featPath,
 		})
 		if err != nil {
@@ -504,7 +503,7 @@ func TestServicePrune(t *testing.T) {
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 
-		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir, Confirm: true})
+		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 		if err == nil {
 			t.Fatal("expected error summarising failures, got nil")
 		}

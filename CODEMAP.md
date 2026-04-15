@@ -43,6 +43,14 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
   - Instantiates `treepad.Service` and calls `Remove()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`
 
+### `prune.go`
+
+- `pruneCommand()` — top-level prune command definition
+- `runPrune(ctx, cmd)` — action handler for pruning merged worktrees
+  - Parses flags: `--base` (default: "main"), `--dry-run`
+  - Instantiates `treepad.Service` and calls `Prune()`
+  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
+
 ### `config.go`
 
 - `configCommand()` — top-level config command group
@@ -107,7 +115,13 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
     - Input: `Branch`, `OutputDir`, `Cwd` (for testing)
     - Pre-flight guards: prevents removing main worktree, prevents removing from within the target worktree
     - Three-step removal: git worktree remove → delete artifact file → git branch -d
+  - `Prune(ctx, PruneInput)` — batch removes worktrees whose branches are merged
+    - Input: `Base`, `OutputDir`, `DryRun`, `Cwd` (for testing)
+    - Finds merged branches, filters out main/detached/current worktree
+    - Executes removals by default; `DryRun: true` previews without removing
+    - Returns error if any removals fail (after attempting all)
 - Private helpers:
+  - `removeWorktree(ctx, target, mainWT, outputDir)` — removes a single worktree, deletes artifact, deletes branch
   - `listWorktrees(ctx)` — lists all worktrees in repo
   - `resolveOutputDir(explicit, repoSlug)` — resolves artifact output directory
   - `loadAndSync(sourceDir, extraPatterns, targets)` — loads config and syncs to targets; returns `config.Config` so artifact config is available
@@ -131,6 +145,9 @@ Wrapper around git worktree operations.
 - `ExecRunner` — executes `git` commands (dependency injection)
 - `List(ctx, runner)` — lists all worktrees in a repo
 - `MainWorktree(worktrees)` — returns the main worktree (contains `.git` directory)
+- `MergedBranches(ctx, runner, base string)` — returns local branches merged into base (excluding base itself)
+  - Runs `git branch --merged <base> --format=%(refname:short)`
+  - Returns string slice of branch names
 
 ## Sync Package (`internal/sync/`)
 
@@ -185,6 +202,9 @@ treepad [--verbose] <command>
 │   ├── --base (default: main)
 │   └── --open (-o)
 ├── remove <branch>
+├── prune [options]
+│   ├── --base (default: main)
+│   └── --dry-run
 └── config
     ├── init [--global]
     └── show
@@ -251,6 +271,19 @@ treepad [--verbose] <command>
    - Deletes artifact file from output directory (missing file is not an error)
    - Deletes branch locally via `git branch -d`
 
+## Data Flow Example: `treepad prune [--base main] [--dry-run]`
+
+1. `main.go` parses flags and calls `commands.Router()`
+2. `commands.pruneCommand()` defines CLI interface
+3. `runPrune()` parses flags, instantiates `treepad.Service`, calls `Prune()`
+4. `Service.Prune()` executes:
+   - Lists all worktrees via `worktree.List()`
+   - Gets merged branches via `worktree.MergedBranches(ctx, runner, base)`
+   - Filters candidates: merged, not main, not detached, not current worktree
+   - If `--dry-run` flag set, prints candidates and returns
+   - Otherwise removes each candidate via `removeWorktree()`
+   - Returns error if any removals failed
+
 ---
 
-**Last Updated:** April 15, 2026 (major refactor: TOML config, artifact package, removed codeworkspace package, renamed workspace to treepad package)
+**Last Updated:** April 15, 2026 (prune executes by default; `--dry-run` previews)
