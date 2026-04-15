@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -17,11 +18,17 @@ var (
 	date    = "unknown"
 )
 
-func main() {
+func main() { os.Exit(Run(os.Args, os.Stdout, os.Stderr)) }
+
+// Run is the testscript entry point: it builds and executes the CLI, returning
+// an exit code. main() is a thin wrapper so tests can invoke Run directly.
+func Run(args []string, stdout, stderr io.Writer) int {
 	cmd := &cli.Command{
-		Name:    "tp",
-		Usage:   "CLI for managing git worktrees",
-		Version: version + " (commit: " + commit + ", built: " + date + ")",
+		Name:      "tp",
+		Usage:     "CLI for managing git worktrees",
+		Version:   version + " (commit: " + commit + ", built: " + date + ")",
+		Writer:    stdout,
+		ErrWriter: stderr,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "verbose",
@@ -35,14 +42,16 @@ func main() {
 				level = slog.LevelDebug
 			}
 			slog.SetDefault(slog.New(
-				slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}),
+				slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}),
 			))
 			return ctx, nil
 		},
 		Commands: commands.Router(),
 	}
 
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		log.Fatal(err)
+	if err := cmd.Run(context.Background(), args); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		return 1
 	}
+	return 0
 }
