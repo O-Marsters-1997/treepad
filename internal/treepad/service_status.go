@@ -22,16 +22,16 @@ type StatusInput struct {
 }
 
 type StatusRow struct {
-	Branch       string           `json:"branch"`
-	Path         string           `json:"path"`
-	IsMain       bool             `json:"is_main"`
-	Dirty        bool             `json:"dirty"`
-	Ahead        int              `json:"ahead"`
-	Behind       int              `json:"behind"`
-	HasUpstream  bool             `json:"has_upstream"`
+	Branch       string              `json:"branch"`
+	Path         string              `json:"path"`
+	IsMain       bool                `json:"is_main"`
+	Dirty        bool                `json:"dirty"`
+	Ahead        int                 `json:"ahead"`
+	Behind       int                 `json:"behind"`
+	HasUpstream  bool                `json:"has_upstream"`
 	LastCommit   worktree.CommitInfo `json:"last_commit"`
-	ArtifactPath string           `json:"artifact_path,omitempty"`
-	LastTouched  time.Time        `json:"last_touched"`
+	ArtifactPath string              `json:"artifact_path,omitempty"`
+	LastTouched  time.Time           `json:"last_touched"`
 }
 
 func (s *Service) Status(ctx context.Context, in StatusInput) error {
@@ -105,7 +105,7 @@ func (s *Service) Status(ctx context.Context, in StatusInput) error {
 
 func (s *Service) writeStatusTable(rows []StatusRow) error {
 	w := tabwriter.NewWriter(s.out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
+	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
 
 	for _, r := range rows {
 		branch := r.Branch
@@ -137,7 +137,7 @@ func (s *Service) writeStatusTable(rows []StatusRow) error {
 			touched = since(r.LastTouched)
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			branch, status, aheadBehind, lastCommit, touched, collapsePath(r.Path))
 	}
 

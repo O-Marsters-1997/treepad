@@ -650,9 +650,9 @@ func TestServiceStatus(t *testing.T) {
 			name: "last commit probe fails",
 			runner: &seqRunner{responses: []runResponse{
 				{output: porcelain},
-				{output: []byte("")},              // dirty: clean
-				{err: errors.New("no upstream")},  // no upstream
-				{err: errors.New("log failed")},   // log fails
+				{output: []byte("")},             // dirty: clean
+				{err: errors.New("no upstream")}, // no upstream
+				{err: errors.New("log failed")},  // log fails
 			}},
 			wantErr: "log failed",
 		},

@@ -280,23 +280,32 @@ func TestAheadBehind(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name        string
-		responses   []struct{ output []byte; err error }
-		wantAhead   int
-		wantBehind  int
+		name      string
+		responses []struct {
+			output []byte
+			err    error
+		}
+		wantAhead    int
+		wantBehind   int
 		wantUpstream bool
-		wantErr     bool
+		wantErr      bool
 	}{
 		{
 			name: "no upstream configured",
-			responses: []struct{ output []byte; err error }{
+			responses: []struct {
+				output []byte
+				err    error
+			}{
 				{err: errors.New("fatal: no upstream configured")},
 			},
 			wantUpstream: false,
 		},
 		{
 			name: "ahead 2, behind 1",
-			responses: []struct{ output []byte; err error }{
+			responses: []struct {
+				output []byte
+				err    error
+			}{
 				{output: []byte("origin/main\n")},
 				{output: []byte("2\t1\n")},
 			},
@@ -306,7 +315,10 @@ func TestAheadBehind(t *testing.T) {
 		},
 		{
 			name: "in sync",
-			responses: []struct{ output []byte; err error }{
+			responses: []struct {
+				output []byte
+				err    error
+			}{
 				{output: []byte("origin/main\n")},
 				{output: []byte("0\t0\n")},
 			},
@@ -316,7 +328,10 @@ func TestAheadBehind(t *testing.T) {
 		},
 		{
 			name: "rev-list error",
-			responses: []struct{ output []byte; err error }{
+			responses: []struct {
+				output []byte
+				err    error
+			}{
 				{output: []byte("origin/main\n")},
 				{err: errors.New("rev-list failed")},
 			},
@@ -327,9 +342,7 @@ func TestAheadBehind(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			runner := &seqRunner{}
-			for _, r := range tt.responses {
-				runner.responses = append(runner.responses, r)
-			}
+			runner.responses = append(runner.responses, tt.responses...)
 			ahead, behind, hasUpstream, err := AheadBehind(ctx, runner, "/repo")
 			if tt.wantErr {
 				if err == nil {

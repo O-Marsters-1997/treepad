@@ -14,9 +14,9 @@ import (
 
 func statusCommand() *cli.Command {
 	return &cli.Command{
-		Name:   "status",
-		Usage:  "list all worktrees with branch, dirty state, ahead/behind, and last-touched",
-		Flags:  []cli.Flag{
+		Name:  "status",
+		Usage: "list all worktrees with branch, dirty state, ahead/behind, and last-touched",
+		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "json", Usage: "emit JSON instead of a table"},
 		},
 		Action: runStatus,
