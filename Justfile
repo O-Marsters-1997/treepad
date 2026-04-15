@@ -2,10 +2,10 @@ default:
     @just --list
 
 build:
-    go build -o treepad ./cmd/treepad
+    go build -o tp ./cmd/tp
 
 run *args:
-    go run ./cmd/treepad/main.go {{args}}
+    go run ./cmd/tp/main.go {{args}}
 
 test:
     go test ./...
@@ -26,7 +26,7 @@ tidy:
     go mod tidy
 
 clean:
-    rm -f treepad
+    rm -f tp
 
 ci:
     golangci-lint run ./...

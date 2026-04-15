@@ -1,12 +1,12 @@
-# treepad
+# tp
 
 A CLI for managing git worktrees — providing a standardised, extensible set of utilities for working with worktrees.
 
 ## Overview
 
-`treepad` makes it easy to create, navigate, and manage git worktrees from the command line. The aim is to build a consistent, composable toolset around worktree workflows that can be extended as new patterns emerge.
+`tp` makes it easy to create, navigate, and manage git worktrees from the command line. The aim is to build a consistent, composable toolset around worktree workflows that can be extended as new patterns emerge.
 
-A primary motivation is **parallelising [Claude Code](https://claude.ai/code) instances**: each worktree gets its own isolated working directory, allowing multiple AI coding sessions to run simultaneously on different tasks without interfering with each other. `treepad` provides the primitives to spin up, coordinate, and share context between those worktrees.
+A primary motivation is **parallelising [Claude Code](https://claude.ai/code) instances**: each worktree gets its own isolated working directory, allowing multiple AI coding sessions to run simultaneously on different tasks without interfering with each other. `tp` provides the primitives to spin up, coordinate, and share context between those worktrees.
 
 ## Built with
 
@@ -24,8 +24,10 @@ brew install O-Marsters-1997/tap/treepad
 ### go install
 
 ```bash
-go install github.com/O-Marsters-1997/treepad/cmd/treepad@latest
+go install github.com/O-Marsters-1997/treepad/cmd/tp@latest
 ```
+
+This installs the `tp` binary.
 
 ### From source
 
@@ -35,26 +37,26 @@ cd treepad
 just build
 ```
 
-This produces a `treepad` binary in the project root. Move it somewhere on your `$PATH`.
+This produces a `tp` binary in the project root. Move it somewhere on your `$PATH`.
 
 ### After installing
 
-Initialise a config file in your repo (optional — treepad works with zero config):
+Initialise a config file in your repo (optional — tp works with zero config):
 
 ```bash
-treepad config init
+tp config init
 ```
 
-Run `treepad config show` to confirm which config is active.
+Run `tp config show` to confirm which config is active.
 
 ## Configuration
 
-`treepad` works with zero configuration. See [docs/configuration.md](docs/configuration.md) for more info on how to configure it and what the defaults are.
+`tp` works with zero configuration. See [docs/configuration.md](docs/configuration.md) for more info on how to configure it and what the defaults are.
 
 ## Usage
 
 ```
-treepad [--verbose | -v] <command> [options]
+tp [--verbose | -v] <command> [options]
 ```
 
 ### Main commands
@@ -63,41 +65,41 @@ treepad [--verbose | -v] <command> [options]
 
 ```bash
 # Sync configs and generate artifact files from the main worktree
-treepad workspace
+tp workspace
 
 # Sync only — skip artifact file generation
-treepad workspace --sync-only
+tp workspace --sync-only
 
 # Use the current directory as the config source instead of the main worktree
-treepad workspace --use-current
+tp workspace --use-current
 
 # Include extra file patterns in the sync
-treepad workspace --include ".prettierrc" --include ".eslintrc.json"
+tp workspace --include ".prettierrc" --include ".eslintrc.json"
 
-# Debug what treepad is doing
-treepad --verbose workspace
+# Debug what tp is doing
+tp --verbose workspace
 ```
 
 **`new`** — Create a new git worktree with configs synced and artifact file generated:
 
 ```bash
 # Create a new worktree for branch 'feature-x' branched from main (cd's into it automatically)
-treepad new feature-x
+tp new feature-x
 
 # Create a worktree from a different base ref
-treepad new bugfix-y --base develop
+tp new bugfix-y --base develop
 
 # Create a worktree and open the artifact file
-treepad new feature-z --open
+tp new feature-z --open
 
 # Stay in the current directory instead of cd-ing into the new worktree
-treepad new feature-z -c
+tp new feature-z -c
 ```
 
-> **Shell integration:** `treepad new` prints a cd directive that is acted on by a shell wrapper function. Add the following to your `~/.zshrc` or `~/.bashrc`:
+> **Shell integration:** `tp new` prints a cd directive that is acted on by a shell wrapper function. Add the following to your `~/.zshrc` or `~/.bashrc`:
 >
 > ```sh
-> eval "$(treepad shell-init)"
+> eval "$(tp shell-init)"
 > ```
 
 **`remove`** — Remove a git worktree and its associated files:
@@ -105,55 +107,55 @@ treepad new feature-z -c
 ```bash
 # Remove a completed feature branch (switch out of it first)
 cd ../main-repo
-treepad remove feature-x
+tp remove feature-x
 ```
 
 **`prune`** — Remove all worktrees whose branches are merged into a base branch, or force-remove all non-main worktrees:
 
 ```bash
 # Remove all worktrees whose branches are merged into main
-treepad prune
+tp prune
 
 # Preview without executing
-treepad prune --dry-run
+tp prune --dry-run
 
 # Check merges against a different base branch
-treepad prune --base develop
+tp prune --base develop
 
 # Force-remove all non-main worktrees (with confirmation)
-treepad prune --all
+tp prune --all
 ```
 
 **`cd`** — cd into an existing worktree by branch name:
 
 ```bash
 # cd into an existing worktree (shell integration handles the directory change)
-treepad cd feature-x
+tp cd feature-x
 ```
 
-> Requires `eval "$(treepad shell-init)"` in your shell rc — the same wrapper used by `new`.
+> Requires `eval "$(tp shell-init)"` in your shell rc — the same wrapper used by `new`.
 
 **`status`** — List all worktrees with their branch, dirty state, ahead/behind count, and last commit:
 
 ```bash
 # Show status of all worktrees in a table
-treepad status
+tp status
 
 # Emit JSON for scripting or dashboards
-treepad status --json
+tp status --json
 ```
 
-**`config`** — Manage treepad configuration:
+**`config`** — Manage tp configuration:
 
 ```bash
 # Write a default .treepad.toml to the main worktree root
-treepad config init
+tp config init
 
 # Write config to the global config path
-treepad config init --global
+tp config init --global
 
 # Show the resolved config and which source(s) contributed
-treepad config show
+tp config show
 ```
 
 See [docs/commands.md](docs/commands.md) for the full command reference.

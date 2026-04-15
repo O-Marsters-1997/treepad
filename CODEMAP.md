@@ -4,7 +4,7 @@ This document describes the architecture and module organization.
 
 ## Entry Point
 
-**`cmd/workspace/main.go`** — CLI bootstrap
+**`cmd/tp/main.go`** — CLI bootstrap
 
 - Initializes the `urfave/cli` v3 application with the verbose flag
 - Calls `commands.Router()` to get all available CLI commands
@@ -39,8 +39,8 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 
 ### `shell_init.go`
 
-- `shellInitCommand()` — prints shell wrapper function for `eval "$(treepad shell-init)"`
-  - Wrapper intercepts `__TREEPAD_CD__` directive from `treepad new` and cd's into the new worktree
+- `shellInitCommand()` — prints shell wrapper function for `eval "$(tp shell-init)"`
+  - Wrapper intercepts `__TREEPAD_CD__` directive from `tp new` and cd's into the new worktree
 
 ### `remove.go`
 
@@ -63,11 +63,11 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `config.go`
 
 - `configCommand()` — top-level config command group
-- `configInitCommand()` — `treepad config init` subcommand
+- `configInitCommand()` — `tp config init` subcommand
   - Flag: `--global` (write to global config path instead of repo root)
   - Resolves worktrees and main worktree path
   - Calls `config.WriteDefault(dir, global bool)` which writes annotated `.treepad.toml`
-- `configShowCommand()` — `treepad config show` subcommand
+- `configShowCommand()` — `tp config show` subcommand
   - Resolves worktrees and main worktree path
   - Calls `config.Show(repoRoot)` to display resolved config and sources
 
@@ -229,7 +229,7 @@ Utility for deriving short identifiers from repository paths.
 ## CLI Command Structure
 
 ```
-treepad [--verbose] <command>
+tp [--verbose] <command>
 ├── workspace [options] [source-path]
 │   ├── --use-current (-c)
 │   ├── --sync-only
@@ -269,43 +269,43 @@ treepad [--verbose] <command>
 
 6. **Editor Agnosticism** — No editor names in Go code. Artifact filename, content, and open command are all text/template strings in `.treepad.toml`. VS Code is the default (baked into defaults). Other editors configure via config only.
 
-## Data Flow Example: `treepad workspace`
+## Data Flow Example: `tp workspace`
 
-1. `main.go` parses flags and calls `commands.Router()`
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.workspaceCommand()` defines CLI interface
 3. `runWorkspace()` parses args, instantiates `treepad.Service`, calls `Generate()`
 4. `Service.Generate()` resolves source, loads config via `config.Load()`, syncs files via `sync.FileSyncer`
 5. Optionally generates artifact files via `artifact.Write()`
 
-## Data Flow Example: `treepad new`
+## Data Flow Example: `tp new`
 
-1. `main.go` parses flags and calls `commands.Router()`
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.newCommand()` defines CLI interface
 3. `runNew()` parses args, instantiates `treepad.Service`, calls `New()`
 4. `Service.New()` runs `git worktree add`, syncs configs, generates artifact file
 5. Optionally opens artifact file via `artifact.ExecOpener`
 6. Unless `--current` / `-c` is passed, emits `__TREEPAD_CD__\t<path>` to stdout
-7. Shell wrapper (from `treepad shell-init`) intercepts the directive and cd's into the new worktree
+7. Shell wrapper (from `tp shell-init`) intercepts the directive and cd's into the new worktree
 
-## Data Flow Example: `treepad config init --global`
+## Data Flow Example: `tp config init --global`
 
-1. `main.go` initializes CLI
+1. `cmd/tp/main.go` initializes CLI
 2. `commands.config.configInitCommand()` handles the action
 3. If `--global` flag is set, calls `config.WriteDefault("", true)`
 4. Otherwise, lists worktrees via `worktree.List()`, gets main worktree, calls `config.WriteDefault(mainPath, false)`
 5. File is written to global or local path
 
-## Data Flow Example: `treepad config show`
+## Data Flow Example: `tp config show`
 
-1. `main.go` initializes CLI
+1. `cmd/tp/main.go` initializes CLI
 2. `commands.config.configShowCommand()` handles the action
 3. Lists worktrees via `worktree.List()`, gets main worktree path
 4. Calls `config.Show(mainPath)`
 5. `Show()` checks local, global, and defaults; returns formatted summary with sources
 
-## Data Flow Example: `treepad remove <branch>`
+## Data Flow Example: `tp remove <branch>`
 
-1. `main.go` parses flags and calls `commands.Router()`
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.removeCommand()` defines CLI interface
 3. `runRemove()` parses branch argument, instantiates `treepad.Service`, calls `Remove()`
 4. `Service.Remove()` executes three steps:
@@ -315,9 +315,9 @@ treepad [--verbose] <command>
    - Deletes artifact file from output directory (missing file is not an error)
    - Deletes branch locally via `git branch -d`
 
-## Data Flow Example: `treepad prune [--base main] [--dry-run] [--all]`
+## Data Flow Example: `tp prune [--base main] [--dry-run] [--all]`
 
-1. `main.go` parses flags and calls `commands.Router()`
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.pruneCommand()` defines CLI interface
 3. `runPrune()` parses flags, instantiates `treepad.Service`, calls `Prune()`
 4. `Service.Prune()` dispatches based on `All` flag:
@@ -335,9 +335,9 @@ treepad [--verbose] <command>
      - Otherwise removes each candidate via `removeWorktree()` (safe removal via git worktree remove, git branch -d)
    - Returns error if any removals failed
 
-## Data Flow Example: `treepad status [--json]`
+## Data Flow Example: `tp status [--json]`
 
-1. `main.go` parses flags and calls `commands.Router()`
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.statusCommand()` defines CLI interface
 3. `runStatus()` parses flags, instantiates `treepad.Service`, calls `Status()`
 4. `Service.Status()` executes:

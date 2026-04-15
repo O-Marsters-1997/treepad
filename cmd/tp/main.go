@@ -19,7 +19,7 @@ var (
 
 func main() {
 	cmd := &cli.Command{
-		Name:    "treepad",
+		Name:    "tp",
 		Usage:   "CLI for managing git worktrees",
 		Version: version + " (commit: " + commit + ", built: " + date + ")",
 		Flags: []cli.Flag{
