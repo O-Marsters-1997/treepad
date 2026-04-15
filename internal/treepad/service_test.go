@@ -311,7 +311,7 @@ func TestServiceNew(t *testing.T) {
 		if err := os.WriteFile(tomlPath, []byte("[hooks]\npre_new = [\"check\"]\n"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		defer os.Remove(tomlPath)
+		defer func() { _ = os.Remove(tomlPath) }()
 
 		svc := NewService(rec, &fakeSyncer{}, &fakeOpener{}, hr, io.Discard, strings.NewReader(""))
 		err := svc.New(context.Background(), NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir})
@@ -335,7 +335,7 @@ func TestServiceNew(t *testing.T) {
 		if err := os.WriteFile(tomlPath, []byte("[hooks]\npost_new = [\"notify\"]\n"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		defer os.Remove(tomlPath)
+		defer func() { _ = os.Remove(tomlPath) }()
 
 		var buf strings.Builder
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, hr, &buf, strings.NewReader(""))
@@ -464,7 +464,7 @@ func TestServiceRemove(t *testing.T) {
 		if err := os.WriteFile(tomlPath, []byte("[hooks]\npre_remove = [\"check-clean\"]\n"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		defer os.Remove(tomlPath)
+		defer func() { _ = os.Remove(tomlPath) }()
 
 		svc := NewService(rec, &fakeSyncer{}, &fakeOpener{}, hr, io.Discard, strings.NewReader(""))
 		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
@@ -491,7 +491,7 @@ func TestServiceRemove(t *testing.T) {
 		if err := os.WriteFile(tomlPath, []byte("[hooks]\npost_remove = [\"notify\"]\n"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		defer os.Remove(tomlPath)
+		defer func() { _ = os.Remove(tomlPath) }()
 
 		var buf strings.Builder
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, hr, &buf, strings.NewReader(""))
