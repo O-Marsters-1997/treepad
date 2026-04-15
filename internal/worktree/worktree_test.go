@@ -226,6 +226,42 @@ func TestMainWorktree(t *testing.T) {
 	}
 }
 
+func TestFindByBranch(t *testing.T) {
+	wts := []Worktree{
+		{Path: "/a", Branch: "main", IsMain: true},
+		{Path: "/b", Branch: "feat", IsMain: false},
+	}
+
+	tests := []struct {
+		name      string
+		branch    string
+		wantPath  string
+		wantFound bool
+	}{
+		{"found first", "main", "/a", true},
+		{"found second", "feat", "/b", true},
+		{"not found", "missing", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := FindByBranch(wts, tt.branch)
+			if ok != tt.wantFound {
+				t.Fatalf("found = %v, want %v", ok, tt.wantFound)
+			}
+			if ok && got.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", got.Path, tt.wantPath)
+			}
+		})
+	}
+}
+
+func TestFindByBranch_empty(t *testing.T) {
+	_, ok := FindByBranch(nil, "main")
+	if ok {
+		t.Fatal("expected not found on empty slice")
+	}
+}
+
 func TestDirty(t *testing.T) {
 	ctx := context.Background()
 

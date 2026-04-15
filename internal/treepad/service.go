@@ -175,9 +175,13 @@ func (s *Service) New(ctx context.Context, in NewInput) error {
 		}
 	}
 	if !in.Current {
-		_, _ = fmt.Fprintf(s.out, "__TREEPAD_CD__\t%s\n", worktreePath)
+		s.emitCD(worktreePath)
 	}
 	return nil
+}
+
+func (s *Service) emitCD(path string) {
+	_, _ = fmt.Fprintf(s.out, "__TREEPAD_CD__\t%s\n", path)
 }
 
 func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
@@ -197,16 +201,11 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 		return fmt.Errorf("cannot remove the main worktree")
 	}
 
-	var target *worktree.Worktree
-	for i := range worktrees {
-		if worktrees[i].Branch == in.Branch {
-			target = &worktrees[i]
-			break
-		}
-	}
-	if target == nil {
+	found, ok := worktree.FindByBranch(worktrees, in.Branch)
+	if !ok {
 		return fmt.Errorf("no worktree found for branch %q", in.Branch)
 	}
+	target := &found
 
 	cwd := in.Cwd
 	if cwd == "" {
