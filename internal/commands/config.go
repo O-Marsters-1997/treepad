@@ -7,6 +7,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"treepad/internal/config"
+	"treepad/internal/ui"
 	"treepad/internal/worktree"
 )
 
@@ -32,13 +33,14 @@ func configInitCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
+			log := ui.New(cmd.Root().ErrWriter)
 			if cmd.Bool("global") {
 				path, err := config.WriteDefault("", true)
 				if err != nil {
 					return err
 				}
-				_, err = fmt.Fprintf(cmd.Root().Writer, "Wrote config to %s\n", path)
-				return err
+				log.OK("wrote config to %s", path)
+				return nil
 			}
 
 			wts, err := worktree.List(ctx, worktree.ExecRunner{})
@@ -53,8 +55,8 @@ func configInitCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.Root().Writer, "Wrote config to %s\n", path)
-			return err
+			log.OK("wrote config to %s", path)
+			return nil
 		},
 	}
 }

@@ -1,0 +1,4 @@
+# tp new outside any git repo should exit non-zero with a clear [ERR] line.
+! exec tp new feature-x
+stderr '\[ERR\]'
+stderr 'git worktree'

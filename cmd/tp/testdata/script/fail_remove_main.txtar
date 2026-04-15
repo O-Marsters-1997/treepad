@@ -1,0 +1,5 @@
+# Removing the main worktree should be rejected with a clear [ERR] line.
+tp-init-repo
+! exec tp remove main
+stderr '\[ERR\]'
+stderr 'cannot remove the main worktree'

@@ -14,6 +14,7 @@ import (
 	"treepad/internal/hook"
 	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
+	"treepad/internal/ui"
 	"treepad/internal/worktree"
 )
 
@@ -101,7 +102,7 @@ func mainWorktreePorcelain(mainPath string) []byte {
 
 func newTestService(t *testing.T, runner worktree.CommandRunner, syncer internalsync.Syncer, opener artifact.Opener) *Service {
 	t.Helper()
-	return NewService(runner, syncer, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+	return NewService(runner, syncer, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 }
 
 // recordingRunner records every Run call and delegates to an inner seqRunner.
@@ -183,7 +184,7 @@ func TestServiceGenerate(t *testing.T) {
 		syn := &fakeSyncer{}
 		hr := &fakeHookRunner{err: errors.New("pre_sync blocked")}
 		// fakeRunner returns twoWorktreePorcelain for git worktree list.
-		svc := NewService(fakeRunner{output: twoWorktreePorcelain}, syn, nil, hr, io.Discard, strings.NewReader(""))
+		svc := NewService(fakeRunner{output: twoWorktreePorcelain}, syn, nil, hr, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Generate(context.Background(), GenerateInput{SourcePath: sourceDir, SyncOnly: true})
 		if err == nil || !strings.Contains(err.Error(), "pre_sync blocked") {
@@ -210,7 +211,7 @@ func TestServiceNew(t *testing.T) {
 		}}
 		syn := &fakeSyncer{}
 		opener := &fakeOpener{}
-		svc := NewService(runner, syn, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, syn, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
@@ -237,7 +238,7 @@ func TestServiceNew(t *testing.T) {
 			{output: nil},
 		}}
 		opener := &fakeOpener{}
-		svc := NewService(runner, &fakeSyncer{}, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
@@ -263,7 +264,7 @@ func TestServiceNew(t *testing.T) {
 			{output: nil},
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
@@ -284,7 +285,7 @@ func TestServiceNew(t *testing.T) {
 			{output: nil},
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 
 		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
@@ -313,7 +314,7 @@ func TestServiceNew(t *testing.T) {
 		}
 		defer func() { _ = os.Remove(tomlPath) }()
 
-		svc := NewService(rec, &fakeSyncer{}, &fakeOpener{}, hr, io.Discard, strings.NewReader(""))
+		svc := NewService(rec, &fakeSyncer{}, &fakeOpener{}, hr, io.Discard, strings.NewReader(""), nil)
 		err := svc.New(context.Background(), NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir})
 		if err == nil || !strings.Contains(err.Error(), "pre_new blocked") {
 			t.Errorf("expected pre_new error, got: %v", err)
@@ -337,14 +338,14 @@ func TestServiceNew(t *testing.T) {
 		}
 		defer func() { _ = os.Remove(tomlPath) }()
 
-		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, hr, &buf, strings.NewReader(""))
+		var errBuf strings.Builder
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, hr, io.Discard, strings.NewReader(""), ui.New(&errBuf))
 		err := svc.New(context.Background(), NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir})
 		if err != nil {
 			t.Errorf("post_new failure should not abort New, got: %v", err)
 		}
-		if !strings.Contains(buf.String(), "warning: post hook post_new failed") {
-			t.Errorf("expected warning in output; got:\n%s", buf.String())
+		if !strings.Contains(errBuf.String(), "post hook post_new failed") {
+			t.Errorf("expected warning in output; got:\n%s", errBuf.String())
 		}
 	})
 
@@ -383,7 +384,7 @@ func TestServiceNew(t *testing.T) {
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(tt.runner, tt.syncer, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+			svc := NewService(tt.runner, tt.syncer, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 			err := svc.New(context.Background(), NewInput{
 				Branch:    "feature/auth",
 				Base:      "main",
@@ -425,7 +426,7 @@ func TestServiceRemove(t *testing.T) {
 			{},                  // git worktree remove
 			{},                  // git branch -d
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err != nil {
@@ -446,7 +447,7 @@ func TestServiceRemove(t *testing.T) {
 			{},
 			{},
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err != nil {
@@ -466,7 +467,7 @@ func TestServiceRemove(t *testing.T) {
 		}
 		defer func() { _ = os.Remove(tomlPath) }()
 
-		svc := NewService(rec, &fakeSyncer{}, &fakeOpener{}, hr, io.Discard, strings.NewReader(""))
+		svc := NewService(rec, &fakeSyncer{}, &fakeOpener{}, hr, io.Discard, strings.NewReader(""), nil)
 		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err == nil || !strings.Contains(err.Error(), "dirty worktree") {
 			t.Errorf("expected pre_remove error, got: %v", err)
@@ -493,14 +494,14 @@ func TestServiceRemove(t *testing.T) {
 		}
 		defer func() { _ = os.Remove(tomlPath) }()
 
-		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, hr, &buf, strings.NewReader(""))
+		var errBuf strings.Builder
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, hr, io.Discard, strings.NewReader(""), ui.New(&errBuf))
 		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err != nil {
 			t.Errorf("post_remove failure should not abort Remove, got: %v", err)
 		}
-		if !strings.Contains(buf.String(), "warning: post hook post_remove failed") {
-			t.Errorf("expected warning in output; got:\n%s", buf.String())
+		if !strings.Contains(errBuf.String(), "post hook post_remove failed") {
+			t.Errorf("expected warning in output; got:\n%s", errBuf.String())
 		}
 	})
 
@@ -556,7 +557,7 @@ func TestServiceRemove(t *testing.T) {
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 			err := svc.Remove(context.Background(), RemoveInput{Branch: tt.branch, OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
@@ -568,7 +569,7 @@ func TestServiceRemove(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Remove(context.Background(), RemoveInput{
 			Branch:    "feat",
@@ -608,7 +609,7 @@ func TestServicePrune(t *testing.T) {
 			{output: twoPorcelain},     // git worktree list
 			{output: []byte("feat\n")}, // git branch --merged
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir, DryRun: true})
 		if err != nil {
@@ -631,7 +632,7 @@ func TestServicePrune(t *testing.T) {
 			{},                         // git worktree remove
 			{},                         // git branch -d
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 		if err != nil {
@@ -650,7 +651,7 @@ func TestServicePrune(t *testing.T) {
 			{output: twoPorcelain},
 			{output: []byte("")}, // nothing merged
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 		if err != nil {
@@ -668,8 +669,7 @@ func TestServicePrune(t *testing.T) {
 			{},                                // git worktree remove (other)
 			{},                                // git branch -d (other)
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
-
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 		// cwd is inside featPath — feat should be skipped, other should be removed
 		err := svc.Prune(context.Background(), PruneInput{
 			Base:      "main",
@@ -692,7 +692,7 @@ func TestServicePrune(t *testing.T) {
 			{},                                   // git worktree remove other
 			{},                                   // git branch -d other
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 		if err == nil {
@@ -729,7 +729,7 @@ func TestServicePrune(t *testing.T) {
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 			err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
@@ -741,7 +741,7 @@ func TestServicePrune(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain}, // git worktree list
 		}}
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 
 		err := svc.Prune(context.Background(), PruneInput{
 			All:       true,
@@ -763,9 +763,8 @@ func TestServicePrune(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: threePorcelain}, // git worktree list
 		}}
-		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
-
+		var errBuf strings.Builder
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), ui.New(&errBuf))
 		err := svc.Prune(context.Background(), PruneInput{
 			All:       true,
 			DryRun:    true,
@@ -778,7 +777,7 @@ func TestServicePrune(t *testing.T) {
 		if runner.idx != 1 {
 			t.Errorf("runner called %d times, want 1 (list only, no merged check)", runner.idx)
 		}
-		out := buf.String()
+		out := errBuf.String()
 		if !strings.Contains(out, "would remove: feat") {
 			t.Errorf("output missing feat worktree; got:\n%s", out)
 		}
@@ -791,9 +790,8 @@ func TestServicePrune(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain}, // git worktree list
 		}}
-		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader("n\n"))
-
+		var errBuf strings.Builder
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader("n\n"), ui.New(&errBuf))
 		err := svc.Prune(context.Background(), PruneInput{
 			All:       true,
 			OutputDir: outputDir,
@@ -805,8 +803,8 @@ func TestServicePrune(t *testing.T) {
 		if runner.idx != 1 {
 			t.Errorf("runner called %d times after abort, want 1 (list only)", runner.idx)
 		}
-		if !strings.Contains(buf.String(), "aborted") {
-			t.Errorf("output should contain 'aborted'; got:\n%s", buf.String())
+		if !strings.Contains(errBuf.String(), "aborted") {
+			t.Errorf("output should contain 'aborted'; got:\n%s", errBuf.String())
 		}
 	})
 
@@ -821,8 +819,7 @@ func TestServicePrune(t *testing.T) {
 			{},                     // git worktree remove --force
 			{},                     // git branch -D
 		}}}
-		svc := NewService(rec, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader("y\n"))
-
+		svc := NewService(rec, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader("y\n"), nil)
 		err := svc.Prune(context.Background(), PruneInput{
 			All:       true,
 			OutputDir: outputDir,
@@ -885,7 +882,7 @@ func TestServiceStatus(t *testing.T) {
 		}}
 
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 		err := svc.Status(context.Background(), StatusInput{OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -912,7 +909,7 @@ func TestServiceStatus(t *testing.T) {
 			{output: commitOutput("def5678", "add x")},
 		}}
 		var buf strings.Builder
-		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""))
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
 		err := svc.Status(context.Background(), StatusInput{JSON: true, OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -961,7 +958,7 @@ func TestServiceStatus(t *testing.T) {
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""))
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 			err := svc.Status(context.Background(), StatusInput{OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)

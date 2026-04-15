@@ -10,6 +10,7 @@ import (
 	"treepad/internal/hook"
 	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
+	"treepad/internal/ui"
 	"treepad/internal/worktree"
 )
 
@@ -51,7 +52,7 @@ func runWorkspace(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	runner := worktree.ExecRunner{}
-	svc := treepad.NewService(runner, internalsync.FileSyncer{}, nil, hook.ExecRunner{Runner: runner}, os.Stdout, os.Stdin)
+	svc := treepad.NewService(runner, internalsync.FileSyncer{}, nil, hook.ExecRunner{Runner: runner}, cmd.Root().Writer, os.Stdin, ui.New(cmd.Root().ErrWriter))
 	return svc.Generate(ctx, treepad.GenerateInput{
 		UseCurrentDir: useCurrentFlag,
 		SourcePath:    sourcePath,

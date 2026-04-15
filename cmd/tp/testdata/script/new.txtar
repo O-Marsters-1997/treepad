@@ -1,5 +1,5 @@
 tp-init-repo
 exec tp new feature-x
 stdout '__TREEPAD_CD__'
-stdout 'created worktree at'
+stderr '\[OK\].*created worktree at'
 exists ../repo-feature-x

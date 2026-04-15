@@ -1,0 +1,5 @@
+# Removing a branch that has no worktree should exit non-zero with a clear [ERR] line.
+tp-init-repo
+! exec tp remove ghost
+stderr '\[ERR\]'
+stderr 'no worktree found'
