@@ -498,8 +498,8 @@ func TestServicePrune(t *testing.T) {
 			{output: threePorcelain},
 			{output: []byte("feat\nother\n")},
 			{err: errors.New("locked worktree")}, // git worktree remove feat fails
-			{},                                    // git worktree remove other
-			{},                                    // git branch -d other
+			{},                                   // git worktree remove other
+			{},                                   // git branch -d other
 		}}
 		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, io.Discard)
 

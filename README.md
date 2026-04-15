@@ -15,6 +15,20 @@ A primary motivation is **parallelising [Claude Code](https://claude.ai/code) in
 
 ## Installation
 
+### Homebrew (recommended)
+
+```bash
+brew install O-Marsters-1997/tap/treepad
+```
+
+### go install
+
+```bash
+go install github.com/O-Marsters-1997/treepad/cmd/treepad@latest
+```
+
+### From source
+
 ```bash
 git clone https://github.com/O-Marsters-1997/treepad
 cd treepad
@@ -22,6 +36,16 @@ just build
 ```
 
 This produces a `treepad` binary in the project root. Move it somewhere on your `$PATH`.
+
+### After installing
+
+Initialise a config file in your repo (optional — treepad works with zero config):
+
+```bash
+treepad config init
+```
+
+Run `treepad config show` to confirm which config is active.
 
 ## Configuration
 
