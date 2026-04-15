@@ -42,6 +42,11 @@ type CreateInput struct {
 	OutputDir string
 }
 
+type RemoveInput struct {
+	Branch    string
+	OutputDir string
+}
+
 func (s *Service) Generate(ctx context.Context, in GenerateInput) error {
 	worktrees, err := s.listWorktrees(ctx)
 	if err != nil {
@@ -146,6 +151,53 @@ func (s *Service) Create(ctx context.Context, in CreateInput) error {
 			return fmt.Errorf("open workspace: %w", err)
 		}
 	}
+	return nil
+}
+
+func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
+	worktrees, err := s.listWorktrees(ctx)
+	if err != nil {
+		return err
+	}
+
+	mainWT, err := worktree.MainWorktree(worktrees)
+	if err != nil {
+		return err
+	}
+
+	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
+
+	var target *worktree.Worktree
+	for i := range worktrees {
+		if worktrees[i].Branch == in.Branch {
+			target = &worktrees[i]
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("no worktree found for branch %q", in.Branch)
+	}
+
+	if _, err := s.runner.Run(ctx, "git", "worktree", "remove", target.Path); err != nil {
+		return fmt.Errorf("git worktree remove: %w", err)
+	}
+	_, _ = fmt.Fprintf(s.out, "removed worktree: %s\n", target.Path)
+
+	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
+	if err != nil {
+		return err
+	}
+	wsPath := filepath.Join(outputDir, codeworkspace.Filename(repoSlug, in.Branch))
+	if err := os.Remove(wsPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove workspace file: %w", err)
+	}
+	_, _ = fmt.Fprintf(s.out, "removed workspace file: %s\n", wsPath)
+
+	if _, err := s.runner.Run(ctx, "git", "branch", "-d", in.Branch); err != nil {
+		return fmt.Errorf("git branch -d: %w", err)
+	}
+	_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", in.Branch)
+
 	return nil
 }
 
