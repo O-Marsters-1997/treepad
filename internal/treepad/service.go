@@ -25,7 +25,7 @@ type Service struct {
 	syncer     internalsync.Syncer
 	opener     artifact.Opener
 	hookRunner hook.Runner
-	out        io.Writer   // stdout: machine-consumed payloads only
+	out        io.Writer // stdout: machine-consumed payloads only
 	in         io.Reader
 	log        *ui.Printer // stderr: structured narrative output
 }

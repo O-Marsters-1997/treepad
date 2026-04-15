@@ -211,8 +211,8 @@ func TestServiceNew(t *testing.T) {
 		}}
 		syn := &fakeSyncer{}
 		opener := &fakeOpener{}
-svc := NewService(runner, syn, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, syn, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
 			Base:      "main",
@@ -238,8 +238,8 @@ svc := NewService(runner, syn, opener, &fakeHookRunner{}, io.Discard, strings.Ne
 			{output: nil},
 		}}
 		opener := &fakeOpener{}
-svc := NewService(runner, &fakeSyncer{}, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, opener, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
 			Base:      "main",
@@ -264,8 +264,8 @@ svc := NewService(runner, &fakeSyncer{}, opener, &fakeHookRunner{}, io.Discard, 
 			{output: nil},
 		}}
 		var buf strings.Builder
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
+
 		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
 			Base:      "main",
@@ -285,8 +285,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf,
 			{output: nil},
 		}}
 		var buf strings.Builder
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
+
 		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
 			Base:      "main",
@@ -384,8 +384,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf,
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-svc := NewService(tt.runner, tt.syncer, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-					err := svc.New(context.Background(), NewInput{
+			svc := NewService(tt.runner, tt.syncer, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+			err := svc.New(context.Background(), NewInput{
 				Branch:    "feature/auth",
 				Base:      "main",
 				OutputDir: outputDir,
@@ -426,8 +426,8 @@ func TestServiceRemove(t *testing.T) {
 			{},                  // git worktree remove
 			{},                  // git branch -d
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -447,8 +447,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Di
 			{},
 			{},
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.Remove(context.Background(), RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -557,8 +557,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Di
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-					err := svc.Remove(context.Background(), RemoveInput{Branch: tt.branch, OutputDir: outputDir})
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+			err := svc.Remove(context.Background(), RemoveInput{Branch: tt.branch, OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
 			}
@@ -569,8 +569,8 @@ svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.Remove(context.Background(), RemoveInput{
 			Branch:    "feat",
 			OutputDir: outputDir,
@@ -609,8 +609,8 @@ func TestServicePrune(t *testing.T) {
 			{output: twoPorcelain},     // git worktree list
 			{output: []byte("feat\n")}, // git branch --merged
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir, DryRun: true})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -632,8 +632,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Di
 			{},                         // git worktree remove
 			{},                         // git branch -d
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -651,8 +651,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Di
 			{output: twoPorcelain},
 			{output: []byte("")}, // nothing merged
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -669,7 +669,7 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Di
 			{},                                // git worktree remove (other)
 			{},                                // git branch -d (other)
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
 		// cwd is inside featPath — feat should be skipped, other should be removed
 		err := svc.Prune(context.Background(), PruneInput{
 			Base:      "main",
@@ -692,8 +692,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Di
 			{},                                   // git worktree remove other
 			{},                                   // git branch -d other
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 		if err == nil {
 			t.Fatal("expected error summarising failures, got nil")
@@ -729,8 +729,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Di
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-					err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+			err := svc.Prune(context.Background(), PruneInput{Base: "main", OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
 			}
@@ -741,8 +741,8 @@ svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain}, // git worktree list
 		}}
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-		
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+
 		err := svc.Prune(context.Background(), PruneInput{
 			All:       true,
 			OutputDir: outputDir,
@@ -882,8 +882,8 @@ func TestServiceStatus(t *testing.T) {
 		}}
 
 		var buf strings.Builder
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
-				err := svc.Status(context.Background(), StatusInput{OutputDir: outputDir})
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
+		err := svc.Status(context.Background(), StatusInput{OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -909,8 +909,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf,
 			{output: commitOutput("def5678", "add x")},
 		}}
 		var buf strings.Builder
-svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
-				err := svc.Status(context.Background(), StatusInput{JSON: true, OutputDir: outputDir})
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf, strings.NewReader(""), nil)
+		err := svc.Status(context.Background(), StatusInput{JSON: true, OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -958,8 +958,8 @@ svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, &buf,
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
-					err := svc.Status(context.Background(), StatusInput{OutputDir: outputDir})
+			svc := NewService(tt.runner, &fakeSyncer{}, &fakeOpener{}, &fakeHookRunner{}, io.Discard, strings.NewReader(""), nil)
+			err := svc.Status(context.Background(), StatusInput{OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
 			}
