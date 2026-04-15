@@ -221,6 +221,10 @@ func (s *Service) Remove(ctx context.Context, in RemoveInput) error {
 		branchFlag = "-D"
 	}
 	if _, err := s.runner.Run(ctx, "git", "branch", branchFlag, in.Branch); err != nil {
+		if !in.Force && strings.Contains(err.Error(), "not fully merged") {
+			_, _ = fmt.Fprintf(s.out, "branch %s not merged; kept. Re-run with --force to delete, or run: git branch -d %s\n", in.Branch, in.Branch)
+			return nil
+		}
 		return fmt.Errorf("git branch %s: %w", branchFlag, err)
 	}
 	_, _ = fmt.Fprintf(s.out, "deleted branch: %s\n", in.Branch)
