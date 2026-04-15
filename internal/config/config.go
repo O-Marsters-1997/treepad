@@ -77,12 +77,25 @@ func (o OpenConfig) IsZero() bool {
 	return len(o.Command) == 0
 }
 
+// ExecConfig controls the task runner used by `tp exec`.
+type ExecConfig struct {
+	// Runner overrides auto-detection. Valid values: just, npm, pnpm, yarn, bun,
+	// make, pip, poetry, uv.
+	Runner string `toml:"runner"`
+}
+
+// IsZero reports whether no exec runner is explicitly configured.
+func (e ExecConfig) IsZero() bool {
+	return e.Runner == ""
+}
+
 // Config is the full resolved configuration for a repo.
 type Config struct {
 	Sync     SyncConfig     `toml:"sync"`
 	Artifact ArtifactConfig `toml:"artifact"`
 	Open     OpenConfig     `toml:"open"`
 	Hooks    hook.Config    `toml:"hooks"`
+	Exec     ExecConfig     `toml:"exec"`
 }
 
 // GlobalConfigPath returns the path to the global config file.
@@ -140,6 +153,9 @@ func Load(repoRoot string) (Config, error) {
 	}
 	if !fileCfg.Hooks.IsZero() {
 		cfg.Hooks = fileCfg.Hooks
+	}
+	if !fileCfg.Exec.IsZero() {
+		cfg.Exec = fileCfg.Exec
 	}
 
 	slog.Debug("loaded .treepad.toml", "dir", repoRoot, "syncFiles", cfg.Sync.Files)
