@@ -27,13 +27,18 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
   - Instantiates `treepad.Service` and calls `Generate()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`
 
-### `create.go`
+### `new.go`
 
-- `createCommand()` — top-level create command definition
-- `runCreate(ctx, cmd)` — action handler for creating new worktrees
-  - Parses flags: `--base` (default: "main"), `--open`
-  - Instantiates `treepad.Service` and calls `Create()`
+- `newCommand()` — top-level new command definition
+- `runNew(ctx, cmd)` — action handler for creating new worktrees
+  - Parses flags: `--base` (default: "main"), `--open`, `--current (-c)`
+  - Instantiates `treepad.Service` and calls `New()`
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
+
+### `shell_init.go`
+
+- `shellInitCommand()` — prints shell wrapper function for `eval "$(treepad shell-init)"`
+  - Wrapper intercepts `__TREEPAD_CD__` directive from `treepad new` and cd's into the new worktree
 
 ### `remove.go`
 
@@ -109,8 +114,9 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
   - `Generate(ctx, GenerateInput)` — generates artifact files and syncs configs
     - Input: `UseCurrentDir`, `SourcePath`, `SyncOnly`, `OutputDir`, `ExtraPatterns`
     - Resolves config source, loads config, syncs files, generates artifact files
-  - `Create(ctx, CreateInput)` — creates new worktree, syncs configs, generates artifact file
-    - Input: `Branch`, `Base`, `Open`, `OutputDir`
+  - `New(ctx, NewInput)` — creates new worktree, syncs configs, generates artifact file
+    - Input: `Branch`, `Base`, `Open`, `Current`, `OutputDir`
+    - Emits `__TREEPAD_CD__\t<path>` to output unless `Current` is true
   - `Remove(ctx, RemoveInput)` — removes worktree, artifact file, and branch
     - Input: `Branch`, `OutputDir`, `Cwd` (for testing)
     - Pre-flight guards: prevents removing main worktree, prevents removing from within the target worktree
@@ -198,9 +204,11 @@ treepad [--verbose] <command>
 │   ├── --sync-only
 │   ├── --output-dir (-o)
 │   └── --include (repeatable)
-├── create [options] <branch>
+├── new [options] <branch>
 │   ├── --base (default: main)
-│   └── --open (-o)
+│   ├── --open (-o)
+│   └── --current (-c)
+├── shell-init
 ├── remove <branch>
 ├── prune [options]
 │   ├── --base (default: main)
@@ -235,13 +243,15 @@ treepad [--verbose] <command>
 4. `Service.Generate()` resolves source, loads config via `config.Load()`, syncs files via `sync.FileSyncer`
 5. Optionally generates artifact files via `artifact.Write()`
 
-## Data Flow Example: `treepad create`
+## Data Flow Example: `treepad new`
 
 1. `main.go` parses flags and calls `commands.Router()`
-2. `commands.createCommand()` defines CLI interface
-3. `runCreate()` parses args, instantiates `treepad.Service`, calls `Create()`
-4. `Service.Create()` runs `git worktree add`, syncs configs, generates artifact file
+2. `commands.newCommand()` defines CLI interface
+3. `runNew()` parses args, instantiates `treepad.Service`, calls `New()`
+4. `Service.New()` runs `git worktree add`, syncs configs, generates artifact file
 5. Optionally opens artifact file via `artifact.ExecOpener`
+6. Unless `--current` / `-c` is passed, emits `__TREEPAD_CD__\t<path>` to stdout
+7. Shell wrapper (from `treepad shell-init`) intercepts the directive and cd's into the new worktree
 
 ## Data Flow Example: `treepad config init --global`
 

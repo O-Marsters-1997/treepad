@@ -13,9 +13,9 @@ import (
 	"treepad/internal/worktree"
 )
 
-func createCommand() *cli.Command {
+func newCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "create",
+		Name:      "new",
 		Usage:     "create a new git worktree, sync configs, and generate an artifact file",
 		ArgsUsage: "<branch>",
 		Flags: []cli.Flag{
@@ -29,12 +29,17 @@ func createCommand() *cli.Command {
 				Aliases: []string{"o"},
 				Usage:   "open the generated artifact file after creation",
 			},
+			&cli.BoolFlag{
+				Name:    "current",
+				Aliases: []string{"c"},
+				Usage:   "stay in the current directory instead of cd-ing into the new worktree",
+			},
 		},
-		Action: runCreate,
+		Action: runNew,
 	}
 }
 
-func runCreate(ctx context.Context, cmd *cli.Command) error {
+func runNew(ctx context.Context, cmd *cli.Command) error {
 	branch := cmd.Args().First()
 	if branch == "" {
 		return fmt.Errorf("branch name is required")
@@ -47,9 +52,10 @@ func runCreate(ctx context.Context, cmd *cli.Command) error {
 		artifact.ExecOpener{Runner: runner},
 		os.Stdout,
 	)
-	return svc.Create(ctx, treepad.CreateInput{
-		Branch: branch,
-		Base:   cmd.String("base"),
-		Open:   cmd.Bool("open"),
+	return svc.New(ctx, treepad.NewInput{
+		Branch:  branch,
+		Base:    cmd.String("base"),
+		Open:    cmd.Bool("open"),
+		Current: cmd.Bool("current"),
 	})
 }

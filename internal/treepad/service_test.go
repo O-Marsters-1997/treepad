@@ -145,7 +145,7 @@ func TestServiceGenerate(t *testing.T) {
 	}
 }
 
-func TestServiceCreate(t *testing.T) {
+func TestServiceNew(t *testing.T) {
 	mainPath := t.TempDir()
 	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -162,7 +162,7 @@ func TestServiceCreate(t *testing.T) {
 		opener := &fakeOpener{}
 		svc := NewService(runner, syn, opener, io.Discard)
 
-		err := svc.Create(context.Background(), CreateInput{
+		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
 			Base:      "main",
 			OutputDir: outputDir,
@@ -189,7 +189,7 @@ func TestServiceCreate(t *testing.T) {
 		opener := &fakeOpener{}
 		svc := NewService(runner, &fakeSyncer{}, opener, io.Discard)
 
-		err := svc.Create(context.Background(), CreateInput{
+		err := svc.New(context.Background(), NewInput{
 			Branch:    "feature/auth",
 			Base:      "main",
 			Open:      true,
@@ -204,6 +204,49 @@ func TestServiceCreate(t *testing.T) {
 		// Default artifact template produces a .code-workspace file.
 		if !strings.HasSuffix(opener.paths[0], ".code-workspace") {
 			t.Errorf("opened path %q, expected a .code-workspace file", opener.paths[0])
+		}
+	})
+
+	t.Run("emits cd directive by default", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{output: nil},
+		}}
+		var buf strings.Builder
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &buf)
+
+		err := svc.New(context.Background(), NewInput{
+			Branch:    "feature/auth",
+			Base:      "main",
+			OutputDir: outputDir,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(buf.String(), "__TREEPAD_CD__\t") {
+			t.Errorf("output missing cd directive; got:\n%s", buf.String())
+		}
+	})
+
+	t.Run("suppresses cd directive when Current is true", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{output: nil},
+		}}
+		var buf strings.Builder
+		svc := NewService(runner, &fakeSyncer{}, &fakeOpener{}, &buf)
+
+		err := svc.New(context.Background(), NewInput{
+			Branch:    "feature/auth",
+			Base:      "main",
+			Current:   true,
+			OutputDir: outputDir,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(buf.String(), "__TREEPAD_CD__") {
+			t.Errorf("cd directive should be absent when Current=true; got:\n%s", buf.String())
 		}
 	})
 
@@ -243,7 +286,7 @@ func TestServiceCreate(t *testing.T) {
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewService(tt.runner, tt.syncer, &fakeOpener{}, io.Discard)
-			err := svc.Create(context.Background(), CreateInput{
+			err := svc.New(context.Background(), NewInput{
 				Branch:    "feature/auth",
 				Base:      "main",
 				OutputDir: outputDir,

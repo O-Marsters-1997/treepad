@@ -68,7 +68,7 @@ content = """{
 
 ### `[open]` section
 
-Command to run when `treepad create --open` is used. Each element is a Go text/template string evaluated against the open context.
+Command to run when `treepad new --open` is used. Each element is a Go text/template string evaluated against the open context.
 
 | Field     | Type     | Description                                                    |
 | --------- | -------- | -------------------------------------------------------------- |

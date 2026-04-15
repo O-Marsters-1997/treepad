@@ -50,15 +50,15 @@ treepad workspace --include ".prettierrc" --include "*.md"
 
 See [configuration.md](configuration.md) for the full schema, defaults, and examples.
 
-## create
+## new
 
 Create a new git worktree, sync configs from the main worktree, and generate an artifact file for it.
 
 ```
-treepad create [options] <branch>
+treepad new [options] <branch>
 ```
 
-Creates a new worktree branched from a specified ref (default: `main`), syncs editor configs from the main worktree, and generates an artifact file as configured in `.treepad.toml`.
+Creates a new worktree branched from a specified ref (default: `main`), syncs editor configs from the main worktree, and generates an artifact file as configured in `.treepad.toml`. By default, cd's into the new worktree directory when invoked via the shell wrapper (see [Shell integration](#shell-integration) below).
 
 ### Flags
 
@@ -66,22 +66,43 @@ Creates a new worktree branched from a specified ref (default: `main`), syncs ed
 |------|-------|-------------|
 | `--base` | | Ref to branch the new worktree from (default: `main`) |
 | `--open` | `-o` | Open the generated artifact file (using the command specified in `[open].command`) |
+| `--current` | `-c` | Stay in the current directory instead of cd-ing into the new worktree |
 
 ### Examples
 
 ```bash
 # Create a new worktree for branch 'feature-x' branched from main
-treepad create feature-x
+treepad new feature-x
 
 # Create a worktree from a different base ref
-treepad create bugfix-y --base develop
+treepad new bugfix-y --base develop
 
 # Create a worktree and open the generated artifact file
-treepad create feature-z --open
+treepad new feature-z --open
 
-# Shorthand with flags combined
-treepad create my-branch --base main --open
+# Stay in the current directory instead of cd-ing in
+treepad new my-branch -c
 ```
+
+## shell-init
+
+Print a shell wrapper function that enables `treepad new` to cd into the new worktree automatically.
+
+```
+treepad shell-init
+```
+
+Because a child process cannot change the parent shell's working directory, `treepad new` emits a `__TREEPAD_CD__` directive in its output. The shell wrapper function intercepts this directive, strips it from the visible output, and cd's into the path.
+
+### Setup
+
+Add to your `~/.zshrc` or `~/.bashrc`:
+
+```sh
+eval "$(treepad shell-init)"
+```
+
+After sourcing, `treepad new <branch>` will automatically cd into the new worktree. Pass `-c` / `--current` to skip the cd.
 
 ## config
 
