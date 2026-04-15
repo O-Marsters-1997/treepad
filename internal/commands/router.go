@@ -10,5 +10,6 @@ func Router() []*cli.Command {
 		shellInitCommand(),
 		removeCommand(),
 		pruneCommand(),
+		statusCommand(),
 	}
 }

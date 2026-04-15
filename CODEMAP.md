@@ -67,6 +67,14 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
   - Resolves worktrees and main worktree path
   - Calls `config.Show(repoRoot)` to display resolved config and sources
 
+### `status.go`
+
+- `statusCommand()` — top-level status command definition
+- `runStatus(ctx, cmd)` — action handler for listing worktree status
+  - Parses flag: `--json` (emit JSON instead of table)
+  - Instantiates `treepad.Service` and calls `Status()`
+  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
+
 ## Config Package (`internal/config/`)
 
 Handles TOML configuration file loading, initialization, and display.
@@ -126,6 +134,10 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
     - Finds merged branches, filters out main/detached/current worktree
     - Executes removals by default; `DryRun: true` previews without removing
     - Returns error if any removals fail (after attempting all)
+  - `Status(ctx, StatusInput)` — lists all worktrees with repo-wide status snapshot
+    - Input: `JSON` (emit JSON instead of table), `OutputDir` (for artifact path resolution)
+    - Output: builds `[]StatusRow` with branch, dirty state, ahead/behind count, last commit info, artifact mtime
+    - Renders as aligned table via `text/tabwriter` by default, or JSON array with `--json` flag
 - Private helpers:
   - `removeWorktree(ctx, target, mainWT, outputDir)` — removes a single worktree, deletes artifact, deletes branch
   - `listWorktrees(ctx)` — lists all worktrees in repo
@@ -148,12 +160,22 @@ Wrapper around git worktree operations.
 ### `worktree.go`
 
 - `Worktree` struct — represents a single git worktree with Path, Branch, etc.
+- `CommitInfo` struct — summary of a git commit: `ShortSHA`, `Subject`, `Committed` (time.Time)
 - `ExecRunner` — executes `git` commands (dependency injection)
 - `List(ctx, runner)` — lists all worktrees in a repo
 - `MainWorktree(worktrees)` — returns the main worktree (contains `.git` directory)
 - `MergedBranches(ctx, runner, base string)` — returns local branches merged into base (excluding base itself)
   - Runs `git branch --merged <base> --format=%(refname:short)`
   - Returns string slice of branch names
+- `Dirty(ctx, runner, path)` — reports whether worktree at path has uncommitted changes
+  - Runs `git -C <path> status --porcelain`
+- `AheadBehind(ctx, runner, path)` — counts commits ahead/behind upstream
+  - First checks if upstream exists via `git rev-parse --abbrev-ref @{upstream}`
+  - Returns `(ahead, behind, hasUpstream=false, nil)` if no upstream configured (not an error)
+  - If upstream exists, runs `git rev-list --left-right --count HEAD...@{upstream}`
+- `LastCommit(ctx, runner, path)` — returns info about HEAD commit
+  - Runs `git log -1 --format=%h%x00%s%x00%cI`
+  - Returns empty `CommitInfo{}` if no commits; error on timestamp parse failure
 
 ## Sync Package (`internal/sync/`)
 
@@ -213,6 +235,8 @@ treepad [--verbose] <command>
 ├── prune [options]
 │   ├── --base (default: main)
 │   └── --dry-run
+├── status [options]
+│   └── --json
 └── config
     ├── init [--global]
     └── show
@@ -294,6 +318,22 @@ treepad [--verbose] <command>
    - Otherwise removes each candidate via `removeWorktree()`
    - Returns error if any removals failed
 
+## Data Flow Example: `treepad status [--json]`
+
+1. `main.go` parses flags and calls `commands.Router()`
+2. `commands.statusCommand()` defines CLI interface
+3. `runStatus()` parses flags, instantiates `treepad.Service`, calls `Status()`
+4. `Service.Status()` executes:
+   - Lists all worktrees via `worktree.List()`
+   - For each worktree, probes:
+     - `worktree.Dirty()` — checks `git status --porcelain`
+     - `worktree.AheadBehind()` — compares vs `@{upstream}` if configured
+     - `worktree.LastCommit()` — fetches HEAD commit info
+   - Computes artifact file path via `artifact.Path()` and checks mtime
+   - Builds `[]StatusRow` with all collected info
+   - If `--json` flag set, encodes as JSON array; otherwise renders via `text/tabwriter` table
+   - Writes to `s.out` and returns
+
 ---
 
-**Last Updated:** April 15, 2026 (prune executes by default; `--dry-run` previews)
+**Last Updated:** April 15, 2026 (added `status` command for repo-wide worktree status snapshot)
