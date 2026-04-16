@@ -7,12 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/artifact"
-	"treepad/internal/hook"
-	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
 )
 
 func newCommand() *cli.Command {
@@ -47,17 +42,8 @@ func runNew(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("branch name is required")
 	}
 
-	runner := worktree.ExecRunner{}
-	svc := treepad.NewService(
-		runner,
-		internalsync.FileSyncer{},
-		artifact.ExecOpener{Runner: runner},
-		hook.ExecRunner{Runner: runner},
-		cmd.Root().Writer,
-		os.Stdin,
-		ui.New(cmd.Root().ErrWriter),
-	)
-	return svc.New(ctx, treepad.NewInput{
+	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	return treepad.New(ctx, d, treepad.NewInput{
 		Branch:  branch,
 		Base:    cmd.String("base"),
 		Open:    cmd.Bool("open"),

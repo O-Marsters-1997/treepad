@@ -6,12 +6,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/artifact"
-	"treepad/internal/hook"
-	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
 )
 
 func statusCommand() *cli.Command {
@@ -26,15 +21,6 @@ func statusCommand() *cli.Command {
 }
 
 func runStatus(ctx context.Context, cmd *cli.Command) error {
-	runner := worktree.ExecRunner{}
-	svc := treepad.NewService(
-		runner,
-		internalsync.FileSyncer{},
-		artifact.ExecOpener{Runner: runner},
-		hook.ExecRunner{Runner: runner},
-		cmd.Root().Writer,
-		os.Stdin,
-		ui.New(cmd.Root().ErrWriter),
-	)
-	return svc.Status(ctx, treepad.StatusInput{JSON: cmd.Bool("json")})
+	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	return treepad.Status(ctx, d, treepad.StatusInput{JSON: cmd.Bool("json")})
 }

@@ -5,14 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"treepad/internal/artifact"
 	"treepad/internal/config"
-	"treepad/internal/slug"
 	"treepad/internal/worktree"
 )
 
@@ -34,56 +32,44 @@ type StatusRow struct {
 	LastTouched  time.Time           `json:"last_touched"`
 }
 
-func (s *Service) Status(ctx context.Context, in StatusInput) error {
-	worktrees, err := s.listWorktrees(ctx)
+func Status(ctx context.Context, d Deps, in StatusInput) error {
+	rc, err := loadRepoContext(ctx, d, in.OutputDir)
 	if err != nil {
 		return err
 	}
 
-	mainWT, err := worktree.MainWorktree(worktrees)
-	if err != nil {
-		return err
-	}
-
-	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
-
-	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
-	if err != nil {
-		return err
-	}
-
-	cfg, err := config.Load(mainWT.Path)
+	cfg, err := config.Load(rc.Main.Path)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
 
 	spec := artifactSpec(cfg.Artifact)
 
-	rows := make([]StatusRow, 0, len(worktrees))
-	for _, wt := range worktrees {
+	rows := make([]StatusRow, 0, len(rc.Worktrees))
+	for _, wt := range rc.Worktrees {
 		row := StatusRow{
 			Branch: wt.Branch,
 			Path:   wt.Path,
 			IsMain: wt.IsMain,
 		}
 
-		row.Dirty, err = worktree.Dirty(ctx, s.runner, wt.Path)
+		row.Dirty, err = worktree.Dirty(ctx, d.Runner, wt.Path)
 		if err != nil {
 			return err
 		}
 
-		row.Ahead, row.Behind, row.HasUpstream, err = worktree.AheadBehind(ctx, s.runner, wt.Path)
+		row.Ahead, row.Behind, row.HasUpstream, err = worktree.AheadBehind(ctx, d.Runner, wt.Path)
 		if err != nil {
 			return err
 		}
 
-		row.LastCommit, err = worktree.LastCommit(ctx, s.runner, wt.Path)
+		row.LastCommit, err = worktree.LastCommit(ctx, d.Runner, wt.Path)
 		if err != nil {
 			return err
 		}
 
-		data := s.templateData(repoSlug, wt.Branch, wt.Path, outputDir)
-		artifactPath, ok, err := artifact.Path(spec, outputDir, data)
+		data := templateData(rc.Slug, wt.Branch, wt.Path, rc.OutputDir)
+		artifactPath, ok, err := artifact.Path(spec, rc.OutputDir, data)
 		if err != nil {
 			return fmt.Errorf("resolve artifact path: %w", err)
 		}
@@ -98,13 +84,13 @@ func (s *Service) Status(ctx context.Context, in StatusInput) error {
 	}
 
 	if in.JSON {
-		return json.NewEncoder(s.out).Encode(rows)
+		return json.NewEncoder(d.Out).Encode(rows)
 	}
-	return s.writeStatusTable(rows)
+	return writeStatusTable(d, rows)
 }
 
-func (s *Service) writeStatusTable(rows []StatusRow) error {
-	w := tabwriter.NewWriter(s.out, 0, 0, 2, ' ', 0)
+func writeStatusTable(d Deps, rows []StatusRow) error {
+	w := tabwriter.NewWriter(d.Out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
 
 	for _, r := range rows {

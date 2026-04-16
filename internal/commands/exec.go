@@ -7,12 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/artifact"
-	"treepad/internal/hook"
-	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
 )
 
 func execCommand() *cli.Command {
@@ -38,17 +33,8 @@ func runExec(ctx context.Context, cmd *cli.Command) error {
 		cmdArgs = args[2:]
 	}
 
-	runner := worktree.ExecRunner{}
-	svc := treepad.NewService(
-		runner,
-		internalsync.FileSyncer{},
-		artifact.ExecOpener{Runner: runner},
-		hook.ExecRunner{Runner: runner},
-		cmd.Root().Writer,
-		os.Stdin,
-		ui.New(cmd.Root().ErrWriter),
-	)
-	exitCode, err := svc.Exec(ctx, treepad.ExecInput{
+	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	exitCode, err := treepad.Exec(ctx, d, treepad.ExecInput{
 		Branch:  branch,
 		Command: command,
 		Args:    cmdArgs,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -33,8 +34,8 @@ type DoctorFinding struct {
 	Detail string `json:"detail"`
 }
 
-func (s *Service) Doctor(ctx context.Context, in DoctorInput) error {
-	worktrees, err := s.listWorktrees(ctx)
+func Doctor(ctx context.Context, d Deps, in DoctorInput) error {
+	worktrees, err := listWorktrees(ctx, d)
 	if err != nil {
 		return err
 	}
@@ -46,7 +47,7 @@ func (s *Service) Doctor(ctx context.Context, in DoctorInput) error {
 
 	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
 
-	outputDir, err := s.resolveOutputDir(in.OutputDir, repoSlug)
+	outputDir, err := resolveOutputDir(in.OutputDir, repoSlug)
 	if err != nil {
 		return err
 	}
@@ -58,7 +59,7 @@ func (s *Service) Doctor(ctx context.Context, in DoctorInput) error {
 
 	spec := artifactSpec(mainCfg.Artifact)
 
-	mergedBranches, err := worktree.MergedBranches(ctx, s.runner, in.Base)
+	mergedBranches, err := worktree.MergedBranches(ctx, d.Runner, in.Base)
 	if err != nil {
 		return fmt.Errorf("merged branches: %w", err)
 	}
@@ -76,12 +77,12 @@ func (s *Service) Doctor(ctx context.Context, in DoctorInput) error {
 			continue
 		}
 
-		commit, err := worktree.LastCommit(ctx, s.runner, wt.Path)
+		commit, err := worktree.LastCommit(ctx, d.Runner, wt.Path)
 		if err != nil {
 			return err
 		}
 
-		dirty, err := worktree.Dirty(ctx, s.runner, wt.Path)
+		dirty, err := worktree.Dirty(ctx, d.Runner, wt.Path)
 		if err != nil {
 			return err
 		}
@@ -115,7 +116,7 @@ func (s *Service) Doctor(ctx context.Context, in DoctorInput) error {
 		}
 
 		if !in.Offline {
-			exists, hasUpstream, err := worktree.RemoteBranchExists(ctx, s.runner, wt.Path, wt.Branch)
+			exists, hasUpstream, err := worktree.RemoteBranchExists(ctx, d.Runner, wt.Path, wt.Branch)
 			if err != nil {
 				return err
 			}
@@ -129,7 +130,7 @@ func (s *Service) Doctor(ctx context.Context, in DoctorInput) error {
 			}
 		}
 
-		data := s.templateData(repoSlug, wt.Branch, wt.Path, outputDir)
+		data := templateData(repoSlug, wt.Branch, wt.Path, outputDir)
 		artifactPath, ok, err := artifact.Path(spec, outputDir, data)
 		if err != nil {
 			return fmt.Errorf("resolve artifact path: %w", err)
@@ -166,9 +167,9 @@ func (s *Service) Doctor(ctx context.Context, in DoctorInput) error {
 	}
 
 	if in.JSON {
-		return json.NewEncoder(s.out).Encode(findings)
+		return json.NewEncoder(d.Out).Encode(findings)
 	}
-	s.writeDoctorTable(findings)
+	writeDoctorTable(d.Out, findings)
 
 	if in.Strict && len(findings) > 0 {
 		return fmt.Errorf("%d finding(s) reported", len(findings))
@@ -176,12 +177,12 @@ func (s *Service) Doctor(ctx context.Context, in DoctorInput) error {
 	return nil
 }
 
-func (s *Service) writeDoctorTable(findings []DoctorFinding) {
+func writeDoctorTable(out io.Writer, findings []DoctorFinding) {
 	if len(findings) == 0 {
-		_, _ = fmt.Fprintln(s.out, "no issues found")
+		_, _ = fmt.Fprintln(out, "no issues found")
 		return
 	}
-	w := tabwriter.NewWriter(s.out, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "KIND\tBRANCH\tDETAIL\tPATH")
 	for _, f := range findings {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", f.Kind, f.Branch, f.Detail, collapsePath(f.Path))

@@ -11,8 +11,8 @@ type CDInput struct {
 	Branch string
 }
 
-func (s *Service) CD(ctx context.Context, in CDInput) error {
-	worktrees, err := s.listWorktrees(ctx)
+func CD(ctx context.Context, d Deps, in CDInput) error {
+	worktrees, err := listWorktrees(ctx, d)
 	if err != nil {
 		return err
 	}
@@ -22,6 +22,6 @@ func (s *Service) CD(ctx context.Context, in CDInput) error {
 		return fmt.Errorf("no worktree found for branch %q; create one with: treepad new %s", in.Branch, in.Branch)
 	}
 
-	s.emitCD(wt.Path)
+	emitCD(d, wt.Path)
 	return nil
 }

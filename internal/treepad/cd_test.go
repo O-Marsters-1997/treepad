@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestServiceCD(t *testing.T) {
+func TestCD(t *testing.T) {
 	tests := []struct {
 		name        string
 		branch      string
@@ -31,9 +31,9 @@ func TestServiceCD(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
-			svc := NewService(fakeRunner{output: twoWorktreePorcelain}, &fakeSyncer{}, nil, &fakeHookRunner{}, &out, strings.NewReader(""), nil)
+			deps := Deps{Runner: fakeRunner{output: twoWorktreePorcelain}, Syncer: &fakeSyncer{}, Out: &out, In: strings.NewReader("")}
 
-			err := svc.CD(context.Background(), CDInput{Branch: tt.branch})
+			err := CD(context.Background(), deps, CDInput{Branch: tt.branch})
 
 			if tt.wantErr {
 				if err == nil {

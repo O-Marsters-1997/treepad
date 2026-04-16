@@ -6,12 +6,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/artifact"
-	"treepad/internal/hook"
-	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
 )
 
 func doctorCommand() *cli.Command {
@@ -30,17 +25,8 @@ func doctorCommand() *cli.Command {
 }
 
 func runDoctor(ctx context.Context, cmd *cli.Command) error {
-	runner := worktree.ExecRunner{}
-	svc := treepad.NewService(
-		runner,
-		internalsync.FileSyncer{},
-		artifact.ExecOpener{Runner: runner},
-		hook.ExecRunner{Runner: runner},
-		cmd.Root().Writer,
-		os.Stdin,
-		ui.New(cmd.Root().ErrWriter),
-	)
-	return svc.Doctor(ctx, treepad.DoctorInput{
+	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	return treepad.Doctor(ctx, d, treepad.DoctorInput{
 		JSON:      cmd.Bool("json"),
 		StaleDays: int(cmd.Int("stale-days")),
 		Base:      cmd.String("base"),
