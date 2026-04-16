@@ -67,7 +67,7 @@ func TestRemove(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		t.Cleanup(func() { os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
@@ -100,7 +100,7 @@ func TestRemove(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		t.Cleanup(func() { os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
 		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{
 			{output: porcelain},
@@ -125,7 +125,7 @@ func TestRemove(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		t.Cleanup(func() { os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
