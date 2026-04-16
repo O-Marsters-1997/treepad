@@ -115,6 +115,83 @@ func TestNew(t *testing.T) {
 		}
 	})
 
+	t.Run("fires PreNew and PostNew hooks", func(t *testing.T) {
+		toml := "[hooks]\npre_new = [\"marker-pre\"]\npost_new = [\"marker-post\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{output: nil},
+		}}
+		hr := &fakeHookRunner{}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.HookRunner = hr
+
+		if err := New(context.Background(), deps, NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(hr.calls) != 2 {
+			t.Fatalf("hook runner called %d times, want 2", len(hr.calls))
+		}
+		if got := hr.calls[0].data.HookType; got != "pre_new" {
+			t.Errorf("calls[0].HookType = %q, want pre_new", got)
+		}
+		if got := hr.calls[1].data.HookType; got != "post_new" {
+			t.Errorf("calls[1].HookType = %q, want post_new", got)
+		}
+		if got := hr.calls[0].data.Branch; got != "feature/auth" {
+			t.Errorf("hook data Branch = %q, want feature/auth", got)
+		}
+	})
+
+	t.Run("PreNew failure aborts before git worktree add", func(t *testing.T) {
+		toml := "[hooks]\npre_new = [\"fail\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+
+		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{
+			{output: porcelain},
+		}}}
+		hr := &fakeHookRunner{err: errors.New("hook aborted")}
+		deps := testDeps(rr, &fakeSyncer{}, &fakeOpener{})
+		deps.HookRunner = hr
+
+		err := New(context.Background(), deps, NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), "hook aborted") {
+			t.Errorf("got error %v, want error containing 'hook aborted'", err)
+		}
+		for _, call := range rr.calls {
+			if len(call) >= 3 && call[1] == "worktree" && call[2] == "add" {
+				t.Error("git worktree add should not be called when pre_new hook fails")
+			}
+		}
+	})
+
+	t.Run("PostNew failure logs warning but does not abort", func(t *testing.T) {
+		toml := "[hooks]\npost_new = [\"fail\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{output: nil},
+		}}
+		hr := &fakeHookRunner{err: errors.New("post hook failed")}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.HookRunner = hr
+
+		if err := New(context.Background(), deps, NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir}); err != nil {
+			t.Errorf("PostNew hook failure should not abort operation, got error: %v", err)
+		}
+	})
+
 	errorTests := []struct {
 		name    string
 		runner  *seqRunner

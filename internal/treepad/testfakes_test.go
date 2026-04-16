@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"treepad/internal/artifact"
+	"treepad/internal/hook"
 	internalsync "treepad/internal/sync"
 	"treepad/internal/worktree"
 )
@@ -104,14 +105,32 @@ func threeWorktreePorcelainWithMain(mainPath, feat1Path, feat2Path string) []byt
 	)
 }
 
+type fakeHookCall struct {
+	hooks []string
+	data  hook.Data
+}
+
+type fakeHookRunner struct {
+	calls []fakeHookCall
+	err   error
+}
+
+func (f *fakeHookRunner) Run(_ context.Context, hooks []string, data hook.Data) error {
+	f.calls = append(f.calls, fakeHookCall{hooks: hooks, data: data})
+	return f.err
+}
+
 // testDeps builds a Deps value suitable for tests: discards output and reads
 // from an empty stdin unless the caller substitutes those fields.
+// HookRunner defaults to a no-op fakeHookRunner; override deps.HookRunner for tests
+// that assert hook behavior.
 func testDeps(runner worktree.CommandRunner, syncer internalsync.Syncer, opener artifact.Opener) Deps {
 	return Deps{
-		Runner: runner,
-		Syncer: syncer,
-		Opener: opener,
-		Out:    io.Discard,
-		In:     strings.NewReader(""),
+		Runner:     runner,
+		Syncer:     syncer,
+		Opener:     opener,
+		HookRunner: &fakeHookRunner{},
+		Out:        io.Discard,
+		In:         strings.NewReader(""),
 	}
 }

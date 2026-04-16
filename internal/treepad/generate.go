@@ -52,7 +52,7 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 		}
 		targets = append(targets, syncTarget{path: wt.Path, branch: wt.Branch})
 	}
-	cfg, err := loadAndSync(d, sourceDir, in.ExtraPatterns, targets)
+	cfg, err := loadAndSync(ctx, d, sourceDir, in.ExtraPatterns, targets, repoSlug, outputDir)
 	if err != nil {
 		return err
 	}
