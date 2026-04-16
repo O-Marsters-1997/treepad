@@ -1,11 +1,11 @@
 # Commands
 
-## workspace
+## sync
 
 Syncs editor configs and generates artifact files across all git worktrees. By default, generates VS Code `.code-workspace` files.
 
 ```
-tp workspace [options] [source-path]
+tp sync [options] [source-path]
 ```
 
 By default, uses the main worktree (the one with a `.git` directory) as the config source. Configs from `.vscode/`, `.claude/`, and `.env` files are copied to every other worktree. The artifact file generated is controlled by `.treepad.toml` and can be customized for any editor.
@@ -30,22 +30,22 @@ By default, uses the main worktree (the one with a `.git` directory) as the conf
 
 ```bash
 # Generate artifact files and sync configs from the main worktree
-tp workspace
+tp sync
 
 # Sync configs only (no artifact files generated)
-tp workspace --sync-only
+tp sync --sync-only
 
 # Use the current directory as the config source
-tp workspace --use-current
+tp sync --use-current
 
 # Write artifact files to a custom directory
-tp workspace --output-dir ~/my-workspaces
+tp sync --output-dir ~/my-workspaces
 
 # Use an explicit repo path as the config source
-tp workspace /path/to/repo
+tp sync /path/to/repo
 
 # Include extra file patterns in the sync
-tp workspace --include ".prettierrc" --include "*.md"
+tp sync --include ".prettierrc" --include "*.md"
 ```
 
 ### Configuration

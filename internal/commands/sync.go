@@ -10,9 +10,9 @@ import (
 	"treepad/internal/treepad"
 )
 
-func workspaceCommand() *cli.Command {
+func syncCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "workspace",
+		Name:      "sync",
 		Usage:     "sync configs and generate artifact files across git worktrees",
 		ArgsUsage: "[source-path]",
 		Flags: []cli.Flag{
@@ -35,11 +35,11 @@ func workspaceCommand() *cli.Command {
 				Usage: "additional file patterns to sync (appended to sync.files in .treepad.toml)",
 			},
 		},
-		Action: runWorkspace,
+		Action: runSync,
 	}
 }
 
-func runWorkspace(ctx context.Context, cmd *cli.Command) error {
+func runSync(ctx context.Context, cmd *cli.Command) error {
 	useCurrentFlag := cmd.Bool("use-current")
 	sourcePath := cmd.Args().First()
 

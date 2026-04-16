@@ -1,5 +1,5 @@
 tp-init-repo
-exec tp workspace
+exec tp sync
 stderr '\[STEP\].*generating artifact files'
 stderr 'workspaces'
 exists $HOME/repo-workspaces
