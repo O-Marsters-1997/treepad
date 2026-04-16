@@ -1,12 +1,14 @@
 package treepad
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"slices"
 
 	"treepad/internal/artifact"
 	"treepad/internal/config"
+	"treepad/internal/hook"
 	internalsync "treepad/internal/sync"
 )
 
@@ -17,7 +19,7 @@ type syncTarget struct {
 
 // loadAndSync loads config from sourceDir, syncs it to targets, and returns the config.
 // Pass a nil targets slice to skip syncing and only load the config.
-func loadAndSync(d Deps, sourceDir string, extraPatterns []string, targets []syncTarget) (config.Config, error) {
+func loadAndSync(ctx context.Context, d Deps, sourceDir string, extraPatterns []string, targets []syncTarget, repoSlug, outputDir string) (config.Config, error) {
 	cfg, err := config.Load(sourceDir)
 	if err != nil {
 		return config.Config{}, fmt.Errorf("load config: %w", err)
@@ -33,6 +35,10 @@ func loadAndSync(d Deps, sourceDir string, extraPatterns []string, targets []syn
 	d.Log.Step("syncing configs to worktrees...")
 	for _, t := range targets {
 		d.Log.Info("→ %s (%s)", t.branch, t.path)
+		hData := hookData(repoSlug, t.branch, t.path, outputDir)
+		if err := runHook(ctx, d, cfg.Hooks, hook.PreSync, hData); err != nil {
+			return config.Config{}, fmt.Errorf("pre_sync hook: %w", err)
+		}
 		if err := d.Syncer.Sync(patterns, internalsync.Config{
 			SourceDir: sourceDir,
 			TargetDir: t.path,
@@ -40,8 +46,34 @@ func loadAndSync(d Deps, sourceDir string, extraPatterns []string, targets []syn
 			return config.Config{}, fmt.Errorf("sync configs to %s: %w", t.branch, err)
 		}
 		slog.Debug("synced worktree", "branch", t.branch, "target", t.path)
+		if err := runHook(ctx, d, cfg.Hooks, hook.PostSync, hData); err != nil {
+			d.Log.Warn("post_sync hook failed: %v", err)
+		}
 	}
 	return cfg, nil
+}
+
+// hookData constructs a hook.Data value from operation context.
+// The HookType field is set by runHook when the event is known.
+func hookData(slug, branch, wtPath, outputDir string) hook.Data {
+	return hook.Data{
+		Branch:       branch,
+		WorktreePath: wtPath,
+		Slug:         slug,
+		OutputDir:    outputDir,
+	}
+}
+
+// runHook fires the hooks for the given event. It is a no-op when no hooks are
+// configured for the event. Callers control the failure semantics: pre-hooks
+// should return the error to abort; post-hooks should log and continue.
+func runHook(ctx context.Context, d Deps, cfg hook.Config, event hook.Event, data hook.Data) error {
+	cmds := cfg.For(event)
+	if len(cmds) == 0 {
+		return nil
+	}
+	data.HookType = string(event)
+	return d.HookRunner.Run(ctx, cmds, data)
 }
 
 func artifactSpec(c config.ArtifactConfig) artifact.Spec {

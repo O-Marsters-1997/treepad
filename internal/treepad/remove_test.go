@@ -62,6 +62,85 @@ func TestRemove(t *testing.T) {
 		}
 	})
 
+	t.Run("fires PreRemove and PostRemove hooks", func(t *testing.T) {
+		toml := "[hooks]\npre_remove = [\"marker-pre\"]\npost_remove = [\"marker-post\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{},
+			{},
+		}}
+		hr := &fakeHookRunner{}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.HookRunner = hr
+
+		if err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(hr.calls) != 2 {
+			t.Fatalf("hook runner called %d times, want 2", len(hr.calls))
+		}
+		if got := hr.calls[0].data.HookType; got != "pre_remove" {
+			t.Errorf("calls[0].HookType = %q, want pre_remove", got)
+		}
+		if got := hr.calls[1].data.HookType; got != "post_remove" {
+			t.Errorf("calls[1].HookType = %q, want post_remove", got)
+		}
+		if got := hr.calls[0].data.Branch; got != "feat" {
+			t.Errorf("hook data Branch = %q, want feat", got)
+		}
+	})
+
+	t.Run("PreRemove failure aborts before git worktree remove", func(t *testing.T) {
+		toml := "[hooks]\npre_remove = [\"fail\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+
+		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{
+			{output: porcelain},
+		}}}
+		hr := &fakeHookRunner{err: errors.New("pre remove aborted")}
+		deps := testDeps(rr, &fakeSyncer{}, &fakeOpener{})
+		deps.HookRunner = hr
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), "pre remove aborted") {
+			t.Errorf("got error %v, want error containing 'pre remove aborted'", err)
+		}
+		for _, call := range rr.calls {
+			if len(call) >= 3 && call[1] == "worktree" && call[2] == "remove" {
+				t.Error("git worktree remove should not be called when pre_remove hook fails")
+			}
+		}
+	})
+
+	t.Run("PostRemove failure logs warning but does not abort", func(t *testing.T) {
+		toml := "[hooks]\npost_remove = [\"fail\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		t.Cleanup(func() { os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelain},
+			{},
+			{},
+		}}
+		hr := &fakeHookRunner{err: errors.New("post remove failed")}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.HookRunner = hr
+
+		if err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir}); err != nil {
+			t.Errorf("PostRemove hook failure should not abort operation, got error: %v", err)
+		}
+	})
+
 	errorTests := []struct {
 		name    string
 		runner  *seqRunner
