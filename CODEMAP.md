@@ -17,12 +17,12 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `router.go`
 
 - `Router()` — returns `[]*cli.Command` with all top-level commands
-- Routes to workspace and config command groups
+- Routes to sync and config command groups
 
-### `workspace.go`
+### `sync.go`
 
-- `workspaceCommand()` — top-level workspace command definition
-- `runWorkspace(ctx, cmd)` — action handler for workspace operations
+- `syncCommand()` — top-level sync command definition
+- `runSync(ctx, cmd)` — action handler for sync operations
   - Parses flags: `--use-current`, `--sync-only`, `--output-dir`, `--include`
   - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
   - Calls `Generate()`
@@ -272,7 +272,7 @@ Utility for deriving short identifiers from repository paths.
 
 ```
 tp [--verbose] <command>
-├── workspace [options] [source-path]
+├── sync [options] [source-path]
 │   ├── --use-current (-c)
 │   ├── --sync-only
 │   ├── --output-dir (-o)
@@ -315,11 +315,11 @@ tp [--verbose] <command>
 
 6. **Editor Agnosticism** — No editor names in Go code. Artifact filename, content, and open command are all text/template strings in `.treepad.toml`. VS Code is the default (baked into defaults). Other editors configure via config only.
 
-## Data Flow Example: `tp workspace`
+## Data Flow Example: `tp sync`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
-2. `commands.workspaceCommand()` defines CLI interface
-3. `runWorkspace()` parses args, instantiates `treepad.Service`, calls `Generate()`
+2. `commands.syncCommand()` defines CLI interface
+3. `runSync()` parses args, instantiates `treepad.Service`, calls `Generate()`
 4. `Service.Generate()` resolves source, loads config via `config.Load()`, syncs files via `sync.FileSyncer`
 5. Optionally generates artifact files via `artifact.Write()`
 

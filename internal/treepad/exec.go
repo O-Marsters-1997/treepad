@@ -61,7 +61,7 @@ func Exec(ctx context.Context, d Deps, in ExecInput) (int, error) {
 
 	wt, ok := worktree.FindByBranch(worktrees, in.Branch)
 	if !ok {
-		return 0, fmt.Errorf("no worktree found for branch %q; run `tp workspace` to list worktrees", in.Branch)
+		return 0, fmt.Errorf("no worktree found for branch %q; run `tp sync` to list worktrees", in.Branch)
 	}
 
 	cwd := in.Cwd

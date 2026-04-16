@@ -20,7 +20,7 @@ Hooks let you run shell commands at specific points in `tp`'s lifecycle — befo
 | `pre_sync` | Before each worktree's file sync | Yes |
 | `post_sync` | After each worktree's file sync | No (warning logged) |
 
-Sync events fire per-worktree. For `tp workspace` syncing three worktrees, `pre_sync`/`post_sync` fire three times.
+Sync events fire per-worktree. For `tp sync` syncing three worktrees, `pre_sync`/`post_sync` fire three times.
 
 ## Template variables
 

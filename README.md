@@ -61,23 +61,23 @@ tp [--verbose | -v] <command> [options]
 
 ### Main commands
 
-**`workspace`** — Sync configs and generate artifact files across all git worktrees:
+**`sync`** — Sync configs and generate artifact files across all git worktrees:
 
 ```bash
 # Sync configs and generate artifact files from the main worktree
-tp workspace
+tp sync
 
 # Sync only — skip artifact file generation
-tp workspace --sync-only
+tp sync --sync-only
 
 # Use the current directory as the config source instead of the main worktree
-tp workspace --use-current
+tp sync --use-current
 
 # Include extra file patterns in the sync
-tp workspace --include ".prettierrc" --include ".eslintrc.json"
+tp sync --include ".prettierrc" --include ".eslintrc.json"
 
 # Debug what tp is doing
-tp --verbose workspace
+tp --verbose sync
 ```
 
 **`new`** — Create a new git worktree with configs synced and artifact file generated:
