@@ -105,6 +105,26 @@ Command to run when `tp new --open` is used. Each element is a Go text/template 
 command = ["open", "{{.ArtifactPath}}"]
 ```
 
+### `[from_spec]` section
+
+Configuration for the `tp from-spec` command, which creates worktrees from specifications (GitHub issues or markdown files) and hands off to agents.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `prompt_template` | string | Go text/template string rendered into a prompt file. Available variables: `.Spec` (parsed spec), `.Skills` (configured skill names), `.Branch`, `.Slug`, `.WorktreePath`, `.PromptPath`, and `.Prompt` (in `agent_command` templates) |
+| `prompt_filename` | string | Filename for the generated prompt file (default: `PROMPT.md`), written to the worktree root |
+| `skills` | string[] | List of skill names to expose in the template context as `.Skills` |
+| `agent_command` | string[] | Command to invoke after the prompt is written. Each element is a text/template string. Empty or absent means write the prompt and exit (allowing manual agent invocation) |
+
+**Default** (when no `[from_spec]` section is present):
+
+```toml
+[from_spec]
+prompt_filename = "PROMPT.md"
+```
+
+If `prompt_template` and `agent_command` are not configured, `tp from-spec` will create the worktree, parse the spec, and exit. You can then invoke your agent manually with the PROMPT.md file.
+
 ## Template Context
 
 Templates in `[artifact]` and `[open]` sections have access to the following variables:
