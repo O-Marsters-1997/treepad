@@ -1,0 +1,5 @@
+# tp diff with an unknown branch should exit non-zero with a clear error.
+tp-init-repo
+! exec tp diff ghost
+stderr '\[ERR\]'
+stderr 'no worktree found'

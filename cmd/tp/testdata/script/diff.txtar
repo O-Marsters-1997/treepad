@@ -1,0 +1,27 @@
+tp-init-repo
+tp-add-worktree feat
+
+# Seed a commit on the feat branch so there is something to diff.
+exec sh -c 'echo hello > ../repo-feat/newfile.txt'
+exec git -C ../repo-feat add newfile.txt
+exec git -C ../repo-feat commit -m 'add newfile'
+
+# Default diff against main shows the added file.
+exec tp diff feat
+stdout 'newfile\.txt'
+
+# --stat passthrough shows a summary line instead of the full patch.
+exec tp diff feat -- --stat
+stdout 'newfile\.txt'
+stdout 'changed'
+
+# -o writes a plain uncolored patch to disk; nothing appears on stdout.
+exec tp diff feat -o out.patch
+! stdout .
+stderr '\[OK\].*out\.patch'
+exists out.patch
+grep 'hello' out.patch
+
+# --base main is equivalent to the default.
+exec tp diff feat --base main
+stdout 'newfile\.txt'
