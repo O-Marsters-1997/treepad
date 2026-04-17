@@ -12,10 +12,11 @@ import (
 
 func execCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "exec",
-		Usage:     "run a command in a specific worktree",
-		ArgsUsage: "<branch> [command] [args...]",
-		Action:    runExec,
+		Name:          "exec",
+		Usage:         "run a command in a specific worktree",
+		ArgsUsage:     "<branch> [command] [args...]",
+		ShellComplete: completeExecBranch,
+		Action:        runExec,
 	}
 }
 

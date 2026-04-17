@@ -24,11 +24,12 @@ func main() { os.Exit(Run(os.Args, os.Stdout, os.Stderr)) }
 // an exit code. main() is a thin wrapper so tests can invoke Run directly.
 func Run(args []string, stdout, stderr io.Writer) int {
 	cmd := &cli.Command{
-		Name:      "tp",
-		Usage:     "CLI for managing git worktrees",
-		Version:   version + " (commit: " + commit + ", built: " + date + ")",
-		Writer:    stdout,
-		ErrWriter: stderr,
+		Name:                  "tp",
+		Usage:                 "CLI for managing git worktrees",
+		Version:               version + " (commit: " + commit + ", built: " + date + ")",
+		EnableShellCompletion: true,
+		Writer:                stdout,
+		ErrWriter:             stderr,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "verbose",

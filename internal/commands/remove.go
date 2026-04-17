@@ -12,10 +12,11 @@ import (
 
 func removeCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "remove",
-		Usage:     "remove a git worktree and its associated files",
-		ArgsUsage: "<branch>",
-		Action:    runRemove,
+		Name:          "remove",
+		Usage:         "remove a git worktree and its associated files",
+		ArgsUsage:     "<branch>",
+		ShellComplete: completeRemoveBranch,
+		Action:        runRemove,
 	}
 }
 
