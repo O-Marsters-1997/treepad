@@ -12,10 +12,11 @@ import (
 
 func cdCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "cd",
-		Usage:     "cd into an existing worktree by branch name",
-		ArgsUsage: "<branch>",
-		Action:    runCD,
+		Name:          "cd",
+		Usage:         "cd into an existing worktree by branch name",
+		ArgsUsage:     "<branch>",
+		ShellComplete: completeWorktreeBranch,
+		Action:        runCD,
 	}
 }
 
