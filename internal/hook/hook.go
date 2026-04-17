@@ -24,19 +24,30 @@ type Data struct {
 	OutputDir    string // artifact output directory
 }
 
-// Runner executes a list of hook commands with the provided data.
-type Runner interface {
-	Run(ctx context.Context, hooks []string, data Data) error
+// HookEntry is a single hook command with optional branch filters.
+// Only and Except use glob patterns (** crosses path separators).
+// If Only is non-empty the branch must match at least one pattern.
+// If Except is non-empty the branch must not match any pattern.
+// Both conditions apply when both are set.
+type HookEntry struct {
+	Command string   `toml:"command"`
+	Only    []string `toml:"only"`
+	Except  []string `toml:"except"`
 }
 
-// Config holds the hook command lists for each event.
+// Runner executes a list of hook entries with the provided data.
+type Runner interface {
+	Run(ctx context.Context, hooks []HookEntry, data Data) error
+}
+
+// Config holds the hook entries for each event.
 type Config struct {
-	PreNew     []string `toml:"pre_new"`
-	PostNew    []string `toml:"post_new"`
-	PreRemove  []string `toml:"pre_remove"`
-	PostRemove []string `toml:"post_remove"`
-	PreSync    []string `toml:"pre_sync"`
-	PostSync   []string `toml:"post_sync"`
+	PreNew     []HookEntry `toml:"pre_new"`
+	PostNew    []HookEntry `toml:"post_new"`
+	PreRemove  []HookEntry `toml:"pre_remove"`
+	PostRemove []HookEntry `toml:"post_remove"`
+	PreSync    []HookEntry `toml:"pre_sync"`
+	PostSync   []HookEntry `toml:"post_sync"`
 }
 
 // IsZero reports whether no hooks are configured.
@@ -46,8 +57,8 @@ func (c Config) IsZero() bool {
 		len(c.PreSync) == 0 && len(c.PostSync) == 0
 }
 
-// For returns the hook commands for the given event.
-func (c Config) For(e Event) []string {
+// For returns the hook entries for the given event.
+func (c Config) For(e Event) []HookEntry {
 	switch e {
 	case PreNew:
 		return c.PreNew

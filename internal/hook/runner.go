@@ -18,15 +18,19 @@ type ExecRunner struct {
 	Runner CommandRunner
 }
 
-// Run executes each hook sequentially, stopping on the first error.
-func (e ExecRunner) Run(ctx context.Context, hooks []string, data Data) error {
+// Run executes each hook entry sequentially, skipping entries whose branch
+// filters do not match data.Branch, stopping on the first error.
+func (e ExecRunner) Run(ctx context.Context, hooks []HookEntry, data Data) error {
 	if runtime.GOOS == "windows" {
 		return fmt.Errorf("hooks are not supported on Windows")
 	}
-	for _, tmpl := range hooks {
-		rendered, err := renderCommand(tmpl, data)
+	for _, entry := range hooks {
+		if !shouldRun(entry, data.Branch) {
+			continue
+		}
+		rendered, err := renderCommand(entry.Command, data)
 		if err != nil {
-			return fmt.Errorf("render hook %q: %w", tmpl, err)
+			return fmt.Errorf("render hook %q: %w", entry.Command, err)
 		}
 		if _, err := e.Runner.Run(ctx, "sh", "-c", rendered); err != nil {
 			return fmt.Errorf("hook %q: %w", rendered, err)

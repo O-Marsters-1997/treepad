@@ -116,7 +116,7 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("fires PreNew and PostNew hooks", func(t *testing.T) {
-		toml := "[hooks]\npre_new = [\"marker-pre\"]\npost_new = [\"marker-post\"]\n"
+		toml := "[[hooks.pre_new]]\ncommand = \"marker-pre\"\n\n[[hooks.post_new]]\ncommand = \"marker-post\"\n"
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
@@ -148,7 +148,7 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("PreNew failure aborts before git worktree add", func(t *testing.T) {
-		toml := "[hooks]\npre_new = [\"fail\"]\n"
+		toml := "[[hooks.pre_new]]\ncommand = \"fail\"\n"
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
@@ -173,7 +173,7 @@ func TestNew(t *testing.T) {
 	})
 
 	t.Run("PostNew failure logs warning but does not abort", func(t *testing.T) {
-		toml := "[hooks]\npost_new = [\"fail\"]\n"
+		toml := "[[hooks.post_new]]\ncommand = \"fail\"\n"
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}

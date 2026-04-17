@@ -1,7 +1,7 @@
 tp-init-repo
 
 # Write a config with post_new and post_remove hooks that append to an activity log.
-exec sh -c 'printf "[hooks]\npost_new = [\"mkdir -p .treepad && echo post_new:{{.Branch}} >> .treepad/activity.log\"]\npost_remove = [\"echo post_remove:{{.Branch}} >> .treepad/activity.log\"]\n" > .treepad.toml'
+exec sh -c 'printf "[[hooks.post_new]]\ncommand = \"mkdir -p .treepad && echo post_new:{{.Branch}} >> .treepad/activity.log\"\n\n[[hooks.post_remove]]\ncommand = \"echo post_remove:{{.Branch}} >> .treepad/activity.log\"\n" > .treepad.toml'
 
 exec tp new feature-x
 exists ../repo-feature-x
@@ -12,6 +12,6 @@ exec tp remove feature-x
 grep 'post_remove:feature-x' .treepad/activity.log
 
 # A failing pre_new hook should abort tp new before creating the worktree.
-exec sh -c 'printf "[hooks]\npre_new = [\"exit 1\"]\n" > .treepad.toml'
+exec sh -c 'printf "[[hooks.pre_new]]\ncommand = \"exit 1\"\n" > .treepad.toml'
 ! exec tp new should-not-exist
 ! exists ../repo-should-not-exist
