@@ -1,0 +1,4 @@
+# tp diff without a branch argument should exit non-zero.
+tp-init-repo
+! exec tp diff
+stderr 'branch name is required'

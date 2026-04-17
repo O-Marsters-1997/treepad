@@ -160,6 +160,27 @@ tp exec feature-x
 
 The `exec` command auto-detects the project task runner (just, npm/pnpm/yarn/bun, make, poetry/uv) by checking for marker files. If the command matches an enumerated script, it routes through the runner (e.g. `just build`, `pnpm run build`). Otherwise, it executes the command directly in the worktree root. Override auto-detection via `[exec] runner = "just"` in `.treepad.toml`.
 
+**`diff`** — Show the diff of a worktree against a base branch:
+
+```bash
+# Show diff vs main branch (colored, paged via git config)
+tp diff feature-x
+
+# Diff against a different base branch
+tp diff feature-x --base develop
+
+# Write a plain patch to a file (no color)
+tp diff feature-x -o ~/my-feature.patch
+
+# Show only changed files and line counts
+tp diff feature-x -- --stat
+
+# Limit diff to a specific subdirectory
+tp diff feature-x -- -- src/
+```
+
+The `diff` command uses `git diff <base>...HEAD` three-dot semantics (matches GitHub PR diff view) and respects your git configuration (pager, delta, diff-so-fancy). Inherits color and pager config from the target worktree's git setup. Pass `--output` / `-o` to write an uncolored patch to a file.
+
 **`config`** — Manage tp configuration:
 
 ```bash
