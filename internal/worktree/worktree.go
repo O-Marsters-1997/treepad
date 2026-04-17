@@ -20,9 +20,11 @@ type CommandRunner interface {
 }
 
 type Worktree struct {
-	Path   string
-	Branch string // stripped of refs/heads/ prefix; "(detached)" when detached
-	IsMain bool   // true when .git entry is a directory, not a file
+	Path           string
+	Branch         string // stripped of refs/heads/ prefix; "(detached)" when detached
+	IsMain         bool   // true when .git entry is a directory, not a file
+	Prunable       bool   // true when git considers the worktree stale (directory deleted)
+	PrunableReason string // git's human-readable reason, e.g. "gitdir file points to non-existent location"
 }
 
 type ExecRunner struct{}
@@ -94,6 +96,9 @@ func parsePorcelain(data []byte) ([]Worktree, error) {
 			current.Branch = strings.TrimPrefix(value, "refs/heads/")
 		case "detached":
 			current.Branch = "(detached)"
+		case "prunable":
+			current.Prunable = true
+			current.PrunableReason = value
 		}
 	}
 

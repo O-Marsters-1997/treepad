@@ -20,16 +20,18 @@ type StatusInput struct {
 }
 
 type StatusRow struct {
-	Branch       string              `json:"branch"`
-	Path         string              `json:"path"`
-	IsMain       bool                `json:"is_main"`
-	Dirty        bool                `json:"dirty"`
-	Ahead        int                 `json:"ahead"`
-	Behind       int                 `json:"behind"`
-	HasUpstream  bool                `json:"has_upstream"`
-	LastCommit   worktree.CommitInfo `json:"last_commit"`
-	ArtifactPath string              `json:"artifact_path,omitempty"`
-	LastTouched  time.Time           `json:"last_touched"`
+	Branch         string              `json:"branch"`
+	Path           string              `json:"path"`
+	IsMain         bool                `json:"is_main"`
+	Dirty          bool                `json:"dirty"`
+	Ahead          int                 `json:"ahead"`
+	Behind         int                 `json:"behind"`
+	HasUpstream    bool                `json:"has_upstream"`
+	LastCommit     worktree.CommitInfo `json:"last_commit"`
+	ArtifactPath   string              `json:"artifact_path,omitempty"`
+	LastTouched    time.Time           `json:"last_touched"`
+	Prunable       bool                `json:"prunable,omitempty"`
+	PrunableReason string              `json:"prunable_reason,omitempty"`
 }
 
 func Status(ctx context.Context, d Deps, in StatusInput) error {
@@ -48,9 +50,16 @@ func Status(ctx context.Context, d Deps, in StatusInput) error {
 	rows := make([]StatusRow, 0, len(rc.Worktrees))
 	for _, wt := range rc.Worktrees {
 		row := StatusRow{
-			Branch: wt.Branch,
-			Path:   wt.Path,
-			IsMain: wt.IsMain,
+			Branch:         wt.Branch,
+			Path:           wt.Path,
+			IsMain:         wt.IsMain,
+			Prunable:       wt.Prunable,
+			PrunableReason: wt.PrunableReason,
+		}
+
+		if wt.Prunable {
+			rows = append(rows, row)
+			continue
 		}
 
 		row.Dirty, err = worktree.Dirty(ctx, d.Runner, wt.Path)
@@ -93,10 +102,18 @@ func writeStatusTable(d Deps, rows []StatusRow) error {
 	w := tabwriter.NewWriter(d.Out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
 
+	hasPrunable := false
 	for _, r := range rows {
 		branch := r.Branch
 		if r.IsMain {
 			branch += " *"
+		}
+
+		if r.Prunable {
+			hasPrunable = true
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				branch, "prunable", "—", r.PrunableReason, "—", collapsePath(r.Path))
+			continue
 		}
 
 		status := "clean"
@@ -127,7 +144,13 @@ func writeStatusTable(d Deps, rows []StatusRow) error {
 			branch, status, aheadBehind, lastCommit, touched, collapsePath(r.Path))
 	}
 
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if hasPrunable {
+		_, _ = fmt.Fprintln(d.Out, "\nnote: stale worktree metadata detected — run 'tp prune' or 'git worktree prune' to clean up")
+	}
+	return nil
 }
 
 func since(t time.Time) string {

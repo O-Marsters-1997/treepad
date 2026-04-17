@@ -1,0 +1,7 @@
+tp-init-repo
+tp-add-worktree feat-a
+exec rm -rf ../repo-feat-a
+exec tp status
+stdout 'feat-a'
+stdout 'prunable'
+stdout 'tp prune'
