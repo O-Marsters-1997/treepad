@@ -88,6 +88,55 @@ tp new feature-z --open
 tp new my-branch -c
 ```
 
+## from-spec
+
+Create a worktree from a spec (GitHub issue or file), render a prompt, and hand off to an agent.
+
+```
+tp from-spec [options] <branch>
+```
+
+Creates a new worktree, loads a spec from either a GitHub issue or a local markdown file, generates a prompt for an agent to work on the spec, and hands off execution. The spec is parsed into a structured format that agents can use to understand the requirements. By default, cd's into the new worktree when invoked via the shell wrapper.
+
+**Spec source resolution:**
+- `--issue`: GitHub issue number (requires internet access and GitHub permissions)
+- `--file`: Local markdown file path
+
+One of `--issue` or `--file` is required; they are mutually exclusive.
+
+**Hooks fired:** Same as `new` command: `pre_new` (before `git worktree add`), `pre_sync`/`post_sync` (around file sync), `post_new` (after artifact write). See [hooks.md](hooks.md).
+
+### Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--issue` | `-i` | GitHub issue `number` to use as the spec (mutually exclusive with `--file`) |
+| `--file` | `-f` | Path to a local markdown spec `file` (mutually exclusive with `--issue`) |
+| `--base` | | Ref to branch the new worktree from (default: `main`) |
+| `--current` | `-c` | Stay in the current directory instead of cd-ing into the new worktree |
+
+### Examples
+
+```bash
+# Create a worktree from a GitHub issue spec
+tp from-spec feature-x --issue 42
+
+# Create a worktree from a local markdown spec file
+tp from-spec feature-y --file ./spec.md
+
+# Create a worktree from a different base ref
+tp from-spec bugfix-z --issue 10 --base develop
+
+# Stay in current directory after creation
+tp from-spec feature-a --issue 99 --current
+```
+
+### Spec Format
+
+Specs are expected to be in markdown format. When provided via `--issue`, the GitHub issue body is used directly. When using `--file`, the markdown file should contain the spec content.
+
+The spec is parsed and made available to agents as structured input, enabling them to understand and implement the requirements.
+
 ## cd
 
 cd into an existing worktree by branch name.

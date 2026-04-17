@@ -4,13 +4,74 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"slices"
 
 	"treepad/internal/artifact"
 	"treepad/internal/config"
 	"treepad/internal/hook"
+	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
 )
+
+// createWorktreeResult carries post-creation state shared by New and FromSpec.
+type createWorktreeResult struct {
+	RC           repoContext
+	Cfg          config.Config
+	WorktreePath string
+	ArtifactPath string
+}
+
+// createWorktreeWithSync is the shared prologue for tp new and tp from-spec:
+// resolve repo context → derive worktree path → load config → fire pre_new hook
+// → git worktree add → sync configs → write artifact → fire post_new hook.
+// Callers own --open and emitCD.
+func createWorktreeWithSync(ctx context.Context, d Deps, branch, base, outputDir string) (createWorktreeResult, error) {
+	rc, err := loadRepoContext(ctx, d, outputDir)
+	if err != nil {
+		return createWorktreeResult{}, err
+	}
+
+	worktreePath := filepath.Join(filepath.Dir(rc.Main.Path), rc.Slug+"-"+slug.Slug(branch))
+	slog.Debug("derived worktree path", "path", worktreePath)
+
+	hookCfg, err := config.Load(rc.Main.Path)
+	if err != nil {
+		return createWorktreeResult{}, fmt.Errorf("load config: %w", err)
+	}
+	hData := hookData(rc.Slug, branch, worktreePath, rc.OutputDir)
+	if err := runHook(ctx, d, hookCfg.Hooks, hook.PreNew, hData); err != nil {
+		return createWorktreeResult{}, fmt.Errorf("pre_new hook: %w", err)
+	}
+
+	if _, err := d.Runner.Run(ctx, "git", "worktree", "add", "-b", branch, worktreePath, base); err != nil {
+		return createWorktreeResult{}, fmt.Errorf("git worktree add: %w", err)
+	}
+	d.Log.OK("created worktree at %s", worktreePath)
+
+	cfg, err := loadAndSync(ctx, d, rc.Main.Path, nil, []syncTarget{{path: worktreePath, branch: branch}}, rc.Slug, rc.OutputDir)
+	if err != nil {
+		return createWorktreeResult{}, err
+	}
+
+	artData := templateData(rc.Slug, branch, worktreePath, rc.OutputDir)
+	artifactPath, err := artifact.Write(artifactSpec(cfg.Artifact), rc.OutputDir, artData)
+	if err != nil {
+		return createWorktreeResult{}, fmt.Errorf("write artifact: %w", err)
+	}
+	slog.Debug("wrote artifact", "outputDir", rc.OutputDir, "branch", branch)
+
+	if err := runHook(ctx, d, cfg.Hooks, hook.PostNew, hData); err != nil {
+		d.Log.Warn("post_new hook failed: %v", err)
+	}
+
+	return createWorktreeResult{
+		RC:           rc,
+		Cfg:          cfg,
+		WorktreePath: worktreePath,
+		ArtifactPath: artifactPath,
+	}, nil
+}
 
 type syncTarget struct {
 	path   string
