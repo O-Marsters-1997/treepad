@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,6 +157,59 @@ func TestFileSyncerSync(t *testing.T) {
 			setup:    func(src string) {},
 			patterns: []string{"[invalid"},
 			wantErr:  "invalid pattern",
+		},
+		{
+			name: "symlink to directory is recreated as symlink",
+			setup: func(src string) {
+				writeFile(t, filepath.Join(src, ".claude", "settings.local.json"), `{"key":"val"}`)
+				external := t.TempDir()
+				writeFile(t, filepath.Join(external, "agent.md"), "# Agent")
+				if err := os.Symlink(external, filepath.Join(src, ".claude", "agents")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			patterns: []string{".claude/"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				if readFile(t, filepath.Join(dst, ".claude", "settings.local.json")) != `{"key":"val"}` {
+					t.Error("settings.local.json content mismatch")
+				}
+				info, err := os.Lstat(filepath.Join(dst, ".claude", "agents"))
+				if err != nil {
+					t.Fatalf("lstat agents: %v", err)
+				}
+				if info.Mode()&fs.ModeSymlink == 0 {
+					t.Error("agents should be a symlink, got regular entry")
+				}
+				srcTarget, _ := os.Readlink(filepath.Join(src, ".claude", "agents"))
+				dstTarget, _ := os.Readlink(filepath.Join(dst, ".claude", "agents"))
+				if srcTarget != dstTarget {
+					t.Errorf("symlink target mismatch: src=%q dst=%q", srcTarget, dstTarget)
+				}
+			},
+		},
+		{
+			name: "symlink to file is recreated as symlink",
+			setup: func(src string) {
+				writeFile(t, filepath.Join(src, "real.txt"), "content")
+				if err := os.Symlink(filepath.Join(src, "real.txt"), filepath.Join(src, "link.txt")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			patterns: []string{"*.txt"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				if readFile(t, filepath.Join(dst, "real.txt")) != "content" {
+					t.Error("real.txt content mismatch")
+				}
+				info, err := os.Lstat(filepath.Join(dst, "link.txt"))
+				if err != nil {
+					t.Fatalf("lstat link.txt: %v", err)
+				}
+				if info.Mode()&fs.ModeSymlink == 0 {
+					t.Error("link.txt should be a symlink, got regular entry")
+				}
+			},
 		},
 	}
 
