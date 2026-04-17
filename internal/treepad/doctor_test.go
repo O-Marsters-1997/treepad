@@ -200,7 +200,7 @@ func TestDoctor(t *testing.T) {
 
 	t.Run("config-drift finding when worktree has different sync files", func(t *testing.T) {
 		// Write a .treepad.toml with different sync files to featPath.
-		toml := "[sync]\nfiles = [\"custom-file\"]\n"
+		toml := "[sync]\ninclude = [\"custom-file\"]\n"
 		if err := os.WriteFile(filepath.Join(featPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}

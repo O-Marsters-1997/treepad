@@ -24,15 +24,18 @@ command = ["open", "{{.ArtifactPath}}"]
 
 File patterns to copy from the source worktree to all other worktrees.
 
-| Field   | Type     | Description                                     |
-| ------- | -------- | ----------------------------------------------- |
-| `files` | string[] | Glob patterns of files to sync across worktrees |
+| Field     | Type     | Description                                                     |
+| --------- | -------- | --------------------------------------------------------------- |
+| `include` | string[] | Gitignore-style patterns of files/dirs to sync across worktrees |
 
-When `sync.files` is set, it **replaces** the defaults entirely. Use the `--include` flag to append additional patterns to whatever `sync.files` resolves to.
+Patterns use gitignore syntax: `**` matches across directories, a trailing `/` matches a directory and all its contents, and a `!` prefix negates (excludes) a pattern.
 
-**Default files** (used when no `[sync]` section or empty `files` array):
+When `sync.include` is set, it **replaces** the defaults entirely. Use the `--include` flag to append additional patterns to whatever `sync.include` resolves to.
 
-- `.claude/settings.local.json`
+**Default patterns** (used when no `[sync]` section or empty `include` array):
+
+- `.claude/`
+- `node_modules/`
 - `.env`
 - `.env.docker-compose`
 - `.vscode/settings.json`
@@ -72,14 +75,14 @@ Shell commands to run at lifecycle points in `tp` operations. See [hooks.md](hoo
 
 Each field is a list of shell command strings (Go `text/template` strings rendered before execution). An empty or absent list is a no-op.
 
-| Field | Type | Description |
-|---|---|---|
-| `pre_new` | string[] | Run before `git worktree add`; non-zero exit aborts the operation |
-| `post_new` | string[] | Run after artifact file is written; failure logs a warning |
-| `pre_remove` | string[] | Run before `git worktree remove`; non-zero exit aborts the operation |
-| `post_remove` | string[] | Run after `git branch -d`; failure logs a warning |
-| `pre_sync` | string[] | Run before each worktree's file sync; non-zero exit aborts that sync |
-| `post_sync` | string[] | Run after each worktree's file sync; failure logs a warning |
+| Field         | Type     | Description                                                          |
+| ------------- | -------- | -------------------------------------------------------------------- |
+| `pre_new`     | string[] | Run before `git worktree add`; non-zero exit aborts the operation    |
+| `post_new`    | string[] | Run after artifact file is written; failure logs a warning           |
+| `pre_remove`  | string[] | Run before `git worktree remove`; non-zero exit aborts the operation |
+| `post_remove` | string[] | Run after `git branch -d`; failure logs a warning                    |
+| `pre_sync`    | string[] | Run before each worktree's file sync; non-zero exit aborts that sync |
+| `post_sync`   | string[] | Run after each worktree's file sync; failure logs a warning          |
 
 ```toml
 [hooks]

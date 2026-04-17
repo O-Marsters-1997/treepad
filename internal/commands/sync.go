@@ -32,7 +32,7 @@ func syncCommand() *cli.Command {
 			},
 			&cli.StringSliceFlag{
 				Name:  "include",
-				Usage: "additional file patterns to sync (appended to sync.files in .treepad.toml)",
+				Usage: "additional file patterns to sync (appended to sync.include in .treepad.toml)",
 			},
 		},
 		Action: runSync,
