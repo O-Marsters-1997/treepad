@@ -15,8 +15,8 @@ type PruneInput struct {
 	Base      string // branch to check merges against, e.g. "main"
 	OutputDir string
 	DryRun    bool
-	All       bool  // force-remove all non-main worktrees regardless of merge status
-	Yes       bool  // skip the interactive confirmation prompt (for scripting)
+	All       bool // force-remove all non-main worktrees regardless of merge status
+	Yes       bool // skip the interactive confirmation prompt (for scripting)
 	// Cwd overrides os.Getwd for testing the cwd-inside guard.
 	Cwd string
 }
