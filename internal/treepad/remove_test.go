@@ -63,7 +63,7 @@ func TestRemove(t *testing.T) {
 	})
 
 	t.Run("fires PreRemove and PostRemove hooks", func(t *testing.T) {
-		toml := "[hooks]\npre_remove = [\"marker-pre\"]\npost_remove = [\"marker-post\"]\n"
+		toml := "[[hooks.pre_remove]]\ncommand = \"marker-pre\"\n\n[[hooks.post_remove]]\ncommand = \"marker-post\"\n"
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
@@ -96,7 +96,7 @@ func TestRemove(t *testing.T) {
 	})
 
 	t.Run("PreRemove failure aborts before git worktree remove", func(t *testing.T) {
-		toml := "[hooks]\npre_remove = [\"fail\"]\n"
+		toml := "[[hooks.pre_remove]]\ncommand = \"fail\"\n"
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
@@ -121,7 +121,7 @@ func TestRemove(t *testing.T) {
 	})
 
 	t.Run("PostRemove failure logs warning but does not abort", func(t *testing.T) {
-		toml := "[hooks]\npost_remove = [\"fail\"]\n"
+		toml := "[[hooks.post_remove]]\ncommand = \"fail\"\n"
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}

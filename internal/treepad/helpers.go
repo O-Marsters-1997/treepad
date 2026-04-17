@@ -68,12 +68,12 @@ func hookData(slug, branch, wtPath, outputDir string) hook.Data {
 // configured for the event. Callers control the failure semantics: pre-hooks
 // should return the error to abort; post-hooks should log and continue.
 func runHook(ctx context.Context, d Deps, cfg hook.Config, event hook.Event, data hook.Data) error {
-	cmds := cfg.For(event)
-	if len(cmds) == 0 {
+	entries := cfg.For(event)
+	if len(entries) == 0 {
 		return nil
 	}
 	data.HookType = string(event)
-	return d.HookRunner.Run(ctx, cmds, data)
+	return d.HookRunner.Run(ctx, entries, data)
 }
 
 func artifactSpec(c config.ArtifactConfig) artifact.Spec {

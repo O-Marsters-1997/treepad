@@ -38,22 +38,51 @@ Template rendering happens before the command is executed. A template error (e.g
 
 ## Configuration
 
-Hooks are declared under `[hooks]` in `.treepad.toml`. Each field is a list of shell command strings, executed sequentially via `sh -c`.
+Hooks are declared in `.treepad.toml` using TOML array-of-tables syntax. Each entry has a `command` field and optional `only`/`except` branch filters.
 
 ```toml
-[hooks]
-pre_new     = ["go mod download"]
-post_new    = [
-  "echo 'created {{.Branch}} at {{.WorktreePath}}' >> .treepad/activity.log",
-  "direnv allow {{.WorktreePath}}",
-]
-pre_remove  = ["git -C {{.WorktreePath}} diff --exit-code HEAD"]
-post_remove = []
-pre_sync    = []
-post_sync   = ["direnv allow {{.WorktreePath}}"]
+[[hooks.pre_new]]
+command = "go mod download"
+
+[[hooks.post_new]]
+command = "echo 'created {{.Branch}} at {{.WorktreePath}}' >> .treepad/activity.log"
+
+[[hooks.post_new]]
+command = "direnv allow {{.WorktreePath}}"
+
+[[hooks.pre_remove]]
+command = "git -C {{.WorktreePath}} diff --exit-code HEAD"
+
+[[hooks.post_sync]]
+command = "direnv allow {{.WorktreePath}}"
 ```
 
-Unset or empty lists are silently skipped. Unknown keys under `[hooks]` produce a parse error.
+Unset or absent hook lists are silently skipped.
+
+## Branch filtering
+
+Each hook entry supports `only` and `except` fields, which accept glob patterns (`*` matches within a path segment; `**` crosses path separators).
+
+```toml
+[[hooks.post_new]]
+command = "go mod download"
+only = ["feat/*", "fix/*"]   # only run for feat/ and fix/ branches
+
+[[hooks.post_new]]
+command = "echo 'hotfix started'"
+only = ["hotfix/**"]         # run for hotfix/ and any deeper nesting
+
+[[hooks.pre_remove]]
+command = "git -C {{.WorktreePath}} diff --exit-code HEAD"
+except = ["throwaway/*"]     # skip safety check on throwaway branches
+```
+
+Filter semantics:
+
+- If `only` is set, the branch must match at least one pattern — otherwise the entry is skipped.
+- If `except` is set, the branch must not match any pattern — otherwise the entry is skipped.
+- Both conditions apply when both are set (AND semantics): the branch must satisfy `only` and fail `except`.
+- An entry with neither field runs for all branches.
 
 > **Note:** Hooks are not supported on Windows in v1. `tp` returns an error if a hook is configured and executed on `GOOS=windows`.
 
@@ -71,12 +100,14 @@ Unset or empty lists are silently skipped. Unknown keys under `[hooks]` produce 
 Run dependency install and generate a seed task file when a new worktree is created. The agent opens to a ready environment.
 
 ```toml
-[hooks]
-post_new = [
-  "cd {{.WorktreePath}} && go mod download",
-  "cp .env.example {{.WorktreePath}}/.env",
-  "echo '# Task: {{.Branch}}\n\nSee CLAUDE.md for context.' > {{.WorktreePath}}/TASK.md",
-]
+[[hooks.post_new]]
+command = "cd {{.WorktreePath}} && go mod download"
+
+[[hooks.post_new]]
+command = "cp .env.example {{.WorktreePath}}/.env"
+
+[[hooks.post_new]]
+command = "echo '# Task: {{.Branch}}\n\nSee CLAUDE.md for context.' > {{.WorktreePath}}/TASK.md"
 ```
 
 ### Refuse removal of dirty worktrees
@@ -84,10 +115,8 @@ post_new = [
 Block `tp remove` if the worktree has uncommitted changes, preventing accidental data loss.
 
 ```toml
-[hooks]
-pre_remove = [
-  "git -C {{.WorktreePath}} diff --exit-code HEAD",
-]
+[[hooks.pre_remove]]
+command = "git -C {{.WorktreePath}} diff --exit-code HEAD"
 ```
 
 If the diff exits non-zero (dirty), `tp remove` aborts with a hook error before touching anything.
@@ -97,20 +126,22 @@ If the diff exits non-zero (dirty), `tp remove` aborts with a hook error before 
 Allow the new worktree's `.envrc` after sync so environment variables are live before the agent opens.
 
 ```toml
-[hooks]
-post_sync = ["direnv allow {{.WorktreePath}}"]
+[[hooks.post_sync]]
+command = "direnv allow {{.WorktreePath}}"
 ```
 
 Because `post_sync` fires per-worktree, every synced directory gets approved.
 
 ### Log agent activity to a shared file
 
-Append to a repo-level activity log on every worktree creation. Foreshadows the shared-state work (`.treepad/state.toml`) without coupling to it.
+Append to a repo-level activity log on every worktree creation.
 
 ```toml
-[hooks]
-post_new    = ["echo \"$(date -u +%FT%TZ) created {{.Branch}}\" >> .treepad/activity.log"]
-post_remove = ["echo \"$(date -u +%FT%TZ) removed {{.Branch}}\" >> .treepad/activity.log"]
+[[hooks.post_new]]
+command = "echo \"$(date -u +%FT%TZ) created {{.Branch}}\" >> .treepad/activity.log"
+
+[[hooks.post_remove]]
+command = "echo \"$(date -u +%FT%TZ) removed {{.Branch}}\" >> .treepad/activity.log"
 ```
 
 ### Run linters before sync overwrites
@@ -118,8 +149,22 @@ post_remove = ["echo \"$(date -u +%FT%TZ) removed {{.Branch}}\" >> .treepad/acti
 Guard against syncing a broken config into all worktrees.
 
 ```toml
-[hooks]
-pre_sync = ["./scripts/validate-vscode-settings.sh"]
+[[hooks.pre_sync]]
+command = "./scripts/validate-vscode-settings.sh"
+```
+
+### Run different setup per branch type
+
+Install dependencies only on feature branches; run integration tests only on fix branches.
+
+```toml
+[[hooks.post_new]]
+command = "cd {{.WorktreePath}} && go mod download"
+only = ["feat/**"]
+
+[[hooks.post_new]]
+command = "cd {{.WorktreePath}} && go test ./..."
+only = ["fix/**", "hotfix/**"]
 ```
 
 ## Limitations and roadmap

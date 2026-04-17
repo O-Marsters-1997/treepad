@@ -106,7 +106,7 @@ func threeWorktreePorcelainWithMain(mainPath, feat1Path, feat2Path string) []byt
 }
 
 type fakeHookCall struct {
-	hooks []string
+	hooks []hook.HookEntry
 	data  hook.Data
 }
 
@@ -115,7 +115,7 @@ type fakeHookRunner struct {
 	err   error
 }
 
-func (f *fakeHookRunner) Run(_ context.Context, hooks []string, data hook.Data) error {
+func (f *fakeHookRunner) Run(_ context.Context, hooks []hook.HookEntry, data hook.Data) error {
 	f.calls = append(f.calls, fakeHookCall{hooks: hooks, data: data})
 	return f.err
 }
