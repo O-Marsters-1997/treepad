@@ -8,20 +8,17 @@ import (
 	"treepad/internal/worktree"
 )
 
-// DiffInput parameterises a tp diff invocation.
 type DiffInput struct {
 	Branch     string
-	Base       string // default "main" if empty
-	OutputFile string // optional; writes uncolored patch to this path
+	Base       string // empty defaults to "main"
+	OutputFile string // if set, writes uncolored patch here instead of terminal
 	ExtraArgs  []string
-	// Runner overrides osPassthroughRunner for testing.
-	Runner PassthroughRunner
+	Runner     PassthroughRunner // nil uses osPassthroughRunner
 }
 
-// Diff shows the diff of the target worktree against base (default "main")
-// using three-dot merge-base semantics (base...HEAD). When OutputFile is set
-// the patch is written uncolored to that path; otherwise stdio is inherited so
-// git's pager and color config apply.
+// Diff diffs the target worktree against base using three-dot merge-base
+// semantics (base...HEAD), matching GitHub PR view. Inherits stdio so the
+// user's pager and color config (delta, diff-so-fancy) apply automatically.
 func Diff(ctx context.Context, d Deps, in DiffInput) error {
 	if in.Branch == "" {
 		return fmt.Errorf("branch name is required")

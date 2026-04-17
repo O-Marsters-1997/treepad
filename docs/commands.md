@@ -436,3 +436,86 @@ task/remove-guards       clean   ↑0 ↓6         8305b88 add pre-flight guards
   }
 ]
 ```
+
+## diff
+
+Show the diff of a worktree against a base branch using three-dot merge-base semantics.
+
+```
+tp diff [options] <branch> [-- <git-diff-args>...]
+```
+
+Displays the diff between the target worktree's branch and a base ref (default: `main`) using `git diff <base>...HEAD` semantics, which matches the diff view in GitHub pull requests. The diff is shown in the terminal with color and paging inherited from the target worktree's git configuration (respects `delta`, `diff-so-fancy`, or other configured tools). Optionally writes a plain (uncolored) patch to a file with `--output`.
+
+### Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--base` | `-b` | Ref to diff against (default: `main`) |
+| `--output` | `-o` | Write uncolored patch to `file` instead of terminal; outputs `[OK]` to stderr on success |
+
+### Argument Forwarding
+
+Everything after `--` is forwarded directly to `git diff`:
+
+```bash
+# Show only changed files (using git diff --stat)
+tp diff feature-x -- --stat
+
+# Limit diff to a specific subdirectory
+tp diff feature-x -- -- src/
+
+# Show word-level diffs
+tp diff feature-x -- --word-diff
+```
+
+### Semantics
+
+- **Three-dot merge-base** — Uses `<base>...HEAD` which includes commits on the target branch since it diverged from base, matching GitHub PR diff behavior
+- **Ref-based** — Diffs the committed tip; uncommitted changes in the worktree are ignored
+- **Inherited git config** — Color, pager, and diff algorithm are sourced from the target worktree's git configuration
+
+### Examples
+
+```bash
+# Show diff of feature-x against main (colored, paged)
+tp diff feature-x
+
+# Diff against a different base branch
+tp diff feature-x --base develop
+
+# Write a plain patch to a file (useful for email, review, archival)
+tp diff feature-x -o ~/my-feature.patch
+
+# Show file change summary
+tp diff feature-x -- --stat
+
+# Show only files matching a pattern
+tp diff feature-x -- -- src/components/
+
+# Advanced: show word-level diffs for detailed review
+tp diff feature-x -- --word-diff
+```
+
+### Error Cases
+
+**Worktree not found:**
+```
+no worktree found for branch 'unknown'; run `tp sync` to list worktrees
+```
+
+**Prunable target:**
+```
+worktree for 'feature-x' is prunable (branch is merged into main); run `tp prune`
+```
+
+### Git Config Inheritance
+
+The `diff` command executes `git diff` inside the target worktree. This means it inherits all git configuration from that worktree, including:
+
+- Pager settings (`core.pager`)
+- Custom diff tools (`diff.tool`, `difftool.cmd`)
+- Color settings (`color.diff`)
+- Diff algorithms (`diff.algorithm`)
+
+If the target worktree has `delta` or `diff-so-fancy` configured, `tp diff` will use it automatically.

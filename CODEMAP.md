@@ -90,6 +90,17 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
   - Calls `Exec()` with branch, command, and args
   - Returns exit code from child process via `cli.Exit("")
 
+### `diff.go`
+
+- `diffCommand()` — top-level diff command definition
+  - Usage: `tp diff <branch> [-- <git-diff-args>...]`
+  - Flags: `--base` / `-b` (default: "main"), `--output` / `-o` (write to file)
+- `runDiff(ctx, cmd)` — action handler for diffing worktrees
+  - Parses branch argument (required) and extra args after `--`
+  - Instantiates `treepad.Deps` via `DefaultDeps()`
+  - Calls `Diff()` with branch, base, output file, and extra args
+  - Exit code 0 on success, non-zero only on internal error
+
 ## Config Package (`internal/config/`)
 
 Handles TOML configuration file loading, initialization, and display.
@@ -199,6 +210,18 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
 
 - `ResolveSourceDir(useCurrentDir, sourcePath, cwd, worktrees)` — determines config source directory
 
+### `diff.go`
+
+- `DiffInput` struct — parameterizes a tp diff invocation
+  - Fields: `Branch`, `Base` (default "main" if empty), `OutputFile` (optional), `ExtraArgs` (forwarded to git diff), `Runner` (PassthroughRunner override for testing)
+- `Diff(ctx, Deps, DiffInput)` — shows diff of target worktree against base using three-dot merge-base semantics
+  - Lists worktrees and locates target by branch
+  - Returns error if branch not found or worktree is prunable (with clear message and suggestion)
+  - Uses three-dot semantics: `<base>...HEAD` (matches GitHub PR diff)
+  - If OutputFile is set: runs `git -C <targetPath> diff --no-color <base>...HEAD [extra-args]`, captures output, writes uncolored patch to file, logs `[OK]`
+  - If OutputFile is empty: executes `git diff <base>...HEAD [extra-args]` via PassthroughRunner with stdio inherited, respecting target worktree's git config (color, pager, delta, diff-so-fancy)
+  - Exit code 0 on success; non-zero only on git command failure or file write error
+
 ### `opener.go`
 
 - `Opener` interface — abstracts artifact file opening
@@ -293,6 +316,9 @@ tp [--verbose] <command>
 │   └── Auto-detects task runner (just, npm, pnpm, yarn, bun, make, poetry, uv)
 │       Routes through runner if command matches enumerated script
 │       Override with [exec] runner in .treepad.toml
+├── diff [options] <branch> [-- <git-diff-args>...]
+│   ├── --base (-b, default: main)
+│   └── --output (-o, optional)
 └── config
     ├── init [--global]
     └── show
@@ -413,6 +439,20 @@ tp [--verbose] <command>
    - Executes via PassthroughRunner with full stdio passthrough (inherits stdin/stdout/stderr from tp process)
    - Returns exit code from child process (non-zero exit does not produce an error; launch failures do)
 
+## Data Flow Example: `tp diff <branch> [--base main] [-o file] [-- <git-diff-args>...]`
+
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
+2. `commands.diffCommand()` defines CLI interface with branch positional arg, `--base` / `-b` flag (default "main"), `--output` / `-o` flag, and `--` arg forwarding
+3. `runDiff()` parses branch arg, base and output flags, and extra args after `--`; instantiates `treepad.Deps` via `DefaultDeps()`, calls `Diff()`
+4. `Diff()` executes:
+   - Lists all worktrees via `worktree.List()` and finds target by branch
+   - Returns error if branch not found (with suggestion to sync)
+   - Checks if worktree is prunable; returns clear error with suggestion to prune if so
+   - Builds three-dot ref string: `<base>...HEAD`
+   - **If output file specified:** runs `git -C <targetPath> diff --no-color <base>...HEAD [extra-args]` via `d.Runner.Run()` (uncolored capture), writes raw patch bytes to file, logs `[OK]` to stderr, returns
+   - **If no output file:** executes `git diff <base>...HEAD [extra-args]` via PassthroughRunner with stdio inherited from caller, respecting target worktree's git config (pager, color, delta, diff-so-fancy), returns exit code or error
+5. Exit code is 0 on success; non-zero only on git command failure or internal error
+
 ---
 
-**Last Updated:** April 15, 2026 (added `tp exec` command with task runner detection, script enumeration, and full stdio passthrough; added `internal/exec` package and `service_exec.go`; added `ExecConfig` to config package)
+**Last Updated:** April 17, 2026 (added `tp diff` command with three-dot merge-base semantics, optional uncolored patch output, and git config inheritance; added `internal/commands/diff.go` and `internal/treepad/diff.go`; added `DiffInput` struct and reused `PassthroughRunner`)
