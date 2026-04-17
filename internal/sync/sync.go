@@ -40,13 +40,26 @@ func (FileSyncer) Sync(patterns []string, cfg Config) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			return nil
-		}
 
 		rel, err := filepath.Rel(cfg.SourceDir, path)
 		if err != nil {
 			return fmt.Errorf("relative path for %s: %w", path, err)
+		}
+
+		if d.Type()&fs.ModeSymlink != 0 {
+			if !matchesInclude(filepath.ToSlash(rel), include, exclude) {
+				return nil
+			}
+			dst := filepath.Join(cfg.TargetDir, rel)
+			if err := copySymlink(path, dst); err != nil {
+				return fmt.Errorf("sync %s: %w", rel, err)
+			}
+			slog.Debug("synced symlink", "rel", rel)
+			return nil
+		}
+
+		if d.IsDir() {
+			return nil
 		}
 
 		if !matchesInclude(filepath.ToSlash(rel), include, exclude) {
@@ -112,6 +125,23 @@ func matchPattern(pattern, rel string) bool {
 	}
 	ok, _ := doublestar.Match(pattern, rel)
 	return ok
+}
+
+func copySymlink(src, dst string) error {
+	target, err := os.Readlink(src)
+	if err != nil {
+		return fmt.Errorf("read symlink: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("create destination directory: %w", err)
+	}
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove existing destination: %w", err)
+	}
+	if err := os.Symlink(target, dst); err != nil {
+		return fmt.Errorf("create symlink: %w", err)
+	}
+	return nil
 }
 
 func copyFile(src, dst string) error {
