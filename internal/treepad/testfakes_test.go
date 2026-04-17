@@ -98,6 +98,13 @@ func twoWorktreePorcelainWithMain(mainPath, featPath string) []byte {
 	)
 }
 
+func twoWorktreePorcelainWithPrunable(mainPath, prunablePath string) []byte {
+	return fmt.Appendf(nil,
+		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\nworktree %s\nHEAD def456\nbranch refs/heads/stale-branch\nprunable gitdir file points to non-existent location\n\n",
+		mainPath, prunablePath,
+	)
+}
+
 func threeWorktreePorcelainWithMain(mainPath, feat1Path, feat2Path string) []byte {
 	return fmt.Appendf(nil,
 		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\nworktree %s\nHEAD def456\nbranch refs/heads/feat\n\nworktree %s\nHEAD ghi789\nbranch refs/heads/other\n\n",

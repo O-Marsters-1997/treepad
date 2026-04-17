@@ -73,6 +73,16 @@ func Doctor(ctx context.Context, d Deps, in DoctorInput) error {
 	var findings []DoctorFinding
 
 	for _, wt := range worktrees {
+		if wt.Prunable {
+			findings = append(findings, DoctorFinding{
+				Branch: wt.Branch,
+				Path:   wt.Path,
+				Kind:   "prunable",
+				Detail: wt.PrunableReason + " — run 'tp prune' or 'git worktree prune' to clean up",
+			})
+			continue
+		}
+
 		if wt.Branch == "(detached)" {
 			continue
 		}

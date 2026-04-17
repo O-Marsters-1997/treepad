@@ -90,6 +90,36 @@ func TestStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("prunable worktree renders without git calls", func(t *testing.T) {
+		prunablePath := mainPath + "-stale"
+		porcelainWithPrunable := twoWorktreePorcelainWithPrunable(mainPath, prunablePath)
+
+		runner := &seqRunner{responses: []runResponse{
+			{output: porcelainWithPrunable},              // git worktree list
+			{output: []byte("")},                         // dirty: main (clean)
+			{output: []byte("origin/main\n")},            // rev-parse @{upstream}: main
+			{output: []byte("0\t0\n")},                   // rev-list: main
+			{output: commitOutput("abc1234", "init")},    // git log: main
+		}}
+
+		var buf strings.Builder
+		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Only 5 runner calls: list + 4 for main. No calls for the prunable worktree.
+		if runner.idx != 5 {
+			t.Errorf("runner called %d times, want 5 (no git calls for prunable)", runner.idx)
+		}
+		out := buf.String()
+		for _, want := range []string{"stale-branch", "prunable", "gitdir file points to non-existent location", "tp prune"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q:\n%s", want, out)
+			}
+		}
+	})
+
 	errorTests := []struct {
 		name    string
 		runner  *seqRunner

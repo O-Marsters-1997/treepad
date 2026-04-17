@@ -98,6 +98,36 @@ detached
 	}
 }
 
+func TestList_prunable(t *testing.T) {
+	input := []byte(`worktree /home/user/myrepo
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/myrepo-stale
+HEAD def456
+branch refs/heads/stale-branch
+prunable gitdir file points to non-existent location
+
+`)
+	worktrees, err := List(context.Background(), fakeRunner{output: input})
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if len(worktrees) != 2 {
+		t.Fatalf("got %d worktrees, want 2", len(worktrees))
+	}
+	if worktrees[0].Prunable {
+		t.Error("main worktree should not be prunable")
+	}
+	stale := worktrees[1]
+	if !stale.Prunable {
+		t.Error("stale worktree Prunable = false, want true")
+	}
+	if stale.PrunableReason != "gitdir file points to non-existent location" {
+		t.Errorf("PrunableReason = %q, want %q", stale.PrunableReason, "gitdir file points to non-existent location")
+	}
+}
+
 func TestList_noTrailingNewline(t *testing.T) {
 	// porcelain output without a final blank line (some git versions)
 	input := []byte(`worktree /home/user/myrepo
