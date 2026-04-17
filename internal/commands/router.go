@@ -12,6 +12,7 @@ func Router() []*cli.Command {
 		pruneCommand(),
 		statusCommand(),
 		cdCommand(),
+		baseCommand(),
 		doctorCommand(),
 		execCommand(),
 	}
