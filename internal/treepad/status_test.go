@@ -95,11 +95,11 @@ func TestStatus(t *testing.T) {
 		porcelainWithPrunable := twoWorktreePorcelainWithPrunable(mainPath, prunablePath)
 
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelainWithPrunable},              // git worktree list
-			{output: []byte("")},                         // dirty: main (clean)
-			{output: []byte("origin/main\n")},            // rev-parse @{upstream}: main
-			{output: []byte("0\t0\n")},                   // rev-list: main
-			{output: commitOutput("abc1234", "init")},    // git log: main
+			{output: porcelainWithPrunable},           // git worktree list
+			{output: []byte("")},                      // dirty: main (clean)
+			{output: []byte("origin/main\n")},         // rev-parse @{upstream}: main
+			{output: []byte("0\t0\n")},                // rev-list: main
+			{output: commitOutput("abc1234", "init")}, // git log: main
 		}}
 
 		var buf strings.Builder

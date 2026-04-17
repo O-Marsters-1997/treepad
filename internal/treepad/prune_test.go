@@ -332,7 +332,7 @@ func TestPrune(t *testing.T) {
 		var buf strings.Builder
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain},
-			{output: []byte("feat\n")},  // git branch --merged
+			{output: []byte("feat\n")},   // git branch --merged
 			{output: []byte("M f.go\n")}, // dirty: feat (dirty)
 			{},                           // git worktree prune (no candidates remain)
 		}}

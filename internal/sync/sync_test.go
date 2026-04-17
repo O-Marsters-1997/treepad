@@ -152,10 +152,10 @@ func TestFileSyncerSync(t *testing.T) {
 			},
 		},
 		{
-			name:    "invalid pattern returns error",
-			setup:   func(src string) {},
+			name:     "invalid pattern returns error",
+			setup:    func(src string) {},
 			patterns: []string{"[invalid"},
-			wantErr: "invalid pattern",
+			wantErr:  "invalid pattern",
 		},
 	}
 
