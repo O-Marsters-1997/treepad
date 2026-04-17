@@ -17,6 +17,7 @@ type Deps struct {
 	Syncer     internalsync.Syncer
 	Opener     artifact.Opener
 	HookRunner hook.Runner
+	PTRunner   PassthroughRunner
 	Out        io.Writer   // stdout: machine payloads (__TREEPAD_CD__, JSON, tables)
 	Log        *ui.Printer // stderr: tagged user-facing narrative
 	In         io.Reader
@@ -31,6 +32,7 @@ func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
 		Syncer:     internalsync.FileSyncer{},
 		Opener:     artifact.ExecOpener{Runner: runner},
 		HookRunner: hook.ExecRunner{Runner: runner},
+		PTRunner:   osPassthroughRunner{},
 		Out:        out,
 		Log:        ui.New(errw),
 		In:         in,

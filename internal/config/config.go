@@ -92,6 +92,27 @@ func (e ExecConfig) IsZero() bool {
 	return e.Runner == ""
 }
 
+// FromSpecConfig configures `tp from-spec`.
+type FromSpecConfig struct {
+	// PromptTemplate is a text/template string rendered into the worktree.
+	// Data: .Spec, .Skills, .Branch, .Slug, .WorktreePath, .PromptPath.
+	// .Prompt is additionally available in AgentCommand templates.
+	PromptTemplate string `toml:"prompt_template"`
+	// PromptFilename is the file written inside the worktree root. Default "PROMPT.md".
+	PromptFilename string `toml:"prompt_filename"`
+	// Skills is a list of skill names exposed to the template as .Skills.
+	Skills []string `toml:"skills"`
+	// AgentCommand is invoked after the prompt is written. Each element is a
+	// text/template string. Empty means write the prompt and exit 0.
+	AgentCommand []string `toml:"agent_command"`
+}
+
+// IsZero reports whether no from-spec configuration is present.
+func (f FromSpecConfig) IsZero() bool {
+	return f.PromptTemplate == "" && f.PromptFilename == "" &&
+		len(f.Skills) == 0 && len(f.AgentCommand) == 0
+}
+
 // Config is the full resolved configuration for a repo.
 type Config struct {
 	Sync     SyncConfig     `toml:"sync"`
@@ -99,6 +120,7 @@ type Config struct {
 	Open     OpenConfig     `toml:"open"`
 	Hooks    hook.Config    `toml:"hooks"`
 	Exec     ExecConfig     `toml:"exec"`
+	FromSpec FromSpecConfig `toml:"from_spec"`
 }
 
 // GlobalConfigPath returns the path to the global config file.
@@ -159,6 +181,9 @@ func Load(repoRoot string) (Config, error) {
 	}
 	if !fileCfg.Exec.IsZero() {
 		cfg.Exec = fileCfg.Exec
+	}
+	if !fileCfg.FromSpec.IsZero() {
+		cfg.FromSpec = fileCfg.FromSpec
 	}
 
 	slog.Debug("loaded .treepad.toml", "dir", repoRoot, "syncInclude", cfg.Sync.Include)

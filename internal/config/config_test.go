@@ -128,6 +128,43 @@ include = ["a.txt"]
 			t.Fatalf("got error %v, want error containing %q", err, "reading")
 		}
 	})
+
+	t.Run("from_spec section round-trips", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
+[from_spec]
+prompt_filename = "AGENT.md"
+skills = ["go", "testing"]
+agent_command = ["claude", "{{.PromptPath}}"]
+prompt_template = "spec: {{.Spec}}"
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.FromSpec.PromptFilename != "AGENT.md" {
+			t.Errorf("PromptFilename = %q, want %q", cfg.FromSpec.PromptFilename, "AGENT.md")
+		}
+		if !reflect.DeepEqual(cfg.FromSpec.Skills, []string{"go", "testing"}) {
+			t.Errorf("Skills = %v, want [go testing]", cfg.FromSpec.Skills)
+		}
+		if cfg.FromSpec.PromptTemplate != "spec: {{.Spec}}" {
+			t.Errorf("PromptTemplate = %q", cfg.FromSpec.PromptTemplate)
+		}
+		if !reflect.DeepEqual(cfg.FromSpec.AgentCommand, []string{"claude", "{{.PromptPath}}"}) {
+			t.Errorf("AgentCommand = %v", cfg.FromSpec.AgentCommand)
+		}
+	})
+
+	t.Run("omitted from_spec section is zero", func(t *testing.T) {
+		cfg, err := Load(t.TempDir())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.FromSpec.IsZero() {
+			t.Error("expected zero FromSpec when section omitted")
+		}
+	})
 }
 
 func TestDefaultSyncInclude(t *testing.T) {

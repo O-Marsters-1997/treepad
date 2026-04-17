@@ -41,6 +41,25 @@ content = """
 # worktree directory when no [artifact] section is configured.
 [open]
 command = ["open", "{{.ArtifactPath}}"]
+
+# Configuration for tp from-spec. Resolves a spec body (from --issue or
+# --file), renders a prompt into the worktree, then hands off to an agent.
+# Template data: .Spec, .Skills, .Branch, .Slug, .WorktreePath, .PromptPath.
+# .Prompt (rendered body) is additionally available in agent_command templates.
+[from_spec]
+prompt_filename = "PROMPT.md"
+skills = []
+agent_command = ["claude", "{{.PromptPath}}"]
+prompt_template = """
+# {{.Branch}}
+
+## Spec
+{{.Spec}}
+
+## Skills to invoke
+{{range .Skills}}- /{{.}}
+{{end}}
+"""
 `
 
 // WriteDefault writes a config file populated with documented defaults.

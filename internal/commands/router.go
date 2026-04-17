@@ -16,5 +16,6 @@ func Router() []*cli.Command {
 		doctorCommand(),
 		execCommand(),
 		diffCommand(),
+		fromSpecCommand(),
 	}
 }
