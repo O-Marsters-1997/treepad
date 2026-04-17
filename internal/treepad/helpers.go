@@ -29,7 +29,7 @@ func loadAndSync(ctx context.Context, d Deps, sourceDir string, extraPatterns []
 		return cfg, nil
 	}
 
-	patterns := slices.Concat(cfg.Sync.Files, extraPatterns)
+	patterns := slices.Concat(cfg.Sync.Include, extraPatterns)
 	slog.Debug("sync patterns", "patterns", patterns)
 
 	d.Log.Step("syncing configs to worktrees...")

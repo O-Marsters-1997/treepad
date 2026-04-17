@@ -55,8 +55,8 @@ func Show(repoRoot string) (string, error) {
 }
 
 // loadFile reads and parses a single .treepad.toml file.
-// Returns (cfg, true, nil) if found with non-empty sync.files.
-// Returns (zero, false, nil) if missing or sync.files is empty.
+// Returns (cfg, true, nil) if found with non-empty sync.include.
+// Returns (zero, false, nil) if missing or sync.include is empty.
 // Returns (zero, false, err) if the file exists but cannot be read or parsed.
 func loadFile(path string) (Config, bool, error) {
 	data, err := os.ReadFile(path)
@@ -70,7 +70,7 @@ func loadFile(path string) (Config, bool, error) {
 	if _, err := toml.Decode(string(data), &cfg); err != nil {
 		return Config{}, false, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if len(cfg.Sync.Files) == 0 {
+	if len(cfg.Sync.Include) == 0 {
 		return Config{}, false, nil
 	}
 	return cfg, true, nil

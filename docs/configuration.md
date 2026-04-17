@@ -24,15 +24,18 @@ command = ["open", "{{.ArtifactPath}}"]
 
 File patterns to copy from the source worktree to all other worktrees.
 
-| Field   | Type     | Description                                     |
-| ------- | -------- | ----------------------------------------------- |
-| `files` | string[] | Glob patterns of files to sync across worktrees |
+| Field     | Type     | Description                                                                          |
+| --------- | -------- | ------------------------------------------------------------------------------------ |
+| `include` | string[] | Gitignore-style patterns of files/dirs to sync across worktrees                     |
 
-When `sync.files` is set, it **replaces** the defaults entirely. Use the `--include` flag to append additional patterns to whatever `sync.files` resolves to.
+Patterns use gitignore syntax: `**` matches across directories, a trailing `/` matches a directory and all its contents, and a `!` prefix negates (excludes) a pattern.
 
-**Default files** (used when no `[sync]` section or empty `files` array):
+When `sync.include` is set, it **replaces** the defaults entirely. Use the `--include` flag to append additional patterns to whatever `sync.include` resolves to.
 
-- `.claude/settings.local.json`
+**Default patterns** (used when no `[sync]` section or empty `include` array):
+
+- `.claude/` (entire directory)
+- `node_modules/` (entire directory)
 - `.env`
 - `.env.docker-compose`
 - `.vscode/settings.json`

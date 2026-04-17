@@ -35,15 +35,14 @@ func TestFileSyncerSync(t *testing.T) {
 		wantErr  string
 	}{
 		{
-			name: "copies matching files",
+			name: "copies matching file",
 			setup: func(src string) {
 				writeFile(t, filepath.Join(src, ".env"), "SECRET=123")
 			},
 			patterns: []string{".env"},
 			check: func(t *testing.T, src, dst string) {
 				t.Helper()
-				got := readFile(t, filepath.Join(dst, ".env"))
-				if got != "SECRET=123" {
+				if got := readFile(t, filepath.Join(dst, ".env")); got != "SECRET=123" {
 					t.Errorf("content = %q, want %q", got, "SECRET=123")
 				}
 			},
@@ -62,6 +61,65 @@ func TestFileSyncerSync(t *testing.T) {
 				}
 				if readFile(t, filepath.Join(dst, ".vscode", "b.json")) != `{"b":2}` {
 					t.Error("b.json content mismatch")
+				}
+			},
+		},
+		{
+			name: "trailing slash pattern copies entire directory",
+			setup: func(src string) {
+				writeFile(t, filepath.Join(src, ".claude", "settings.local.json"), `{"key":"val"}`)
+				writeFile(t, filepath.Join(src, ".claude", "agents", "foo.md"), "# Foo")
+				writeFile(t, filepath.Join(src, "other.txt"), "ignore me")
+			},
+			patterns: []string{".claude/"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				if readFile(t, filepath.Join(dst, ".claude", "settings.local.json")) != `{"key":"val"}` {
+					t.Error("settings.local.json content mismatch")
+				}
+				if readFile(t, filepath.Join(dst, ".claude", "agents", "foo.md")) != "# Foo" {
+					t.Error("agents/foo.md content mismatch")
+				}
+				if _, err := os.Stat(filepath.Join(dst, "other.txt")); !os.IsNotExist(err) {
+					t.Error("other.txt should not be synced")
+				}
+			},
+		},
+		{
+			name: "double-star matches recursively",
+			setup: func(src string) {
+				writeFile(t, filepath.Join(src, "docs", "a.md"), "a")
+				writeFile(t, filepath.Join(src, "docs", "sub", "b.md"), "b")
+				writeFile(t, filepath.Join(src, "docs", "sub", "c.txt"), "c")
+			},
+			patterns: []string{"docs/**/*.md"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				if readFile(t, filepath.Join(dst, "docs", "a.md")) != "a" {
+					t.Error("a.md content mismatch")
+				}
+				if readFile(t, filepath.Join(dst, "docs", "sub", "b.md")) != "b" {
+					t.Error("sub/b.md content mismatch")
+				}
+				if _, err := os.Stat(filepath.Join(dst, "docs", "sub", "c.txt")); !os.IsNotExist(err) {
+					t.Error("c.txt should not be synced")
+				}
+			},
+		},
+		{
+			name: "negation pattern excludes file from matched directory",
+			setup: func(src string) {
+				writeFile(t, filepath.Join(src, ".claude", "settings.local.json"), "ok")
+				writeFile(t, filepath.Join(src, ".claude", "secret.md"), "secret")
+			},
+			patterns: []string{".claude/", "!.claude/secret.md"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				if readFile(t, filepath.Join(dst, ".claude", "settings.local.json")) != "ok" {
+					t.Error("settings.local.json should be synced")
+				}
+				if _, err := os.Stat(filepath.Join(dst, ".claude", "secret.md")); !os.IsNotExist(err) {
+					t.Error("secret.md should be excluded by ! pattern")
 				}
 			},
 		},
@@ -94,10 +152,10 @@ func TestFileSyncerSync(t *testing.T) {
 			},
 		},
 		{
-			name:     "invalid glob returns error",
-			setup:    func(src string) {},
+			name:    "invalid pattern returns error",
+			setup:   func(src string) {},
 			patterns: []string{"[invalid"},
-			wantErr:  "invalid pattern",
+			wantErr: "invalid pattern",
 		},
 	}
 

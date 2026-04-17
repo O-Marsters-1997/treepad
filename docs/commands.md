@@ -24,7 +24,7 @@ By default, uses the main worktree (the one with a `.git` directory) as the conf
 | `--use-current` | `-c` | Use current directory as config source instead of the main worktree |
 | `--sync-only` | | Sync configs only; skip artifact file generation |
 | `--output-dir` | `-o` | Directory for generated artifact files (default: `~/<repo-slug>-workspaces/`) |
-| `--include` | | Additional file patterns to sync (appended to `sync.files` in `.treepad.toml`) |
+| `--include` | | Additional file patterns to sync (appended to `sync.include` in `.treepad.toml`) |
 
 ### Examples
 

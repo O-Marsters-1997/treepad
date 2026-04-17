@@ -25,8 +25,8 @@ func TestLoad(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !reflect.DeepEqual(cfg.Sync.Files, defaultSyncFiles()) {
-			t.Errorf("Sync.Files = %v, want defaults", cfg.Sync.Files)
+		if !reflect.DeepEqual(cfg.Sync.Include, defaultSyncInclude()) {
+			t.Errorf("Sync.Include = %v, want defaults", cfg.Sync.Include)
 		}
 		if cfg.Artifact.IsZero() {
 			t.Error("default Artifact should not be zero")
@@ -36,33 +36,33 @@ func TestLoad(t *testing.T) {
 		}
 	})
 
-	t.Run("valid config with custom sync files", func(t *testing.T) {
+	t.Run("valid config with custom sync include", func(t *testing.T) {
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
 [sync]
-files = ["custom.txt"]
+include = ["custom.txt"]
 `)
 		cfg, err := Load(dir)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !reflect.DeepEqual(cfg.Sync.Files, []string{"custom.txt"}) {
-			t.Errorf("Sync.Files = %v, want [custom.txt]", cfg.Sync.Files)
+		if !reflect.DeepEqual(cfg.Sync.Include, []string{"custom.txt"}) {
+			t.Errorf("Sync.Include = %v, want [custom.txt]", cfg.Sync.Include)
 		}
 	})
 
-	t.Run("empty files array falls back to defaults", func(t *testing.T) {
+	t.Run("empty include array falls back to defaults", func(t *testing.T) {
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
 [sync]
-files = []
+include = []
 `)
 		cfg, err := Load(dir)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !reflect.DeepEqual(cfg.Sync.Files, defaultSyncFiles()) {
-			t.Errorf("Sync.Files = %v, want defaults", cfg.Sync.Files)
+		if !reflect.DeepEqual(cfg.Sync.Include, defaultSyncInclude()) {
+			t.Errorf("Sync.Include = %v, want defaults", cfg.Sync.Include)
 		}
 	})
 
@@ -86,7 +86,7 @@ content = "{}"
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
 [sync]
-files = ["a.txt"]
+include = ["a.txt"]
 `)
 		cfg, err := Load(dir)
 		if err != nil {
@@ -99,7 +99,7 @@ files = ["a.txt"]
 
 	t.Run("legacy .treepad.json returns migration error", func(t *testing.T) {
 		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, ".treepad.json"), `{"sync":{"files":["a.txt"]}}`)
+		writeFile(t, filepath.Join(dir, ".treepad.json"), `{"sync":{"include":["a.txt"]}}`)
 
 		_, err := Load(dir)
 		if err == nil || !strings.Contains(err.Error(), ".treepad.json") {
@@ -130,14 +130,14 @@ files = ["a.txt"]
 	})
 }
 
-func TestDefaultSyncFiles(t *testing.T) {
-	files := defaultSyncFiles()
-	if len(files) != 8 {
-		t.Errorf("len(defaultSyncFiles()) = %d, want 8", len(files))
+func TestDefaultSyncInclude(t *testing.T) {
+	patterns := defaultSyncInclude()
+	if len(patterns) != 9 {
+		t.Errorf("len(defaultSyncInclude()) = %d, want 9", len(patterns))
 	}
-	for _, want := range []string{".env", ".vscode/settings.json"} {
-		if !slices.Contains(files, want) {
-			t.Errorf("defaultSyncFiles() missing %q", want)
+	for _, want := range []string{".claude/", "node_modules/", ".env", ".vscode/settings.json"} {
+		if !slices.Contains(patterns, want) {
+			t.Errorf("defaultSyncInclude() missing %q", want)
 		}
 	}
 }

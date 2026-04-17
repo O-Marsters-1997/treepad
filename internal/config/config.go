@@ -34,9 +34,10 @@ const defaultArtifactContentTemplate = `{
 }
 `
 
-func defaultSyncFiles() []string {
+func defaultSyncInclude() []string {
 	return []string{
-		".claude/settings.local.json",
+		".claude/",
+		"node_modules/",
 		".env",
 		".env.docker-compose",
 		".vscode/settings.json",
@@ -47,10 +48,12 @@ func defaultSyncFiles() []string {
 	}
 }
 
-// SyncConfig holds file patterns to copy across worktrees.
+// SyncConfig holds gitignore-style patterns controlling which files are copied across worktrees.
 type SyncConfig struct {
-	// Files replaces defaultSyncFiles entirely when non-empty.
-	Files []string `toml:"files"`
+	// Include replaces defaultSyncInclude entirely when non-empty.
+	// Patterns use gitignore syntax: ** crosses directories, trailing / matches
+	// a directory and all its contents, ! prefix negates a pattern.
+	Include []string `toml:"include"`
 }
 
 // ArtifactConfig describes the per-worktree file to generate.
@@ -141,9 +144,9 @@ func Load(repoRoot string) (Config, error) {
 		return cfg, fmt.Errorf("parsing %s: %w", configFileName, err)
 	}
 
-	// An explicit empty files array is treated as unset — defaults apply.
-	if len(fileCfg.Sync.Files) > 0 {
-		cfg.Sync.Files = fileCfg.Sync.Files
+	// An explicit empty include array is treated as unset — defaults apply.
+	if len(fileCfg.Sync.Include) > 0 {
+		cfg.Sync.Include = fileCfg.Sync.Include
 	}
 	if !fileCfg.Artifact.IsZero() {
 		cfg.Artifact = fileCfg.Artifact
@@ -158,13 +161,13 @@ func Load(repoRoot string) (Config, error) {
 		cfg.Exec = fileCfg.Exec
 	}
 
-	slog.Debug("loaded .treepad.toml", "dir", repoRoot, "syncFiles", cfg.Sync.Files)
+	slog.Debug("loaded .treepad.toml", "dir", repoRoot, "syncInclude", cfg.Sync.Include)
 	return cfg, nil
 }
 
 func defaults() Config {
 	return Config{
-		Sync: SyncConfig{Files: defaultSyncFiles()},
+		Sync: SyncConfig{Include: defaultSyncInclude()},
 		Artifact: ArtifactConfig{
 			FilenameTemplate: defaultArtifactFilenameTemplate,
 			ContentTemplate:  defaultArtifactContentTemplate,
