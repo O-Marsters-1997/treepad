@@ -2,6 +2,10 @@ package treepad
 
 import (
 	"io"
+	"os"
+	"time"
+
+	"golang.org/x/term"
 
 	"treepad/internal/artifact"
 	"treepad/internal/hook"
@@ -20,6 +24,11 @@ type Deps struct {
 	Out        io.Writer   // stdout: machine payloads (__TREEPAD_CD__, JSON, tables)
 	Log        *ui.Printer // stderr: tagged user-facing narrative
 	In         io.Reader
+
+	// IsTerminal reports whether w is an interactive terminal.
+	IsTerminal func(w io.Writer) bool
+	// Sleep returns a channel that receives after d elapses (injectable for tests).
+	Sleep func(d time.Duration) <-chan time.Time
 }
 
 // DefaultDeps wires production implementations. It is the single composition
@@ -34,5 +43,13 @@ func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
 		Out:        out,
 		Log:        ui.New(errw),
 		In:         in,
+		IsTerminal: func(w io.Writer) bool {
+			f, ok := w.(*os.File)
+			if !ok {
+				return false
+			}
+			return term.IsTerminal(int(f.Fd()))
+		},
+		Sleep: time.After,
 	}
 }

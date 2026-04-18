@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"treepad/internal/slug"
 )
@@ -160,4 +163,146 @@ func TestStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStatusWatch(t *testing.T) {
+	mainPath := t.TempDir()
+	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	commitOut := fmt.Appendf(nil, "abc1234\x00init\x002024-06-01T12:00:00Z\n")
+
+	tests := []struct {
+		name          string
+		isTerminal    bool
+		pumpTicks     int
+		wantErr       string
+		wantRenders   int
+		wantAltScreen bool
+	}{
+		{
+			name:       "rejects non-TTY",
+			isTerminal: false,
+			wantErr:    "requires a TTY",
+		},
+		{
+			name:          "renders once then exits on ctx cancel",
+			isTerminal:    true,
+			pumpTicks:     0,
+			wantRenders:   1,
+			wantAltScreen: true,
+		},
+		{
+			name:          "renders on each pumped tick",
+			isTerminal:    true,
+			pumpTicks:     2,
+			wantRenders:   3,
+			wantAltScreen: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var responses []runResponse
+			if tt.isTerminal {
+				responses = append(responses, runResponse{output: mainWorktreePorcelain(mainPath)})
+				for i := 0; i < tt.wantRenders; i++ {
+					responses = append(responses,
+						runResponse{output: []byte("")},
+						runResponse{err: errors.New("no upstream")},
+						runResponse{output: commitOut},
+					)
+				}
+			}
+			runner := &seqRunner{responses: responses}
+			sleepCh := make(chan time.Time) // unbuffered: pump blocks until goroutine receives
+			var buf strings.Builder
+			deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{},
+				withIsTerminal(func(io.Writer) bool { return tt.isTerminal }),
+				withSleep(func(time.Duration) <-chan time.Time { return sleepCh }),
+			)
+			deps.Out = &buf
+
+			ctx, cancel := context.WithCancel(context.Background())
+			var wg sync.WaitGroup
+			wg.Add(1)
+			var gotErr error
+			go func() {
+				defer wg.Done()
+				gotErr = StatusWatch(ctx, deps, StatusInput{})
+			}()
+
+			for i := 0; i < tt.pumpTicks; i++ {
+				sleepCh <- time.Time{} // sync: blocks until goroutine is at select (render complete)
+			}
+			cancel()
+			wg.Wait()
+
+			if tt.wantErr != "" {
+				if gotErr == nil || !strings.Contains(gotErr.Error(), tt.wantErr) {
+					t.Errorf("got error %v, want containing %q", gotErr, tt.wantErr)
+				}
+				return
+			}
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			out := buf.String()
+			if tt.wantAltScreen {
+				if !strings.Contains(out, "\x1b[?1049h") {
+					t.Error("output missing alt-screen enter")
+				}
+				if !strings.Contains(out, "\x1b[?1049l") {
+					t.Error("output missing alt-screen exit")
+				}
+			}
+			if got := strings.Count(out, "BRANCH"); got != tt.wantRenders {
+				t.Errorf("got %d renders (BRANCH occurrences), want %d", got, tt.wantRenders)
+			}
+		})
+	}
+
+	t.Run("mid-loop error degrades inline and continues", func(t *testing.T) {
+		// Tick 1: dirty probe fails → error rendered inline.
+		// Tick 2 (after pump): dirty succeeds → table rendered.
+		commitOut := fmt.Appendf(nil, "abc1234\x00init\x002024-06-01T12:00:00Z\n")
+		runner := &seqRunner{responses: []runResponse{
+			{output: mainWorktreePorcelain(mainPath)},  // list
+			{err: errors.New("status failed")},         // dirty tick 1 → error
+			{output: []byte("")},                       // dirty tick 2
+			{err: errors.New("no upstream")},           // rev-parse tick 2
+			{output: commitOut},                        // log tick 2
+		}}
+		sleepCh := make(chan time.Time)
+		var buf strings.Builder
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{},
+			withIsTerminal(func(io.Writer) bool { return true }),
+			withSleep(func(time.Duration) <-chan time.Time { return sleepCh }),
+		)
+		deps.Out = &buf
+
+		ctx, cancel := context.WithCancel(context.Background())
+		var wg sync.WaitGroup
+		wg.Add(1)
+		var gotErr error
+		go func() {
+			defer wg.Done()
+			gotErr = StatusWatch(ctx, deps, StatusInput{})
+		}()
+
+		sleepCh <- time.Time{} // pump tick 2
+		cancel()
+		wg.Wait()
+
+		if gotErr != nil {
+			t.Fatalf("unexpected error: %v", gotErr)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "error:") || !strings.Contains(out, "status failed") {
+			t.Errorf("expected inline error message, got:\n%s", out)
+		}
+		if !strings.Contains(out, "BRANCH") {
+			t.Errorf("expected table render after error, got:\n%s", out)
+		}
+	})
 }

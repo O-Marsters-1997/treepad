@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -45,8 +47,18 @@ func Status(ctx context.Context, d Deps, in StatusInput) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	spec := artifactSpec(cfg.Artifact)
+	rows, err := collectStatusRows(ctx, d, rc, artifactSpec(cfg.Artifact))
+	if err != nil {
+		return err
+	}
 
+	if in.JSON {
+		return json.NewEncoder(d.Out).Encode(rows)
+	}
+	return writeStatusTable(d, rows)
+}
+
+func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifact.Spec) ([]StatusRow, error) {
 	rows := make([]StatusRow, 0, len(rc.Worktrees))
 	for _, wt := range rc.Worktrees {
 		row := StatusRow{
@@ -62,25 +74,26 @@ func Status(ctx context.Context, d Deps, in StatusInput) error {
 			continue
 		}
 
+		var err error
 		row.Dirty, err = worktree.Dirty(ctx, d.Runner, wt.Path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		row.Ahead, row.Behind, row.HasUpstream, err = worktree.AheadBehind(ctx, d.Runner, wt.Path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		row.LastCommit, err = worktree.LastCommit(ctx, d.Runner, wt.Path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		data := templateData(rc.Slug, wt.Branch, wt.Path, rc.OutputDir)
 		artifactPath, ok, err := artifact.Path(spec, rc.OutputDir, data)
 		if err != nil {
-			return fmt.Errorf("resolve artifact path: %w", err)
+			return nil, fmt.Errorf("resolve artifact path: %w", err)
 		}
 		if ok {
 			row.ArtifactPath = artifactPath
@@ -91,11 +104,48 @@ func Status(ctx context.Context, d Deps, in StatusInput) error {
 
 		rows = append(rows, row)
 	}
+	return rows, nil
+}
 
-	if in.JSON {
-		return json.NewEncoder(d.Out).Encode(rows)
+func StatusWatch(ctx context.Context, d Deps, in StatusInput) error {
+	if !d.IsTerminal(d.Out) {
+		return fmt.Errorf("--watch requires a TTY")
 	}
-	return writeStatusTable(d, rows)
+
+	rc, err := loadRepoContext(ctx, d, in.OutputDir)
+	if err != nil {
+		return fmt.Errorf("status watch: %w", err)
+	}
+	cfg, err := config.Load(rc.Main.Path)
+	if err != nil {
+		return fmt.Errorf("status watch: load config: %w", err)
+	}
+	spec := artifactSpec(cfg.Artifact)
+
+	watchCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	fmt.Fprint(d.Out, "\x1b[?1049h\x1b[?25l")         // enter alt-screen, hide cursor
+	defer fmt.Fprint(d.Out, "\x1b[?25h\x1b[?1049l")   // show cursor, exit alt-screen
+
+	for {
+		fmt.Fprint(d.Out, "\x1b[2J\x1b[H")
+		fmt.Fprintf(d.Out, "tp status --watch · every 2s · %s · Ctrl-C to exit\n\n",
+			time.Now().Format("2006-01-02 15:04:05"))
+
+		rows, err := collectStatusRows(watchCtx, d, rc, spec)
+		if err != nil {
+			fmt.Fprintf(d.Out, "error: %v\n", err)
+		} else {
+			_ = writeStatusTable(d, rows)
+		}
+
+		select {
+		case <-watchCtx.Done():
+			return nil
+		case <-d.Sleep(2 * time.Second):
+		}
+	}
 }
 
 func writeStatusTable(d Deps, rows []StatusRow) error {
