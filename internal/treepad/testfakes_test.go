@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"treepad/internal/artifact"
 	"treepad/internal/hook"
@@ -127,17 +128,33 @@ func (f *fakeHookRunner) Run(_ context.Context, hooks []hook.HookEntry, data hoo
 	return f.err
 }
 
+type depsOption func(*Deps)
+
+func withIsTerminal(fn func(io.Writer) bool) depsOption {
+	return func(d *Deps) { d.IsTerminal = fn }
+}
+
+func withSleep(fn func(time.Duration) <-chan time.Time) depsOption {
+	return func(d *Deps) { d.Sleep = fn }
+}
+
 // testDeps builds a Deps value suitable for tests: discards output and reads
 // from an empty stdin unless the caller substitutes those fields.
 // HookRunner defaults to a no-op fakeHookRunner; override deps.HookRunner for tests
 // that assert hook behavior.
-func testDeps(runner worktree.CommandRunner, syncer internalsync.Syncer, opener artifact.Opener) Deps {
-	return Deps{
+func testDeps(runner worktree.CommandRunner, syncer internalsync.Syncer, opener artifact.Opener, opts ...depsOption) Deps {
+	d := Deps{
 		Runner:     runner,
 		Syncer:     syncer,
 		Opener:     opener,
 		HookRunner: &fakeHookRunner{},
 		Out:        io.Discard,
 		In:         strings.NewReader(""),
+		IsTerminal: func(io.Writer) bool { return false },
+		Sleep:      func(time.Duration) <-chan time.Time { return make(chan time.Time) },
 	}
+	for _, o := range opts {
+		o(&d)
+	}
+	return d
 }
