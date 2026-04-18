@@ -50,14 +50,9 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 		return 0, err
 	}
 
-	filename := res.Cfg.FromSpec.PromptFilename
-	if filename == "" {
-		filename = "PROMPT.md"
-	}
-	promptPath := filepath.Join(res.WorktreePath, filename)
-
-	if res.Cfg.FromSpec.PromptTemplate == "" {
-		return 0, errors.New("from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default")
+	promptPath, rendered, err := renderAndWritePrompt(d, res, in.Branch, spec)
+	if err != nil {
+		return 0, err
 	}
 
 	data := promptData{
@@ -67,20 +62,8 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 		Slug:         res.RC.Slug,
 		WorktreePath: res.WorktreePath,
 		PromptPath:   promptPath,
+		Prompt:       rendered,
 	}
-	rendered, err := renderPrompt(res.Cfg.FromSpec.PromptTemplate, data)
-	if err != nil {
-		return 0, err
-	}
-	if err := os.MkdirAll(res.WorktreePath, 0o755); err != nil {
-		return 0, fmt.Errorf("create worktree dir: %w", err)
-	}
-	if err := os.WriteFile(promptPath, []byte(rendered), 0o644); err != nil {
-		return 0, fmt.Errorf("write prompt: %w", err)
-	}
-	d.Log.OK("wrote prompt to %s", promptPath)
-
-	data.Prompt = rendered
 	code, err := runAgent(ctx, d, res.Cfg.FromSpec.AgentCommand, data)
 	if err != nil {
 		return code, err
@@ -91,19 +74,46 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 	return code, nil
 }
 
+// renderAndWritePrompt renders the configured prompt template and writes it into
+// the worktree. Returns the absolute path of the written file and the rendered body.
+func renderAndWritePrompt(d Deps, res createWorktreeResult, branch, spec string) (path, rendered string, err error) {
+	if res.Cfg.FromSpec.PromptTemplate == "" {
+		return "", "", errors.New("from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default")
+	}
+
+	filename := res.Cfg.FromSpec.PromptFilename
+	if filename == "" {
+		filename = "PROMPT.md"
+	}
+	promptPath := filepath.Join(res.WorktreePath, filename)
+
+	data := promptData{
+		Spec:         spec,
+		Skills:       res.Cfg.FromSpec.Skills,
+		Branch:       branch,
+		Slug:         res.RC.Slug,
+		WorktreePath: res.WorktreePath,
+		PromptPath:   promptPath,
+	}
+	body, err := renderPrompt(res.Cfg.FromSpec.PromptTemplate, data)
+	if err != nil {
+		return "", "", err
+	}
+	if err := os.MkdirAll(res.WorktreePath, 0o755); err != nil {
+		return "", "", fmt.Errorf("create worktree dir: %w", err)
+	}
+	if err := os.WriteFile(promptPath, []byte(body), 0o644); err != nil {
+		return "", "", fmt.Errorf("write prompt: %w", err)
+	}
+	d.Log.OK("wrote prompt to %s", promptPath)
+	return promptPath, body, nil
+}
+
 // resolveSpec returns the raw spec body from either a GitHub issue or a local file.
 func resolveSpec(ctx context.Context, d Deps, issue int, file string) (string, error) {
 	switch {
 	case issue > 0:
-		out, err := d.Runner.Run(ctx, "gh", "issue", "view", strconv.Itoa(issue), "--json", "body", "-q", ".body")
-		if err != nil {
-			return "", fmt.Errorf("gh issue view %d: %w", issue, err)
-		}
-		body := strings.TrimSpace(string(out))
-		if body == "" {
-			return "", fmt.Errorf("issue %d has an empty body", issue)
-		}
-		return body, nil
+		return resolveIssueSpec(ctx, d, issue)
 	case file != "":
 		path := file
 		if !filepath.IsAbs(path) {
@@ -125,6 +135,19 @@ func resolveSpec(ctx context.Context, d Deps, issue int, file string) (string, e
 	default:
 		return "", errors.New("either --issue or --file is required")
 	}
+}
+
+// resolveIssueSpec fetches the body of a single GitHub issue.
+func resolveIssueSpec(ctx context.Context, d Deps, issue int) (string, error) {
+	out, err := d.Runner.Run(ctx, "gh", "issue", "view", strconv.Itoa(issue), "--json", "body", "-q", ".body")
+	if err != nil {
+		return "", fmt.Errorf("gh issue view %d: %w", issue, err)
+	}
+	body := strings.TrimSpace(string(out))
+	if body == "" {
+		return "", fmt.Errorf("issue %d has an empty body", issue)
+	}
+	return body, nil
 }
 
 // renderPrompt executes a text/template string with the given promptData.
