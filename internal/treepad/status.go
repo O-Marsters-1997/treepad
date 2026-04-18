@@ -125,17 +125,17 @@ func StatusWatch(ctx context.Context, d Deps, in StatusInput) error {
 	watchCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	fmt.Fprint(d.Out, "\x1b[?1049h\x1b[?25l")         // enter alt-screen, hide cursor
-	defer fmt.Fprint(d.Out, "\x1b[?25h\x1b[?1049l")   // show cursor, exit alt-screen
+	_, _ = fmt.Fprint(d.Out, "\x1b[?1049h\x1b[?25l")                    // enter alt-screen, hide cursor
+	defer func() { _, _ = fmt.Fprint(d.Out, "\x1b[?25h\x1b[?1049l") }() // show cursor, exit alt-screen
 
 	for {
-		fmt.Fprint(d.Out, "\x1b[2J\x1b[H")
-		fmt.Fprintf(d.Out, "tp status --watch · every 2s · %s · Ctrl-C to exit\n\n",
+		_, _ = fmt.Fprint(d.Out, "\x1b[2J\x1b[H")
+		_, _ = fmt.Fprintf(d.Out, "tp status --watch · every 2s · %s · Ctrl-C to exit\n\n",
 			time.Now().Format("2006-01-02 15:04:05"))
 
 		rows, err := collectStatusRows(watchCtx, d, rc, spec)
 		if err != nil {
-			fmt.Fprintf(d.Out, "error: %v\n", err)
+			_, _ = fmt.Fprintf(d.Out, "error: %v\n", err)
 		} else {
 			_ = writeStatusTable(d, rows)
 		}

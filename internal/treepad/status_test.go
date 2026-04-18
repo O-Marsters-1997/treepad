@@ -267,11 +267,11 @@ func TestStatusWatch(t *testing.T) {
 		// Tick 2 (after pump): dirty succeeds → table rendered.
 		commitOut := fmt.Appendf(nil, "abc1234\x00init\x002024-06-01T12:00:00Z\n")
 		runner := &seqRunner{responses: []runResponse{
-			{output: mainWorktreePorcelain(mainPath)},  // list
-			{err: errors.New("status failed")},         // dirty tick 1 → error
-			{output: []byte("")},                       // dirty tick 2
-			{err: errors.New("no upstream")},           // rev-parse tick 2
-			{output: commitOut},                        // log tick 2
+			{output: mainWorktreePorcelain(mainPath)}, // list
+			{err: errors.New("status failed")},        // dirty tick 1 → error
+			{output: []byte("")},                      // dirty tick 2
+			{err: errors.New("no upstream")},          // rev-parse tick 2
+			{output: commitOut},                       // log tick 2
 		}}
 		sleepCh := make(chan time.Time)
 		var buf strings.Builder
