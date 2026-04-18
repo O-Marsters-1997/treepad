@@ -74,10 +74,12 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `status.go`
 
 - `statusCommand()` — top-level status command definition
+  - Flags: `--json` (emit JSON instead of table), `--watch` (live-refresh every 2s via TTY)
 - `runStatus(ctx, cmd)` — action handler for listing worktree status
-  - Parses flag: `--json` (emit JSON instead of table)
-  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
-  - Calls `Status()`
+  - Validates mutual exclusivity: `--watch` and `--json` are mutually exclusive
+  - Routes to `StatusWatch()` if `--watch` flag set, otherwise calls `Status()`
+  - Instantiates `treepad.Deps` with `os.Stdout`, `os.Stderr`, and `os.Stdin`
+  - `StatusWatch()` requires a TTY (enforced via `d.IsTerminal(d.Out)`)
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
 
 ### `exec.go`
@@ -165,6 +167,21 @@ Task runner detection and script enumeration for the `tp exec` command.
 
 Pure business logic for worktree syncing and artifact file generation. Formerly `internal/workspace/`.
 
+### `deps.go`
+
+- `Deps` struct — bundles all injectable dependencies for treepad operations
+  - Fields: `Runner` (CommandRunner), `Syncer` (Syncer), `Opener` (Opener), `HookRunner` (hook.Runner), `Out` (io.Writer for payloads), `Log` (stderr printer), `In` (io.Reader for stdin)
+  - `IsTerminal(w io.Writer) bool` — reports whether w is an interactive TTY (injectable, used by StatusWatch)
+  - `Sleep(d time.Duration) <-chan time.Time` — returns a channel that receives after d elapses (injectable for tests; production uses `time.After`)
+- `DefaultDeps(out, errw io.Writer, in io.Reader)` — wires production implementations
+  - Runner: `worktree.ExecRunner{}`
+  - Syncer: `internalsync.FileSyncer{}`
+  - Opener: `artifact.ExecOpener`
+  - HookRunner: `hook.ExecRunner`
+  - Log: `ui.New(errw)`
+  - IsTerminal: checks if w is `*os.File` with TTY via `golang.org/x/term.IsTerminal`
+  - Sleep: defaults to `time.After`
+
 ### `service.go`
 
 - `Service` struct — coordinates syncing and artifact generation
@@ -205,6 +222,30 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
   - `loadAndSync(sourceDir, extraPatterns, targets)` — loads config and syncs to targets; returns `config.Config` so artifact config is available
   - `printScripts(runner)` — prints runner name and enumerated scripts to output
   - `buildCommand(runner, command, extraArgs)` — returns executable name and arguments, routing through runner if command matches a known script (adds `--` for npm with extra args)
+
+### `status.go`
+
+- `Status(ctx, d Deps, in StatusInput)` — lists all worktrees with repo-wide status snapshot (snapshot mode)
+  - Input: `JSON` (emit JSON instead of table), `OutputDir` (for artifact path resolution)
+  - Output: builds `[]StatusRow` with branch, dirty state, ahead/behind count, last commit info, artifact mtime
+  - Renders as aligned table via `text/tabwriter` by default, or JSON array with `--json` flag
+  - Calls `collectStatusRows()` to probe each worktree for status
+- `StatusWatch(ctx, d Deps, in StatusInput)` — live-polling terminal monitor with 2s refresh rate
+  - Requires TTY via `d.IsTerminal(d.Out)` (returns error if not a terminal)
+  - Enters alternate screen mode (ANSI codes for alt-screen, hide cursor)
+  - Polling loop: clears screen, renders header with timestamp, calls `collectStatusRows()`, sleeps 2s via `d.Sleep()`
+  - Catches `os.Interrupt` and `syscall.SIGTERM` signals for clean exit
+  - Exits on signal, always restores terminal (show cursor, exit alt-screen)
+- `collectStatusRows(ctx, d Deps, rc repoContext, spec artifact.Spec)` — probes status for all worktrees
+  - For each worktree: queries `worktree.Dirty()`, `worktree.AheadBehind()`, `worktree.LastCommit()`
+  - Resolves artifact file path and modtime via `artifact.Path()` and `os.Stat()`
+  - Skips probing prunable worktrees (metadata without git queries)
+  - Returns `[]StatusRow` sorted as encountered
+- `writeStatusTable(d Deps, rows []StatusRow)` — renders table via `text/tabwriter`
+  - Columns: BRANCH, STATUS, AHEAD/BEHIND, LAST COMMIT, TOUCHED, PATH
+  - Formats relative times via `since()` helper
+  - Collapses home directory paths via `collapsePath()` helper
+  - Appends note if any prunable worktrees found
 
 ### `source.go`
 
@@ -311,7 +352,8 @@ tp [--verbose] <command>
 │   ├── --dry-run
 │   └── --all (force-remove all non-main, must be from main)
 ├── status [options]
-│   └── --json
+│   ├── --json
+│   └── --watch
 ├── exec <branch> [command] [args...]
 │   └── Auto-detects task runner (just, npm, pnpm, yarn, bun, make, poetry, uv)
 │       Routes through runner if command matches enumerated script
@@ -439,6 +481,30 @@ tp [--verbose] <command>
    - Executes via PassthroughRunner with full stdio passthrough (inherits stdin/stdout/stderr from tp process)
    - Returns exit code from child process (non-zero exit does not produce an error; launch failures do)
 
+## Data Flow Example: `tp status [--json | --watch]`
+
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
+2. `commands.statusCommand()` defines CLI interface with `--json` and `--watch` flags
+3. `runStatus()` parses flags and validates mutual exclusivity (--watch and --json cannot both be set)
+4. Instantiates `treepad.Deps` via `DefaultDeps()` with os.Stdout, os.Stderr, os.Stdin
+5. **If `--watch` flag set:** calls `Status.StatusWatch()`
+   - Checks TTY requirement via `d.IsTerminal(d.Out)`; returns error if not a terminal
+   - Enters alternate screen mode (ANSI escape codes)
+   - Polling loop (runs until signal):
+     - Clears screen
+     - Renders header with `tp status --watch · every 2s · <timestamp> · Ctrl-C to exit`
+     - Calls `collectStatusRows()` to probe all worktrees
+     - Renders table via `writeStatusTable()`
+     - Sleeps 2 seconds via `d.Sleep(2 * time.Second)`
+   - Handles `os.Interrupt` and `syscall.SIGTERM` signals for clean exit
+   - Always restores terminal state (show cursor, exit alt-screen)
+6. **If `--json` flag set:** calls `Status()`
+   - Loads repo context, config, and collects status rows via `collectStatusRows()`
+   - Encodes `[]StatusRow` as JSON array to stdout via `json.NewEncoder(d.Out).Encode(rows)`
+7. **If neither flag:** calls `Status()` with default table rendering
+   - Loads repo context, config, and collects status rows via `collectStatusRows()`
+   - Renders table via `writeStatusTable()` to stdout
+
 ## Data Flow Example: `tp diff <branch> [--base main] [-o file] [-- <git-diff-args>...]`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
@@ -455,4 +521,4 @@ tp [--verbose] <command>
 
 ---
 
-**Last Updated:** April 17, 2026 (added `tp diff` command with three-dot merge-base semantics, optional uncolored patch output, and git config inheritance; added `internal/commands/diff.go` and `internal/treepad/diff.go`; added `DiffInput` struct and reused `PassthroughRunner`)
+**Last Updated:** April 18, 2026 (added `tp status --watch` live-polling monitor with 2s refresh, alternate screen rendering, and TTY validation; added `StatusWatch()` function to `internal/treepad/status.go`; added `IsTerminal` and `Sleep` injectable functions to `Deps` struct in `internal/treepad/deps.go`; updated `runStatus()` in `internal/commands/status.go` to route to appropriate handler and validate flag combinations)
