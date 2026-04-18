@@ -475,7 +475,6 @@ Provides a repo-wide snapshot of all active worktrees, showing which ones have u
 | Flag | Description |
 |------|-------------|
 | `--json` | Emit JSON array instead of an aligned table |
-| `--watch` | Live-refresh every 2s (requires a TTY; mutually exclusive with `--json`) |
 
 ### Output Columns (Table Format)
 
@@ -497,23 +496,10 @@ tp status
 # Emit JSON for scripting or dashboards
 tp status --json
 
-# Live-monitor all worktrees with 2s refresh
-tp status --watch
-
 # Combine with standard tools
 tp status | grep dirty
 tp status --json | jq '.[] | select(.dirty == true)'
 ```
-
-### Watch Mode
-
-The `--watch` flag renders a live-updating terminal display that refreshes every 2 seconds, providing real-time visibility into worktree state across your fleet. Useful when running multiple Claude Code instances or monitoring long-running tasks.
-
-- Requires a TTY (terminal); returns error if piped or redirected
-- Mutually exclusive with `--json` flag
-- Press Ctrl-C to exit
-- Displays timestamp of last refresh and "Ctrl-C to exit" prompt
-- Gracefully restores terminal on exit (cursor visibility, screen mode)
 
 ### Output Examples
 
@@ -549,18 +535,45 @@ task/remove-guards       clean   ↑0 ↓6         8305b88 add pre-flight guards
 ]
 ```
 
-**Watch mode output (`--watch`):**
+## ui
+
+Interactive fleet view for monitoring and managing all worktrees in one screen.
 
 ```
-tp status --watch · every 2s · 2026-04-18 10:45:32 · Ctrl-C to exit
-
-BRANCH                   STATUS  AHEAD/BEHIND  LAST COMMIT                            TOUCHED  PATH
-main *                   dirty   ↑0 ↓0         ea69222 Merge PR #33 · 1h             1d       ~/treepad
-feat/status              clean   —             ea69222 Merge PR #33 · 1h             18m      ~/treepad-feat-status
-task/remove-guards       clean   ↑0 ↓6         8305b88 add pre-flight guards · 6h    —        ~/treepad-remove-guards
+tp ui
 ```
 
-(Screen refreshes automatically every 2 seconds; press Ctrl-C to exit)
+Launches a terminal UI with live-updating worktree status, keyboard navigation, and direct actions for syncing, removing, pruning, and opening worktrees. Unlike `tp status`, which provides a read-only snapshot, `tp ui` is an operable fleet view that lets you see and act on every worktree without leaving the interface.
+
+### Key Bindings
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate between worktrees |
+| `Enter` | cd into selected worktree and exit UI |
+| `s` | Sync selected worktree |
+| `S` | Sync all worktrees |
+| `r` | Remove selected worktree (with confirmation) |
+| `p` | Prune merged worktrees (with confirmation) |
+| `o` | Open selected worktree in editor |
+| `y` | Yank worktree path to clipboard (OSC-52) |
+| `?` | Show help overlay |
+| `q` / `Ctrl-C` | Exit without cd |
+
+### Examples
+
+```bash
+# Launch the interactive fleet UI
+tp ui
+
+# Navigate to a worktree and press Enter to cd into it
+# or press 's' to sync, 'r' to remove, etc.
+```
+
+### Requirements
+
+- Requires a TTY (terminal); cannot run in piped or redirected contexts
+- Terminal must support cursor positioning and clearing (standard terminals supported)
 
 ## diff
 

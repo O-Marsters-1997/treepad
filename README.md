@@ -169,10 +169,28 @@ tp status
 
 # Emit JSON for scripting or dashboards
 tp status --json
-
-# Live-monitor all worktrees with 2s refresh (requires a TTY)
-tp status --watch
 ```
+
+**`ui`** — Operable fleet view — see and act on every worktree from one screen:
+
+```bash
+# Launch the interactive fleet UI
+tp ui
+```
+
+The UI provides a live-updating terminal interface for monitoring and managing all your worktrees in one place. Navigate with arrow keys, take actions directly from the fleet view, and exit with `Enter` or `q`.
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate between worktrees |
+| `Enter` | cd into selected worktree and exit |
+| `s` / `S` | Sync worktree (lowercase) or all worktrees (uppercase) |
+| `r` | Remove worktree |
+| `p` | Prune merged worktrees |
+| `o` | Open worktree in editor |
+| `y` | Yank worktree path (copy via OSC-52) |
+| `?` | Show help |
+| `q` / `Ctrl-C` | Exit without cd |
 
 **`exec`** — Run a command in a specific worktree with full stdio passthrough:
 

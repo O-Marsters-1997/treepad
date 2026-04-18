@@ -74,13 +74,23 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `status.go`
 
 - `statusCommand()` — top-level status command definition
-  - Flags: `--json` (emit JSON instead of table), `--watch` (live-refresh every 2s via TTY)
+  - Flags: `--json` (emit JSON instead of table)
 - `runStatus(ctx, cmd)` — action handler for listing worktree status
-  - Validates mutual exclusivity: `--watch` and `--json` are mutually exclusive
-  - Routes to `StatusWatch()` if `--watch` flag set, otherwise calls `Status()`
   - Instantiates `treepad.Deps` with `os.Stdout`, `os.Stderr`, and `os.Stdin`
-  - `StatusWatch()` requires a TTY (enforced via `d.IsTerminal(d.Out)`)
+  - Calls `Status()` to display a snapshot of all worktrees in table or JSON format
   - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
+
+### `ui.go`
+
+- `uiCommand()` — top-level ui command definition
+  - No flags (reads from stdin for key input)
+- `runUI(ctx, cmd)` — action handler for launching the interactive fleet view
+  - Instantiates `treepad.Deps` with `os.Stdout`, `os.Stderr`, and `os.Stdin`
+  - Calls `UI()` to render and control the terminal UI
+  - Handles TTY validation (requires interactive terminal)
+  - Processes keyboard input (arrow keys, Enter, s/S, r, p, o, y, ?, q)
+  - Manages terminal state (cursor, screen mode) and restores on exit
+  - Enables cd-on-exit via `__TREEPAD_CD__` directive (paired with shell integration)
 
 ### `exec.go`
 
@@ -332,6 +342,22 @@ Utility for deriving short identifiers from repository paths.
 
 - `Slug(repoPath)` — generates slug for workspace file naming
 
+## UI Package (`internal/ui/`)
+
+Structured, tag-prefixed printer for user-facing stderr output, and terminal UI components for the interactive fleet view.
+
+### `printer.go`
+
+- `Printer` struct — writes fixed-width tagged lines to an io.Writer
+  - Nil-safe; all calls on a nil receiver are no-ops
+  - Tags: `[STEP]`, `[INFO]`, `[OK]`, `[WARN]`, `[ERR]` for narrative output
+  - `Prompt()` for bare prompts (no tag, no trailing newline)
+- Contract: any non-zero exit must emit exactly one `[ERR]` line describing the user-actionable problem
+
+### Tests
+
+- `printer_test.go` — verifies tag formatting and output channels
+
 ## CLI Command Structure
 
 ```
@@ -505,6 +531,30 @@ tp [--verbose] <command>
    - Loads repo context, config, and collects status rows via `collectStatusRows()`
    - Renders table via `writeStatusTable()` to stdout
 
+## Data Flow Example: `tp ui`
+
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
+2. `commands.uiCommand()` defines CLI interface (no flags)
+3. `runUI()` instantiates `treepad.Deps` via `DefaultDeps()`, calls `UI()`
+4. `UI()` executes:
+   - Checks TTY requirement via `d.IsTerminal(d.Out)`; returns error if not a terminal
+   - Enters alternate screen mode and hides cursor (ANSI escape codes)
+   - Rendering/input loop (runs until exit command):
+     - Collects current status for all worktrees via `collectStatusRows()`
+     - Renders table with current selection highlight
+     - Listens for key input: arrow keys to navigate, Enter/s/S/r/p/o/y/?/q to act
+     - Processes actions:
+       - **Enter:** cd into selected worktree and exit UI via `__TREEPAD_CD__` directive
+       - **s/S:** sync selected/all worktrees (with spinner and toast)
+       - **r:** remove selected worktree (with confirmation modal)
+       - **p:** prune merged worktrees (with confirmation modal)
+       - **o:** open selected worktree in editor
+       - **y:** yank worktree path to clipboard (OSC-52)
+       - **?:** show help overlay
+       - **q/Ctrl-C:** exit without cd
+   - Handles signals for clean exit
+   - Always restores terminal state (show cursor, exit alt-screen)
+
 ## Data Flow Example: `tp diff <branch> [--base main] [-o file] [-- <git-diff-args>...]`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
@@ -521,4 +571,4 @@ tp [--verbose] <command>
 
 ---
 
-**Last Updated:** April 18, 2026 (added `tp status --watch` live-polling monitor with 2s refresh, alternate screen rendering, and TTY validation; added `StatusWatch()` function to `internal/treepad/status.go`; added `IsTerminal` and `Sleep` injectable functions to `Deps` struct in `internal/treepad/deps.go`; updated `runStatus()` in `internal/commands/status.go` to route to appropriate handler and validate flag combinations)
+**Last Updated:** April 18, 2026 (added `tp ui` interactive fleet view command with keyboard navigation, direct worktree actions, and cd-on-exit support; added `uiCommand()` and `runUI()` to `internal/commands/ui.go`; added `UI()` function to `internal/treepad/ui.go`; removed `--watch` flag from `tp status` in favor of `tp ui` for interactive monitoring; updated CODEMAP architecture documentation to reflect UI module and command structure; created CHANGELOG.md documenting feature addition and flag removal)
