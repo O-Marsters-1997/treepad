@@ -9,8 +9,8 @@ import (
 
 	"treepad/internal/artifact"
 	"treepad/internal/hook"
-	"treepad/internal/ui"
 	internalsync "treepad/internal/sync"
+	"treepad/internal/ui"
 	"treepad/internal/worktree"
 )
 
