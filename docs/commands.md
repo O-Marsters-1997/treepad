@@ -137,6 +137,55 @@ Specs are expected to be in markdown format. When provided via `--issue`, the Gi
 
 The spec is parsed and made available to agents as structured input, enabling them to understand and implement the requirements.
 
+## from-spec-bulk
+
+Create worktrees from multiple GitHub issues, writing a rendered `PROMPT.md` into each. Does not launch agents — after the command completes, open each worktree in its own terminal and run `claude PROMPT.md` (or whatever your `agent_command` is) manually.
+
+```
+tp from-spec-bulk [options]
+```
+
+For each issue number: fetches the issue title and body from GitHub, derives a branch name (`--branch-prefix` + slugified title), creates a worktree via `createWorktreeWithSync` (same as `tp from-spec`), and writes `PROMPT.md` using the configured `from_spec.prompt_template`. On completion, prints a summary table showing the status, branch, and path for every issue.
+
+Partial failures are non-fatal: if one issue fails (bad number, empty body, worktree creation error), the rest of the batch continues. The command exits with status `1` if any issue failed.
+
+**Hooks fired per worktree:** `pre_new`, `pre_sync`/`post_sync`, `post_new`. Same as `tp from-spec`. See [hooks.md](hooks.md).
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--issues` | Comma-separated issue numbers, e.g. `"12,14,19"` (required) |
+| `--branch-prefix` | Prefix prepended to the slugified issue title (default: empty) |
+| `--base` | Ref to branch every worktree from (default: `main`) |
+
+### Examples
+
+```bash
+# Create worktrees for issues 12, 14, and 19
+tp from-spec-bulk --issues 12,14,19
+
+# Use a branch prefix
+tp from-spec-bulk --issues 12,14,19 --branch-prefix feat/
+
+# Branch from a non-default base
+tp from-spec-bulk --issues 22,23 --branch-prefix fix/ --base develop
+```
+
+### Output
+
+```
+[STEP] RESULTS
+[OK]     #12  feat/add-retry-to-sync   /Users/olly/code/treepad-feat-add-retry-to-sync
+[WARN]   #14  gh issue view 14: json: cannot unmarshal ...
+[OK]     #19  feat/cache-cleanup       /Users/olly/code/treepad-feat-cache-cleanup
+[INFO] 2 succeeded, 1 failed
+```
+
+Branch names are slugified from the issue title. If two issues slug to the same name, the second gets `-<issueNumber>` appended to avoid collision.
+
+The shell `cd` directive (`__TREEPAD_CD__`) is never emitted — there is no single worktree to navigate to. After the command, `cd` into any of the printed paths and start your agent.
+
 ## cd
 
 cd into an existing worktree by branch name.

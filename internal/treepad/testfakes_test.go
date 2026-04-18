@@ -2,6 +2,7 @@ package treepad
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"treepad/internal/artifact"
 	"treepad/internal/hook"
 	internalsync "treepad/internal/sync"
+	"treepad/internal/ui"
 	"treepad/internal/worktree"
 )
 
@@ -158,3 +160,11 @@ func testDeps(runner worktree.CommandRunner, syncer internalsync.Syncer, opener 
 	}
 	return d
 }
+
+// newTestPrinter returns a Printer backed by w, for asserting on log output.
+func newTestPrinter(w io.Writer) *ui.Printer {
+	return ui.New(w)
+}
+
+// errExitNonZero simulates a runner returning a non-zero exit code.
+var errExitNonZero = errors.New("exit status 1")

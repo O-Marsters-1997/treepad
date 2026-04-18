@@ -17,5 +17,6 @@ func Router() []*cli.Command {
 		execCommand(),
 		diffCommand(),
 		fromSpecCommand(),
+		fromSpecBulkCommand(),
 	}
 }
