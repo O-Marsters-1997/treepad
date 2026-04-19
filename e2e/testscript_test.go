@@ -1,6 +1,6 @@
 //go:build e2e
 
-package main
+package e2e_test
 
 import (
 	"os"
@@ -9,17 +9,20 @@ import (
 	"testing"
 
 	"github.com/rogpeppe/go-internal/testscript"
+
+	"treepad/internal/app"
+	_ "treepad/e2e/register"
 )
 
 func TestMain(m *testing.M) {
 	testscript.Main(m, map[string]func(){
-		"tp": func() { os.Exit(Run(os.Args, os.Stdout, os.Stderr)) },
+		"tp": func() { os.Exit(app.Run(os.Args, os.Stdout, os.Stderr)) },
 	})
 }
 
 func TestScripts(t *testing.T) {
 	testscript.Run(t, testscript.Params{
-		Dir: "testdata/script",
+		Dir: "tests",
 		Setup: func(env *testscript.Env) error {
 			env.Vars = append(env.Vars, "HOME="+env.WorkDir)
 			return nil

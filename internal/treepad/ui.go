@@ -86,6 +86,12 @@ type uiModel struct {
 	mode           uiMode
 	confirmBranch  string // branch name shown in the remove confirm modal
 	yankPath       string // emits OSC-52 in View() then cleared on next cycle
+
+	// Injectable behaviour. Nil means the feature is disabled; see UI() for
+	// production defaults and ui_script_e2e.go for the e2e overrides.
+	tickCmd       func() tea.Cmd // auto-refresh tick; nil → no tick
+	toastTimerCmd func() tea.Cmd // toast-expiry timer; nil → toasts persist
+	headerClock   func() string  // header timestamp; nil → time.Now()
 }
 
 func (m uiModel) Init() tea.Cmd {
@@ -100,9 +106,10 @@ func (m uiModel) doRefresh() tea.Cmd {
 }
 
 func (m uiModel) doTick() tea.Cmd {
-	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
-		return uiTickMsg{}
-	})
+	if m.tickCmd == nil {
+		return nil
+	}
+	return m.tickCmd()
 }
 
 func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -347,9 +354,10 @@ func (m uiModel) doSyncFleet() tea.Cmd {
 }
 
 func (m uiModel) doToastTimer() tea.Cmd {
-	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
-		return uiToastExpiredMsg{}
-	})
+	if m.toastTimerCmd == nil {
+		return nil
+	}
+	return m.toastTimerCmd()
 }
 
 func (m uiModel) View() string {
@@ -361,7 +369,11 @@ func (m uiModel) View() string {
 		fmt.Fprintf(&sb, "\x1b]52;c;%s\x07", encoded)
 	}
 
-	header := "tp ui  ·  " + time.Now().Format("15:04:05") + "  ·  q quit  ·  ? help  ·  ↓j / ↑k  ·  s sync  ·  S sync fleet"
+	ts := time.Now().Format("15:04:05")
+	if m.headerClock != nil {
+		ts = m.headerClock()
+	}
+	header := "tp ui  ·  " + ts + "  ·  q quit  ·  ? help  ·  ↓j / ↑k  ·  s sync  ·  S sync fleet"
 	if m.actionInFlight && m.syncBranch == "" {
 		header += "  " + m.spinner.View()
 	}
@@ -535,7 +547,12 @@ func UI(ctx context.Context, d Deps, in StatusInput) error {
 		return ErrNotTTY
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
-	m := uiModel{ctx: ctx, d: d, in: in, loading: true, spinner: sp}
+	m := uiModel{
+		ctx: ctx, d: d, in: in, loading: true, spinner: sp,
+		tickCmd:       func() tea.Cmd { return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiTickMsg{} }) },
+		toastTimerCmd: func() tea.Cmd { return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiToastExpiredMsg{} }) },
+		headerClock:   func() string { return time.Now().Format("15:04:05") },
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	final, err := p.Run()
 	if err != nil {
@@ -554,3 +571,69 @@ func uiEmitCD(d Deps, path string) {
 	emitCD(d, path)
 	_, _ = fmt.Fprintf(d.Out, "→ cd: %s\n", path)
 }
+
+// HeadlessUI drives uiModel synchronously without a TTY or tea.Program.
+// Use NewHeadlessUI to construct; Init / Update / View follow the tea.Model
+// protocol but mutate state in place rather than returning new models.
+type HeadlessUI struct {
+	model uiModel
+}
+
+// NewHeadlessUI constructs a HeadlessUI ready for headless key replay.
+// The header clock is fixed at "STATIC" for deterministic output; auto-refresh
+// and toast timers are disabled (nil factories) so no time-based cmds are emitted.
+func NewHeadlessUI(ctx context.Context, d Deps, in StatusInput) *HeadlessUI {
+	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	return &HeadlessUI{model: uiModel{
+		ctx:         ctx,
+		d:           d,
+		in:          in,
+		loading:     true,
+		spinner:     sp,
+		headerClock: func() string { return "STATIC" },
+	}}
+}
+
+// Init follows tea.Model; call once before the first Update.
+func (h *HeadlessUI) Init() tea.Cmd {
+	return h.model.Init()
+}
+
+// Update feeds msg through the model, stores the updated state, and returns
+// the next command.
+func (h *HeadlessUI) Update(msg tea.Msg) tea.Cmd {
+	updated, cmd := h.model.Update(msg)
+	h.model = updated.(uiModel)
+	return cmd
+}
+
+// View renders the current frame.
+func (h *HeadlessUI) View() string {
+	return h.model.View()
+}
+
+// SelectedPath returns the worktree path chosen via Enter, or "".
+func (h *HeadlessUI) SelectedPath() string {
+	return h.model.selectedPath
+}
+
+// EmitCD writes the cd sentinel and human-readable line to d.Out.
+// No-op when SelectedPath is empty.
+func (h *HeadlessUI) EmitCD() {
+	if h.model.selectedPath != "" {
+		uiEmitCD(h.model.d, h.model.selectedPath)
+	}
+}
+
+// IsDrainDiscardable reports whether msg should be skipped by a headless drain
+// loop. Discards uiYankClearMsg (so yankPath survives until View renders the
+// OSC-52 sequence) and spinner.TickMsg (timer-driven, would chain infinitely).
+// Exposed for the e2e/script harness; not intended for production use.
+func IsDrainDiscardable(msg tea.Msg) bool {
+	switch msg.(type) {
+	case uiYankClearMsg, spinner.TickMsg:
+		return true
+	}
+	return false
+}
+

@@ -308,16 +308,13 @@ func TestUISync(t *testing.T) {
 	})
 
 	t.Run("tick skips refresh when action in flight", func(t *testing.T) {
-		// When actionInFlight, tick should not trigger a refresh cmd batch
-		// (only reschedule the next tick)
-		m := uiModel{actionInFlight: true}
+		// When actionInFlight, tick should reschedule without triggering a refresh.
+		noopTick := func() tea.Cmd { return func() tea.Msg { return uiTickMsg{} } }
+		m := uiModel{actionInFlight: true, tickCmd: noopTick}
 		_, cmd := m.Update(uiTickMsg{})
 		if cmd == nil {
 			t.Error("expected tick rescheduling command")
 		}
-		// The command should be a single doTick (not a batch with doRefresh).
-		// We verify indirectly: the model rows are unchanged.
-		_ = cmd
 	})
 
 	t.Run("error toast dismissed by any key", func(t *testing.T) {
@@ -614,3 +611,4 @@ func TestUIEmitCD(t *testing.T) {
 		}
 	})
 }
+

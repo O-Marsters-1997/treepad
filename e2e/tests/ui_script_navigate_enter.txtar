@@ -1,0 +1,6 @@
+tp-init-repo
+tp-add-worktree feature-a
+exec tp ui --script=j,enter
+stdout '__TREEPAD_CD__'
+stdout 'repo-feature-a'
+stdout '→ cd:'
