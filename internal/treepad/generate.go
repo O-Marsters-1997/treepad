@@ -17,6 +17,9 @@ type GenerateInput struct {
 	SyncOnly      bool
 	OutputDir     string
 	ExtraPatterns []string
+	// Branch restricts the sync and artifact generation to a single worktree.
+	// Empty means fleet-wide (existing behaviour).
+	Branch string
 }
 
 func Generate(ctx context.Context, d Deps, in GenerateInput) error {
@@ -52,6 +55,21 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 		}
 		targets = append(targets, syncTarget{path: wt.Path, branch: wt.Branch})
 	}
+
+	if in.Branch != "" {
+		var matched []syncTarget
+		for _, t := range targets {
+			if t.branch == in.Branch {
+				matched = append(matched, t)
+				break
+			}
+		}
+		if len(matched) == 0 {
+			return fmt.Errorf("no worktree found for branch %q", in.Branch)
+		}
+		targets = matched
+	}
+
 	cfg, err := loadAndSync(ctx, d, sourceDir, in.ExtraPatterns, targets, repoSlug, outputDir)
 	if err != nil {
 		return err
@@ -60,6 +78,9 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 	if !in.SyncOnly {
 		d.Log.Step("generating artifact files → %s", outputDir)
 		for _, wt := range worktrees {
+			if in.Branch != "" && wt.Branch != in.Branch {
+				continue
+			}
 			data := templateData(repoSlug, wt.Branch, wt.Path, outputDir)
 			path, err := artifact.Write(artifactSpec(cfg.Artifact), outputDir, data)
 			if err != nil {
