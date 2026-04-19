@@ -31,8 +31,15 @@ tidy:
 clean:
     rm -f tp
 
+check-conflicts:
+    @base=$$(git merge-base HEAD origin/main 2>/dev/null) && \
+    if git merge-tree $$base HEAD origin/main 2>/dev/null | grep -q "^<<<<<<< "; then \
+        echo "error: branch has conflicts with origin/main" >&2 && exit 1; \
+    fi
+
 ci:
-    golangci-lint run ./...
+    just check-conflicts
     just build
+    golangci-lint run ./...
     just test
     just test-e2e
