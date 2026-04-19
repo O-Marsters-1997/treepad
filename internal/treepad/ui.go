@@ -31,15 +31,15 @@ type (
 )
 
 type uiModel struct {
-	ctx      context.Context
-	d        Deps
-	in       StatusInput
-	rows     []StatusRow
-	cursor   int
-	width    int
-	height   int
-	loading  bool
-	err      error
+	ctx     context.Context
+	d       Deps
+	in      StatusInput
+	rows    []StatusRow
+	cursor  int
+	width   int
+	height  int
+	loading bool
+	err     error
 }
 
 func (m uiModel) Init() tea.Cmd {
@@ -137,7 +137,7 @@ func (m uiModel) View() string {
 func uiBuildTableLines(rows []StatusRow) []string {
 	var buf bytes.Buffer
 	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
+	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
 
 	for _, r := range rows {
 		branch := r.Branch
@@ -145,7 +145,7 @@ func uiBuildTableLines(rows []StatusRow) []string {
 			branch += " *"
 		}
 		if r.Prunable {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				branch, "prunable", "—", r.PrunableReason, "—", collapsePath(r.Path))
 			continue
 		}
@@ -174,11 +174,11 @@ func uiBuildTableLines(rows []StatusRow) []string {
 			touched = since(r.LastTouched)
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			branch, status, aheadBehind, lastCommit, touched, collapsePath(r.Path))
 	}
 
-	w.Flush()
+	_ = w.Flush()
 	raw := strings.TrimRight(buf.String(), "\n")
 	if raw == "" {
 		return nil

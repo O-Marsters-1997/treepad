@@ -132,14 +132,6 @@ func (f *fakeHookRunner) Run(_ context.Context, hooks []hook.HookEntry, data hoo
 
 type depsOption func(*Deps)
 
-func withIsTerminal(fn func(io.Writer) bool) depsOption {
-	return func(d *Deps) { d.IsTerminal = fn }
-}
-
-func withSleep(fn func(time.Duration) <-chan time.Time) depsOption {
-	return func(d *Deps) { d.Sleep = fn }
-}
-
 // testDeps builds a Deps value suitable for tests: discards output and reads
 // from an empty stdin unless the caller substitutes those fields.
 // HookRunner defaults to a no-op fakeHookRunner; override deps.HookRunner for tests
@@ -166,5 +158,4 @@ func newTestPrinter(w io.Writer) *ui.Printer {
 	return ui.New(w)
 }
 
-// errExitNonZero simulates a runner returning a non-zero exit code.
 var errExitNonZero = errors.New("exit status 1")

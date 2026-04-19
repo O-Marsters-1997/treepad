@@ -106,7 +106,6 @@ func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifac
 	return rows, nil
 }
 
-
 func writeStatusTable(d Deps, rows []StatusRow) error {
 	w := tabwriter.NewWriter(d.Out, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
