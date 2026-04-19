@@ -1,0 +1,4 @@
+tp-init-repo
+exec tp ui --script=S,q
+stdout '✓ synced fleet'
+exists $HOME/repo-workspaces

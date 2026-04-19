@@ -1,0 +1,5 @@
+tp-init-repo
+exec tp ui --script=q
+stdout 'tp ui  ·  STATIC'
+stdout 'BRANCH'
+stdout 'main \*'

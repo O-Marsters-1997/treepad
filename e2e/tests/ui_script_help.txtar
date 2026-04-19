@@ -1,0 +1,4 @@
+tp-init-repo
+exec tp ui --script=?
+stdout 'Key Bindings'
+stdout 'Press any key to dismiss'

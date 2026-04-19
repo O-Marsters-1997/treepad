@@ -1,0 +1,3 @@
+tp-init-repo
+! exec tp ui
+stderr 'requires an interactive terminal'

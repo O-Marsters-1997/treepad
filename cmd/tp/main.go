@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"os"
 
@@ -12,24 +11,23 @@ import (
 	"treepad/internal/ui"
 )
 
+// Set at build time via linker flags:
+//
+//	-X main.Version=v1.2.3 -X main.Commit=abc1234 -X main.Date=2024-01-01
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	Version = "dev"
+	Commit  = "none"
+	Date    = "unknown"
 )
 
-func main() { os.Exit(Run(os.Args, os.Stdout, os.Stderr)) }
-
-// Run is the testscript entry point: it builds and executes the CLI, returning
-// an exit code. main() is a thin wrapper so tests can invoke Run directly.
-func Run(args []string, stdout, stderr io.Writer) int {
+func main() {
 	cmd := &cli.Command{
 		Name:                  "tp",
 		Usage:                 "CLI for managing git worktrees",
-		Version:               version + " (commit: " + commit + ", built: " + date + ")",
+		Version:               Version + " (commit: " + Commit + ", built: " + Date + ")",
 		EnableShellCompletion: true,
-		Writer:                stdout,
-		ErrWriter:             stderr,
+		Writer:                os.Stdout,
+		ErrWriter:             os.Stderr,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "verbose",
@@ -43,16 +41,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 				level = slog.LevelDebug
 			}
 			slog.SetDefault(slog.New(
-				slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level}),
+				slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}),
 			))
 			return ctx, nil
 		},
 		Commands: commands.Router(),
 	}
 
-	if err := cmd.Run(context.Background(), args); err != nil {
-		ui.New(stderr).Err(err.Error())
-		return 1
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		ui.New(os.Stderr).Err(err.Error())
+		os.Exit(1)
 	}
-	return 0
 }
