@@ -27,6 +27,56 @@ func TestGenerate(t *testing.T) {
 		}
 	})
 
+	t.Run("Branch filters to one target", func(t *testing.T) {
+		syn := &fakeSyncer{}
+		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+
+		err := Generate(context.Background(), deps, GenerateInput{
+			SourcePath: "/repo/main",
+			SyncOnly:   true,
+			Branch:     "feat",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(syn.calls) != 1 {
+			t.Fatalf("syncer called %d times, want 1 for branch filter", len(syn.calls))
+		}
+		if syn.calls[0].TargetDir != "/repo/feat" {
+			t.Errorf("TargetDir = %q, want /repo/feat", syn.calls[0].TargetDir)
+		}
+	})
+
+	t.Run("unknown Branch returns clear error", func(t *testing.T) {
+		syn := &fakeSyncer{}
+		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+
+		err := Generate(context.Background(), deps, GenerateInput{
+			SourcePath: "/repo/main",
+			SyncOnly:   true,
+			Branch:     "nonexistent",
+		})
+		if err == nil || !strings.Contains(err.Error(), "no worktree found") {
+			t.Errorf("got error %v, want containing \"no worktree found\"", err)
+		}
+	})
+
+	t.Run("empty Branch syncs all targets", func(t *testing.T) {
+		syn := &fakeSyncer{}
+		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+
+		err := Generate(context.Background(), deps, GenerateInput{
+			SourcePath: "/repo/main",
+			SyncOnly:   true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(syn.calls) != 2 {
+			t.Errorf("syncer called %d times, want 2 for fleet sync", len(syn.calls))
+		}
+	})
+
 	errorTests := []struct {
 		name    string
 		runner  worktree.CommandRunner
