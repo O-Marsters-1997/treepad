@@ -169,10 +169,30 @@ tp status
 
 # Emit JSON for scripting or dashboards
 tp status --json
+```
 
-# Live fleet view with navigation and actions (requires a TTY)
+**`ui`** — Open a live interactive fleet view (requires a TTY):
+
+```bash
+# Open the BubbleTea TUI fleet monitor
 tp ui
 ```
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` | Move cursor up |
+| `↓` / `j` | Move cursor down |
+| `Enter` | cd into selected worktree and exit |
+| `s` | Sync selected worktree configs |
+| `S` | Sync all worktrees (fleet sync) |
+| `o` | Open artifact file for selected worktree |
+| `y` | Yank (copy) path of selected worktree to clipboard |
+| `r` | Remove selected worktree (with confirmation) |
+| `p` | Prune merged worktrees (with confirmation) |
+| `?` | Toggle key binding help overlay |
+| `q` / `Ctrl-C` | Quit |
+
+Requires `eval "$(tp shell-init)"` for the `Enter`→cd action to work.
 
 **`exec`** — Run a command in a specific worktree with full stdio passthrough:
 

@@ -349,8 +349,8 @@ tp [--verbose] <command>
 │   ├── --dry-run
 │   └── --all (force-remove all non-main, must be from main)
 ├── status [options]
-│   ├── --json
-│   └── --watch
+│   └── --json
+├── ui
 ├── exec <branch> [command] [args...]
 │   └── Auto-detects task runner (just, npm, pnpm, yarn, bun, make, poetry, uv)
 │       Routes through runner if command matches enumerated script
@@ -478,29 +478,33 @@ tp [--verbose] <command>
    - Executes via PassthroughRunner with full stdio passthrough (inherits stdin/stdout/stderr from tp process)
    - Returns exit code from child process (non-zero exit does not produce an error; launch failures do)
 
-## Data Flow Example: `tp status [--json | --watch]`
+## Data Flow Example: `tp status [--json]`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
-2. `commands.statusCommand()` defines CLI interface with `--json` and `--watch` flags
-3. `runStatus()` parses flags and validates mutual exclusivity (--watch and --json cannot both be set)
-4. Instantiates `treepad.Deps` via `DefaultDeps()` with os.Stdout, os.Stderr, os.Stdin
-5. **If `--watch` flag set:** calls `Status.StatusWatch()`
-   - Checks TTY requirement via `d.IsTerminal(d.Out)`; returns error if not a terminal
-   - Enters alternate screen mode (ANSI escape codes)
-   - Polling loop (runs until signal):
-     - Clears screen
-     - Renders header with `tp status --watch · every 2s · <timestamp> · Ctrl-C to exit`
-     - Calls `collectStatusRows()` to probe all worktrees
-     - Renders table via `writeStatusTable()`
-     - Sleeps 2 seconds via `d.Sleep(2 * time.Second)`
-   - Handles `os.Interrupt` and `syscall.SIGTERM` signals for clean exit
-   - Always restores terminal state (show cursor, exit alt-screen)
-6. **If `--json` flag set:** calls `Status()`
-   - Loads repo context, config, and collects status rows via `collectStatusRows()`
-   - Encodes `[]StatusRow` as JSON array to stdout via `json.NewEncoder(d.Out).Encode(rows)`
-7. **If neither flag:** calls `Status()` with default table rendering
-   - Loads repo context, config, and collects status rows via `collectStatusRows()`
-   - Renders table via `writeStatusTable()` to stdout
+2. `commands.statusCommand()` defines CLI interface with `--json` flag
+3. `runStatus()` parses flags; instantiates `treepad.Deps` via `DefaultDeps()`
+4. Calls `treepad.Status()`
+   - Calls `refreshStatus()` → `loadRepoContext()` → `collectStatusRows()` to probe all worktrees
+   - **If `--json` flag:** encodes `[]StatusRow` as JSON array to stdout
+   - **Otherwise:** renders aligned table via `writeStatusTable()`
+
+## Data Flow Example: `tp ui`
+
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
+2. `commands.uiCommand()` defines CLI interface (no flags)
+3. `runUI()` instantiates `treepad.Deps` via `DefaultDeps()`, calls `treepad.UI()`
+4. `UI()` checks TTY via `d.IsTerminal(d.Out)`; returns `ErrNotTTY` (exit code 2) if not a terminal
+5. Constructs `uiModel` with BubbleTea spinner, enters alt-screen via `tea.NewProgram(..., tea.WithAltScreen(), tea.WithContext(ctx))`
+6. BubbleTea event loop:
+   - `Init()` dispatches `doRefresh()` and `doTick()` commands
+   - `doRefresh()` calls `refreshStatus()` asynchronously; result arrives as `uiRefreshMsg`
+   - Tick fires every 5s via `uiTickMsg`; skipped if an action is in flight
+   - Key events dispatch sync (`uiSyncDoneMsg`), remove (`uiRemoveDoneMsg`), prune (`uiPruneDoneMsg`), open (`uiOpenDoneMsg`) as async commands
+   - `y` key stores path in `yankPath`; `View()` emits OSC-52 escape sequence; `uiYankClearMsg` clears it next tick
+   - `Enter` sets `selectedPath` and returns `tea.Quit`
+7. After `p.Run()` returns, if `selectedPath` is non-empty:
+   - Emits `__TREEPAD_CD__\t<path>` sentinel to stdout (shell wrapper cd's)
+   - Emits human-readable `→ cd: <path>` line
 
 ## Data Flow Example: `tp diff <branch> [--base main] [-o file] [-- <git-diff-args>...]`
 
@@ -518,4 +522,4 @@ tp [--verbose] <command>
 
 ---
 
-**Last Updated:** April 18, 2026 (added `tp status --watch` live-polling monitor with 2s refresh, alternate screen rendering, and TTY validation; added `StatusWatch()` function to `internal/treepad/status.go`; added `IsTerminal` and `Sleep` injectable functions to `Deps` struct in `internal/treepad/deps.go`; updated `runStatus()` in `internal/commands/status.go` to route to appropriate handler and validate flag combinations)
+**Last Updated:** April 19, 2026 (replaced `tp status --watch` with `tp ui` BubbleTea TUI fleet commander; added `internal/treepad/ui.go` and `internal/commands/ui.go`; extracted `refreshStatus()` seam in `status.go`; added `ErrNotTTY` sentinel; added OSC-52 yank, Enter→cd, inline sync/remove/prune actions, help overlay)
