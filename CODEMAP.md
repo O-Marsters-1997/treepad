@@ -74,13 +74,10 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `status.go`
 
 - `statusCommand()` — top-level status command definition
-  - Flags: `--json` (emit JSON instead of table), `--watch` (live-refresh every 2s via TTY)
+  - Flags: `--json` (emit JSON instead of table)
 - `runStatus(ctx, cmd)` — action handler for listing worktree status
-  - Validates mutual exclusivity: `--watch` and `--json` are mutually exclusive
-  - Routes to `StatusWatch()` if `--watch` flag set, otherwise calls `Status()`
   - Instantiates `treepad.Deps` with `os.Stdout`, `os.Stderr`, and `os.Stdin`
-  - `StatusWatch()` requires a TTY (enforced via `d.IsTerminal(d.Out)`)
-  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
+  - Calls `Status()` (use `tp ui` for the live fleet view)
 
 ### `exec.go`
 
