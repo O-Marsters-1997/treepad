@@ -89,6 +89,22 @@ branch refs/heads/feat
 
 `)
 
+// threeWorktreePorcelain produces three worktrees with a main, feat, and other
+// branch. Source is /repo/main; sync targets are /repo/feat and /repo/other.
+var threeWorktreePorcelain = []byte(`worktree /repo/main
+HEAD abc123
+branch refs/heads/main
+
+worktree /repo/feat
+HEAD def456
+branch refs/heads/feat
+
+worktree /repo/other
+HEAD ghi789
+branch refs/heads/other
+
+`)
+
 // mainWorktreePorcelain builds porcelain output where mainPath has a real .git dir.
 func mainWorktreePorcelain(mainPath string) []byte {
 	return fmt.Appendf(nil, "worktree %s\nHEAD abc123\nbranch refs/heads/main\n\n", mainPath)

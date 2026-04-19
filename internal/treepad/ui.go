@@ -8,39 +8,55 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 var (
-	uiCursorStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("62")).
-			Foreground(lipgloss.Color("230"))
-	uiHeaderStyle = lipgloss.NewStyle().Bold(true)
+	uiCursorStyle   = lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230"))
+	uiHeaderStyle   = lipgloss.NewStyle().Bold(true)
+	uiToastOKStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	uiToastErrStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
 // ErrNotTTY is returned by UI when stdout is not an interactive terminal.
 var ErrNotTTY = fmt.Errorf("tp ui requires an interactive terminal")
 
 type (
-	uiTickMsg    struct{}
-	uiRefreshMsg struct {
+	uiTickMsg         struct{}
+	uiToastExpiredMsg struct{}
+	uiRefreshMsg      struct {
 		rows []StatusRow
 		err  error
 	}
+	uiSyncDoneMsg struct {
+		branch string // empty = fleet sync
+		err    error
+	}
 )
 
+// uiToast holds a transient message shown below the table.
+type uiToast struct {
+	msg   string
+	isErr bool // error toasts stick until any key is pressed
+}
+
 type uiModel struct {
-	ctx          context.Context
-	d            Deps
-	in           StatusInput
-	rows         []StatusRow
-	cursor       int
-	width        int
-	height       int
-	loading      bool
-	err          error
-	selectedPath string
+	ctx            context.Context
+	d              Deps
+	in             StatusInput
+	rows           []StatusRow
+	cursor         int
+	width          int
+	height         int
+	loading        bool
+	err            error
+	selectedPath   string
+	actionInFlight bool   // sync in progress — pauses auto-refresh
+	syncBranch     string // branch being synced; empty = fleet sync
+	toast          *uiToast
+	spinner        spinner.Model
 }
 
 func (m uiModel) Init() tea.Cmd {
@@ -65,8 +81,21 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+	case spinner.TickMsg:
+		if !m.actionInFlight {
+			return m, nil // action done — stop animation
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
 	case uiTickMsg:
+		if m.actionInFlight {
+			return m, m.doTick() // skip refresh, reschedule tick
+		}
 		return m, tea.Batch(m.doRefresh(), m.doTick())
+
 	case uiRefreshMsg:
 		m.loading = false
 		if msg.err != nil {
@@ -78,7 +107,32 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor = len(m.rows) - 1
 			}
 		}
+
+	case uiSyncDoneMsg:
+		m.actionInFlight = false
+		m.syncBranch = ""
+		if msg.err != nil {
+			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
+			return m, nil
+		}
+		label := "fleet"
+		if msg.branch != "" {
+			label = msg.branch
+		}
+		m.toast = &uiToast{msg: fmt.Sprintf("✓ synced %s", label)}
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
+
+	case uiToastExpiredMsg:
+		if m.toast != nil && !m.toast.isErr {
+			m.toast = nil
+		}
+
 	case tea.KeyMsg:
+		// Dismiss sticky error toast on first key press.
+		if m.toast != nil && m.toast.isErr {
+			m.toast = nil
+			return m, nil
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -86,6 +140,21 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.rows) > 0 {
 				m.selectedPath = m.rows[m.cursor].Path
 				return m, tea.Quit
+			}
+		case "s":
+			if !m.actionInFlight && len(m.rows) > 0 {
+				branch := m.rows[m.cursor].Branch
+				m.actionInFlight = true
+				m.syncBranch = branch
+				m.toast = nil
+				return m, tea.Batch(m.doSync(branch), m.spinner.Tick)
+			}
+		case "S":
+			if !m.actionInFlight {
+				m.actionInFlight = true
+				m.syncBranch = ""
+				m.toast = nil
+				return m, tea.Batch(m.doSyncFleet(), m.spinner.Tick)
 			}
 		case "up", "k":
 			if m.cursor > 0 {
@@ -100,12 +169,34 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m uiModel) doSync(branch string) tea.Cmd {
+	return func() tea.Msg {
+		err := Generate(m.ctx, m.d, GenerateInput{Branch: branch, OutputDir: m.in.OutputDir})
+		return uiSyncDoneMsg{branch: branch, err: err}
+	}
+}
+
+func (m uiModel) doSyncFleet() tea.Cmd {
+	return func() tea.Msg {
+		err := Generate(m.ctx, m.d, GenerateInput{OutputDir: m.in.OutputDir})
+		return uiSyncDoneMsg{branch: "", err: err}
+	}
+}
+
+func (m uiModel) doToastTimer() tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+		return uiToastExpiredMsg{}
+	})
+}
+
 func (m uiModel) View() string {
 	var sb strings.Builder
 
-	sb.WriteString("tp ui  ·  ")
-	sb.WriteString(time.Now().Format("15:04:05"))
-	sb.WriteString("  ·  q quit  ·  ↓j / ↑k navigate\n\n")
+	header := "tp ui  ·  " + time.Now().Format("15:04:05") + "  ·  q quit  ·  ↓j / ↑k  ·  s sync  ·  S sync fleet"
+	if m.actionInFlight && m.syncBranch == "" {
+		header += "  " + m.spinner.View()
+	}
+	sb.WriteString(header + "\n\n")
 
 	if m.loading && len(m.rows) == 0 {
 		sb.WriteString("  loading...\n")
@@ -119,11 +210,23 @@ func (m uiModel) View() string {
 			sb.WriteString(uiHeaderStyle.Render(line))
 		} else {
 			rowIdx := i - 1
+			isSyncing := m.actionInFlight && m.syncBranch != "" &&
+				rowIdx < len(m.rows) && m.rows[rowIdx].Branch == m.syncBranch
+
+			var prefix string
+			switch {
+			case isSyncing:
+				prefix = m.spinner.View() + " "
+			case rowIdx == m.cursor:
+				prefix = "▶ "
+			default:
+				prefix = "  "
+			}
+
 			if rowIdx == m.cursor {
-				sb.WriteString(uiCursorStyle.Render("▶ " + line))
+				sb.WriteString(uiCursorStyle.Render(prefix + line))
 			} else {
-				sb.WriteString("  ")
-				sb.WriteString(line)
+				sb.WriteString(prefix + line)
 			}
 		}
 		sb.WriteString("\n")
@@ -131,6 +234,14 @@ func (m uiModel) View() string {
 
 	if m.err != nil {
 		fmt.Fprintf(&sb, "\nerror: %v\n", m.err)
+	}
+
+	if m.toast != nil {
+		if m.toast.isErr {
+			fmt.Fprintf(&sb, "\n%s  (press any key to dismiss)\n", uiToastErrStyle.Render("✗ "+m.toast.msg))
+		} else {
+			fmt.Fprintf(&sb, "\n%s\n", uiToastOKStyle.Render(m.toast.msg))
+		}
 	}
 
 	if uiHasPrunable(m.rows) {
@@ -207,7 +318,8 @@ func UI(ctx context.Context, d Deps, in StatusInput) error {
 	if !d.IsTerminal(d.Out) {
 		return ErrNotTTY
 	}
-	m := uiModel{ctx: ctx, d: d, in: in, loading: true}
+	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	m := uiModel{ctx: ctx, d: d, in: in, loading: true, spinner: sp}
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	final, err := p.Run()
 	if err != nil {
