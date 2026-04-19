@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -36,22 +34,23 @@ type StatusRow struct {
 	PrunableReason string              `json:"prunable_reason,omitempty"`
 }
 
-func Status(ctx context.Context, d Deps, in StatusInput) error {
+func refreshStatus(ctx context.Context, d Deps, in StatusInput) ([]StatusRow, error) {
 	rc, err := loadRepoContext(ctx, d, in.OutputDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
 	cfg, err := config.Load(rc.Main.Path)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
+	return collectStatusRows(ctx, d, rc, artifactSpec(cfg.Artifact))
+}
 
-	rows, err := collectStatusRows(ctx, d, rc, artifactSpec(cfg.Artifact))
+func Status(ctx context.Context, d Deps, in StatusInput) error {
+	rows, err := refreshStatus(ctx, d, in)
 	if err != nil {
 		return err
 	}
-
 	if in.JSON {
 		return json.NewEncoder(d.Out).Encode(rows)
 	}
@@ -107,46 +106,6 @@ func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifac
 	return rows, nil
 }
 
-func StatusWatch(ctx context.Context, d Deps, in StatusInput) error {
-	if !d.IsTerminal(d.Out) {
-		return fmt.Errorf("--watch requires a TTY")
-	}
-
-	rc, err := loadRepoContext(ctx, d, in.OutputDir)
-	if err != nil {
-		return fmt.Errorf("status watch: %w", err)
-	}
-	cfg, err := config.Load(rc.Main.Path)
-	if err != nil {
-		return fmt.Errorf("status watch: load config: %w", err)
-	}
-	spec := artifactSpec(cfg.Artifact)
-
-	watchCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	_, _ = fmt.Fprint(d.Out, "\x1b[?1049h\x1b[?25l")                    // enter alt-screen, hide cursor
-	defer func() { _, _ = fmt.Fprint(d.Out, "\x1b[?25h\x1b[?1049l") }() // show cursor, exit alt-screen
-
-	for {
-		_, _ = fmt.Fprint(d.Out, "\x1b[2J\x1b[H")
-		_, _ = fmt.Fprintf(d.Out, "tp status --watch · every 2s · %s · Ctrl-C to exit\n\n",
-			time.Now().Format("2006-01-02 15:04:05"))
-
-		rows, err := collectStatusRows(watchCtx, d, rc, spec)
-		if err != nil {
-			_, _ = fmt.Fprintf(d.Out, "error: %v\n", err)
-		} else {
-			_ = writeStatusTable(d, rows)
-		}
-
-		select {
-		case <-watchCtx.Done():
-			return nil
-		case <-d.Sleep(2 * time.Second):
-		}
-	}
-}
 
 func writeStatusTable(d Deps, rows []StatusRow) error {
 	w := tabwriter.NewWriter(d.Out, 0, 0, 2, ' ', 0)

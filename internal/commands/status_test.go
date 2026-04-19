@@ -9,16 +9,16 @@ import (
 )
 
 func TestStatusCommand(t *testing.T) {
-	t.Run("rejects watch and json together", func(t *testing.T) {
+	t.Run("--watch flag is removed and produces unknown flag error", func(t *testing.T) {
 		app := &cli.Command{
 			Commands: []*cli.Command{statusCommand()},
 		}
-		err := app.Run(context.Background(), []string{"tp", "status", "--watch", "--json"})
+		err := app.Run(context.Background(), []string{"tp", "status", "--watch"})
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "mutually exclusive") {
-			t.Errorf("got error %q, want containing \"mutually exclusive\"", err.Error())
+		if !strings.Contains(err.Error(), "flag provided but not defined") {
+			t.Errorf("got error %q, want unknown flag error", err.Error())
 		}
 	})
 }

@@ -170,8 +170,8 @@ tp status
 # Emit JSON for scripting or dashboards
 tp status --json
 
-# Live-monitor all worktrees with 2s refresh (requires a TTY)
-tp status --watch
+# Live fleet view with navigation and actions (requires a TTY)
+tp ui
 ```
 
 **`exec`** — Run a command in a specific worktree with full stdio passthrough:
