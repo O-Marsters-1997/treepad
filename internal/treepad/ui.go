@@ -243,6 +243,7 @@ func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
 		m.mode = uiModeNormal
 		m.actionInFlight = true
 		return m, tea.Batch(m.doPrune(), m.spinner.Tick)
+	case uiModeNormal:
 	}
 	return m, nil
 }
@@ -414,6 +415,7 @@ func uiRenderModal(m uiModel) string {
 	case uiModeConfirmPrune:
 		title = "Prune merged worktrees"
 		detail = "All worktrees whose branches are merged into main will be removed."
+	case uiModeNormal:
 	}
 	body := fmt.Sprintf("%s\n%s\n\n[y] confirm  ·  [any other key] cancel", title, detail)
 	return uiModalStyle.Render(body)
@@ -452,5 +454,5 @@ func UI(ctx context.Context, d Deps, in StatusInput) error {
 // human-readable fallback line so users without the wrapper see where they'd land.
 func uiEmitCD(d Deps, path string) {
 	emitCD(d, path)
-	fmt.Fprintf(d.Out, "→ cd: %s\n", path)
+	_, _ = fmt.Fprintf(d.Out, "→ cd: %s\n", path)
 }
