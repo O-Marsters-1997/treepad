@@ -2,6 +2,7 @@ package treepad
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -325,6 +326,115 @@ func TestUISync(t *testing.T) {
 		m2 := updated.(uiModel)
 		if m2.toast != nil {
 			t.Error("error toast should be dismissed by key press")
+		}
+	})
+}
+
+func TestUIPolish(t *testing.T) {
+	rows2 := []StatusRow{
+		{Branch: "main", IsMain: true, Path: "/repo/main", ArtifactPath: "/out/main.code-workspace"},
+		{Branch: "feat", Path: "/repo/feat"},
+	}
+
+	t.Run("o dispatches open with artifact path", func(t *testing.T) {
+		opener := &fakeOpener{}
+		deps := testDeps(&fakeRunner{}, &fakeSyncer{}, opener)
+		m := uiModel{
+			ctx:  context.Background(),
+			d:    deps,
+			rows: rows2,
+			cursor: 0,
+		}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+		m2 := updated.(uiModel)
+		if !m2.actionInFlight {
+			t.Error("actionInFlight should be true while opening")
+		}
+		if cmd == nil {
+			t.Error("expected open command")
+		}
+	})
+
+	t.Run("o open success shows toast", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, _ := m.Update(uiOpenDoneMsg{path: "/out/main.code-workspace", err: nil})
+		m2 := updated.(uiModel)
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false after open")
+		}
+		if m2.toast == nil {
+			t.Fatal("expected toast after open")
+		}
+		if !strings.Contains(m2.toast.msg, "opened") {
+			t.Errorf("toast = %q, want containing 'opened'", m2.toast.msg)
+		}
+	})
+
+	t.Run("y sets yankPath and shows toast", func(t *testing.T) {
+		m := uiModel{rows: rows2, cursor: 0}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+		m2 := updated.(uiModel)
+		if m2.yankPath != "/repo/main" {
+			t.Errorf("yankPath = %q, want /repo/main", m2.yankPath)
+		}
+		if m2.toast == nil || !strings.Contains(m2.toast.msg, "/repo/main") {
+			t.Errorf("toast = %v, want yank toast", m2.toast)
+		}
+		if cmd == nil {
+			t.Error("expected yank command")
+		}
+	})
+
+	t.Run("y view contains OSC-52 sequence", func(t *testing.T) {
+		m := uiModel{rows: rows2, cursor: 0, yankPath: "/repo/main"}
+		view := m.View()
+		if !strings.Contains(view, "\x1b]52;c;") {
+			t.Error("view missing OSC-52 escape sequence")
+		}
+		// Verify base64 content
+		encoded := base64.StdEncoding.EncodeToString([]byte("/repo/main"))
+		if !strings.Contains(view, encoded) {
+			t.Errorf("view missing base64 encoded path %q", encoded)
+		}
+	})
+
+	t.Run("yankClearMsg clears yankPath", func(t *testing.T) {
+		m := uiModel{yankPath: "/some/path"}
+		updated, _ := m.Update(uiYankClearMsg{})
+		m2 := updated.(uiModel)
+		if m2.yankPath != "" {
+			t.Errorf("yankPath = %q, want empty after clear", m2.yankPath)
+		}
+	})
+
+	t.Run("? enters help mode", func(t *testing.T) {
+		m := uiModel{}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeHelp {
+			t.Errorf("mode = %v, want uiModeHelp", m2.mode)
+		}
+		if cmd != nil {
+			t.Error("? should not dispatch a command")
+		}
+	})
+
+	t.Run("any key dismisses help overlay", func(t *testing.T) {
+		m := uiModel{mode: uiModeHelp}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal after dismiss", m2.mode)
+		}
+	})
+
+	t.Run("help view contains key bindings", func(t *testing.T) {
+		m := uiModel{mode: uiModeHelp}
+		view := m.View()
+		for _, want := range []string{"Enter", "Sync", "Yank", "Remove", "Prune", "dismiss"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("help view missing %q", want)
+			}
 		}
 	})
 }

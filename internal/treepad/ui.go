@@ -3,6 +3,7 @@ package treepad
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"text/tabwriter"
@@ -11,6 +12,9 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"treepad/internal/artifact"
+	"treepad/internal/config"
 )
 
 var (
@@ -41,6 +45,11 @@ type (
 	uiPruneDoneMsg struct {
 		err error
 	}
+	uiOpenDoneMsg struct {
+		path string
+		err  error
+	}
+	uiYankClearMsg struct{}
 )
 
 // uiMode tracks whether the confirm modal is active.
@@ -50,6 +59,7 @@ const (
 	uiModeNormal        uiMode = iota
 	uiModeConfirmRemove        // r pressed — awaiting y/cancel
 	uiModeConfirmPrune         // p pressed — awaiting y/cancel
+	uiModeHelp                 // ? pressed — any key dismisses
 )
 
 // uiToast holds a transient message shown below the table.
@@ -75,6 +85,7 @@ type uiModel struct {
 	spinner        spinner.Model
 	mode           uiMode
 	confirmBranch  string // branch name shown in the remove confirm modal
+	yankPath       string // emits OSC-52 in View() then cleared on next cycle
 }
 
 func (m uiModel) Init() tea.Cmd {
@@ -145,6 +156,18 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = nil
 		}
 
+	case uiOpenDoneMsg:
+		m.actionInFlight = false
+		if msg.err != nil {
+			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
+			return m, nil
+		}
+		m.toast = &uiToast{msg: fmt.Sprintf("✓ opened %s", msg.path)}
+		return m, m.doToastTimer()
+
+	case uiYankClearMsg:
+		m.yankPath = ""
+
 	case uiRemoveDoneMsg:
 		m.actionInFlight = false
 		if msg.err != nil {
@@ -167,6 +190,12 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Dismiss sticky error toast on first key press.
 		if m.toast != nil && m.toast.isErr {
 			m.toast = nil
+			return m, nil
+		}
+
+		// Help overlay: any key dismisses.
+		if m.mode == uiModeHelp {
+			m.mode = uiModeNormal
 			return m, nil
 		}
 
@@ -218,6 +247,22 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = uiModeConfirmPrune
 				return m, nil
 			}
+		case "o":
+			if !m.actionInFlight && len(m.rows) > 0 {
+				m.actionInFlight = true
+				m.toast = nil
+				return m, m.doOpen(m.rows[m.cursor])
+			}
+		case "y":
+			if len(m.rows) > 0 {
+				path := m.rows[m.cursor].Path
+				m.yankPath = path
+				m.toast = &uiToast{msg: "📋 yanked " + path}
+				return m, tea.Batch(m.doToastTimer(), func() tea.Msg { return uiYankClearMsg{} })
+			}
+		case "?":
+			m.mode = uiModeHelp
+			return m, nil
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -261,6 +306,30 @@ func (m uiModel) doPrune() tea.Cmd {
 	}
 }
 
+func (m uiModel) doOpen(row StatusRow) tea.Cmd {
+	return func() tea.Msg {
+		rc, err := loadRepoContext(m.ctx, m.d, m.in.OutputDir)
+		if err != nil {
+			return uiOpenDoneMsg{err: err}
+		}
+		cfg, err := config.Load(rc.Main.Path)
+		if err != nil {
+			return uiOpenDoneMsg{err: err}
+		}
+		openPath := row.Path
+		if row.ArtifactPath != "" {
+			openPath = row.ArtifactPath
+		}
+		spec := artifact.OpenSpec{Command: cfg.Open.Command}
+		data := artifact.OpenData{
+			ArtifactPath: openPath,
+			Worktree:     artifact.ToWorktree(row.Branch, row.Path, m.in.OutputDir),
+		}
+		err = m.d.Opener.Open(m.ctx, spec, data)
+		return uiOpenDoneMsg{path: openPath, err: err}
+	}
+}
+
 func (m uiModel) doSync(branch string) tea.Cmd {
 	return func() tea.Msg {
 		err := Generate(m.ctx, m.d, GenerateInput{Branch: branch, OutputDir: m.in.OutputDir})
@@ -284,7 +353,13 @@ func (m uiModel) doToastTimer() tea.Cmd {
 func (m uiModel) View() string {
 	var sb strings.Builder
 
-	header := "tp ui  ·  " + time.Now().Format("15:04:05") + "  ·  q quit  ·  ↓j / ↑k  ·  s sync  ·  S sync fleet"
+	// OSC-52: write clipboard sequence before anything visual; cleared next cycle.
+	if m.yankPath != "" {
+		encoded := base64.StdEncoding.EncodeToString([]byte(m.yankPath))
+		fmt.Fprintf(&sb, "\x1b]52;c;%s\x07", encoded)
+	}
+
+	header := "tp ui  ·  " + time.Now().Format("15:04:05") + "  ·  q quit  ·  ? help  ·  ↓j / ↑k  ·  s sync  ·  S sync fleet"
 	if m.actionInFlight && m.syncBranch == "" {
 		header += "  " + m.spinner.View()
 	}
@@ -328,7 +403,11 @@ func (m uiModel) View() string {
 		fmt.Fprintf(&sb, "\nerror: %v\n", m.err)
 	}
 
-	if m.mode != uiModeNormal {
+	if m.mode == uiModeHelp {
+		sb.WriteString("\n")
+		sb.WriteString(uiRenderHelp())
+		sb.WriteString("\n")
+	} else if m.mode != uiModeNormal {
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderModal(m))
 		sb.WriteString("\n")
@@ -404,6 +483,23 @@ func uiBuildTableLines(rows []StatusRow) []string {
 var uiModalStyle = lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
 	Padding(0, 2)
+
+func uiRenderHelp() string {
+	body := "Key Bindings\n\n" +
+		"↑ / k       Move cursor up\n" +
+		"↓ / j       Move cursor down\n" +
+		"Enter       cd into selected worktree\n" +
+		"s           Sync selected worktree (config + artifact)\n" +
+		"S           Sync all worktrees\n" +
+		"o           Open artifact for selected worktree\n" +
+		"y           Yank path of selected worktree (OSC-52)\n" +
+		"r           Remove selected worktree (with confirmation)\n" +
+		"p           Prune merged worktrees (with confirmation)\n" +
+		"?           Show this help\n" +
+		"q / Ctrl-C  Quit\n\n" +
+		"Press any key to dismiss"
+	return uiModalStyle.Render(body)
+}
 
 func uiRenderModal(m uiModel) string {
 	var title, detail string
