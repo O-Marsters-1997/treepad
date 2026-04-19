@@ -34,6 +34,22 @@ type (
 		branch string // empty = fleet sync
 		err    error
 	}
+	uiRemoveDoneMsg struct {
+		branch string
+		err    error
+	}
+	uiPruneDoneMsg struct {
+		err error
+	}
+)
+
+// uiMode tracks whether the confirm modal is active.
+type uiMode int
+
+const (
+	uiModeNormal        uiMode = iota
+	uiModeConfirmRemove        // r pressed — awaiting y/cancel
+	uiModeConfirmPrune         // p pressed — awaiting y/cancel
 )
 
 // uiToast holds a transient message shown below the table.
@@ -57,6 +73,8 @@ type uiModel struct {
 	syncBranch     string // branch being synced; empty = fleet sync
 	toast          *uiToast
 	spinner        spinner.Model
+	mode           uiMode
+	confirmBranch  string // branch name shown in the remove confirm modal
 }
 
 func (m uiModel) Init() tea.Cmd {
@@ -127,12 +145,45 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = nil
 		}
 
+	case uiRemoveDoneMsg:
+		m.actionInFlight = false
+		if msg.err != nil {
+			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
+			return m, nil
+		}
+		m.toast = &uiToast{msg: fmt.Sprintf("✓ removed %s", msg.branch)}
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
+
+	case uiPruneDoneMsg:
+		m.actionInFlight = false
+		if msg.err != nil {
+			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
+			return m, nil
+		}
+		m.toast = &uiToast{msg: "✓ pruned merged worktrees"}
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
+
 	case tea.KeyMsg:
 		// Dismiss sticky error toast on first key press.
 		if m.toast != nil && m.toast.isErr {
 			m.toast = nil
 			return m, nil
 		}
+
+		// Confirm modal intercepts all keys except q/ctrl+c.
+		if m.mode != uiModeNormal {
+			switch msg.String() {
+			case "q", "ctrl+c":
+				return m, tea.Quit
+			case "y":
+				return m.handleConfirm()
+			default:
+				m.mode = uiModeNormal
+				m.confirmBranch = ""
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -156,6 +207,17 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.toast = nil
 				return m, tea.Batch(m.doSyncFleet(), m.spinner.Tick)
 			}
+		case "r":
+			if !m.actionInFlight && len(m.rows) > 0 {
+				m.mode = uiModeConfirmRemove
+				m.confirmBranch = m.rows[m.cursor].Branch
+				return m, nil
+			}
+		case "p":
+			if !m.actionInFlight {
+				m.mode = uiModeConfirmPrune
+				return m, nil
+			}
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -167,6 +229,37 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
+	switch m.mode {
+	case uiModeConfirmRemove:
+		branch := m.confirmBranch
+		m.mode = uiModeNormal
+		m.confirmBranch = ""
+		m.actionInFlight = true
+		return m, tea.Batch(m.doRemove(branch), m.spinner.Tick)
+	case uiModeConfirmPrune:
+		m.mode = uiModeNormal
+		m.actionInFlight = true
+		return m, tea.Batch(m.doPrune(), m.spinner.Tick)
+	case uiModeNormal:
+	}
+	return m, nil
+}
+
+func (m uiModel) doRemove(branch string) tea.Cmd {
+	return func() tea.Msg {
+		err := Remove(m.ctx, m.d, RemoveInput{Branch: branch, OutputDir: m.in.OutputDir})
+		return uiRemoveDoneMsg{branch: branch, err: err}
+	}
+}
+
+func (m uiModel) doPrune() tea.Cmd {
+	return func() tea.Msg {
+		err := Prune(m.ctx, m.d, PruneInput{Yes: true, Base: "main", OutputDir: m.in.OutputDir})
+		return uiPruneDoneMsg{err: err}
+	}
 }
 
 func (m uiModel) doSync(branch string) tea.Cmd {
@@ -236,6 +329,12 @@ func (m uiModel) View() string {
 		fmt.Fprintf(&sb, "\nerror: %v\n", m.err)
 	}
 
+	if m.mode != uiModeNormal {
+		sb.WriteString("\n")
+		sb.WriteString(uiRenderModal(m))
+		sb.WriteString("\n")
+	}
+
 	if m.toast != nil {
 		if m.toast.isErr {
 			fmt.Fprintf(&sb, "\n%s  (press any key to dismiss)\n", uiToastErrStyle.Render("✗ "+m.toast.msg))
@@ -303,6 +402,25 @@ func uiBuildTableLines(rows []StatusRow) []string {
 	return strings.Split(raw, "\n")
 }
 
+var uiModalStyle = lipgloss.NewStyle().
+	Border(lipgloss.RoundedBorder()).
+	Padding(0, 2)
+
+func uiRenderModal(m uiModel) string {
+	var title, detail string
+	switch m.mode {
+	case uiModeConfirmRemove:
+		title = fmt.Sprintf("Remove worktree: %s", m.confirmBranch)
+		detail = "This will permanently delete the worktree and its branch."
+	case uiModeConfirmPrune:
+		title = "Prune merged worktrees"
+		detail = "All worktrees whose branches are merged into main will be removed."
+	case uiModeNormal:
+	}
+	body := fmt.Sprintf("%s\n%s\n\n[y] confirm  ·  [any other key] cancel", title, detail)
+	return uiModalStyle.Render(body)
+}
+
 func uiHasPrunable(rows []StatusRow) bool {
 	for _, r := range rows {
 		if r.Prunable {
@@ -336,5 +454,5 @@ func UI(ctx context.Context, d Deps, in StatusInput) error {
 // human-readable fallback line so users without the wrapper see where they'd land.
 func uiEmitCD(d Deps, path string) {
 	emitCD(d, path)
-	fmt.Fprintf(d.Out, "→ cd: %s\n", path)
+	_, _ = fmt.Fprintf(d.Out, "→ cd: %s\n", path)
 }
