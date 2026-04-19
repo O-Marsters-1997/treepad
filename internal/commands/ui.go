@@ -50,4 +50,3 @@ func runUI(ctx context.Context, cmd *cli.Command) error {
 	}
 	return nil
 }
-

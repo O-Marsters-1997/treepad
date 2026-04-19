@@ -88,7 +88,7 @@ type uiModel struct {
 	yankPath       string // emits OSC-52 in View() then cleared on next cycle
 
 	// Injectable behaviour. Nil means the feature is disabled; see UI() for
-	// production defaults and ui_script_e2e.go for the e2e overrides.
+	// production defaults and NewHeadlessUI for the headless/e2e overrides.
 	tickCmd       func() tea.Cmd // auto-refresh tick; nil → no tick
 	toastTimerCmd func() tea.Cmd // toast-expiry timer; nil → toasts persist
 	headerClock   func() string  // header timestamp; nil → time.Now()
@@ -636,4 +636,3 @@ func IsDrainDiscardable(msg tea.Msg) bool {
 	}
 	return false
 }
-

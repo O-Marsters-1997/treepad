@@ -9,22 +9,39 @@ import (
 	"testing"
 
 	"github.com/rogpeppe/go-internal/testscript"
-
-	"treepad/internal/app"
-	_ "treepad/e2e/register"
 )
 
+// tpBinDir holds the directory containing the e2e-built tp binary.
+// Populated by TestMain so every TestScripts subprocess can find it on PATH.
+var tpBinDir string
+
 func TestMain(m *testing.M) {
-	testscript.Main(m, map[string]func(){
-		"tp": func() { os.Exit(app.Run(os.Args, os.Stdout, os.Stderr)) },
-	})
+	dir, err := os.MkdirTemp("", "tp-e2e-bin-*")
+	if err != nil {
+		panic("create tp bin dir: " + err.Error())
+	}
+	defer os.RemoveAll(dir)
+
+	build := exec.Command("go", "build", "-tags=e2e", "-o", filepath.Join(dir, "tp"), "./cmd/tp")
+	build.Dir = ".."
+	build.Stderr = os.Stderr
+	build.Stdout = os.Stderr
+	if err := build.Run(); err != nil {
+		panic("build tp -tags=e2e: " + err.Error())
+	}
+	tpBinDir = dir
+
+	os.Exit(m.Run())
 }
 
 func TestScripts(t *testing.T) {
 	testscript.Run(t, testscript.Params{
 		Dir: "tests",
 		Setup: func(env *testscript.Env) error {
-			env.Vars = append(env.Vars, "HOME="+env.WorkDir)
+			env.Vars = append(env.Vars,
+				"HOME="+env.WorkDir,
+				"PATH="+tpBinDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+			)
 			return nil
 		},
 		Cmds: map[string]func(*testscript.TestScript, bool, []string){
