@@ -31,15 +31,16 @@ type (
 )
 
 type uiModel struct {
-	ctx     context.Context
-	d       Deps
-	in      StatusInput
-	rows    []StatusRow
-	cursor  int
-	width   int
-	height  int
-	loading bool
-	err     error
+	ctx          context.Context
+	d            Deps
+	in           StatusInput
+	rows         []StatusRow
+	cursor       int
+	width        int
+	height       int
+	loading      bool
+	err          error
+	selectedPath string
 }
 
 func (m uiModel) Init() tea.Cmd {
@@ -81,6 +82,11 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "enter":
+			if len(m.rows) > 0 {
+				m.selectedPath = m.rows[m.cursor].Path
+				return m, tea.Quit
+			}
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -203,6 +209,20 @@ func UI(ctx context.Context, d Deps, in StatusInput) error {
 	}
 	m := uiModel{ctx: ctx, d: d, in: in, loading: true}
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
-	_, err := p.Run()
-	return err
+	final, err := p.Run()
+	if err != nil {
+		return err
+	}
+	// After alt-screen tears down, emit cd sentinel if Enter was pressed.
+	if fm, ok := final.(uiModel); ok && fm.selectedPath != "" {
+		uiEmitCD(d, fm.selectedPath)
+	}
+	return nil
+}
+
+// uiEmitCD writes the cd sentinel (consumed by the shell wrapper) and a
+// human-readable fallback line so users without the wrapper see where they'd land.
+func uiEmitCD(d Deps, path string) {
+	emitCD(d, path)
+	fmt.Fprintf(d.Out, "→ cd: %s\n", path)
 }

@@ -171,4 +171,65 @@ func TestUIModel(t *testing.T) {
 			t.Errorf("view missing 'loading': %s", view)
 		}
 	})
+
+	t.Run("enter sets selectedPath and quits", func(t *testing.T) {
+		m := uiModel{
+			rows:   []StatusRow{{Branch: "main", Path: "/repo/main"}},
+			cursor: 0,
+		}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m2 := updated.(uiModel)
+		if m2.selectedPath != "/repo/main" {
+			t.Errorf("selectedPath = %q, want %q", m2.selectedPath, "/repo/main")
+		}
+		if cmd == nil {
+			t.Fatal("expected quit command after enter")
+		}
+		msg := cmd()
+		if _, ok := msg.(tea.QuitMsg); !ok {
+			t.Errorf("got msg %T, want QuitMsg", msg)
+		}
+	})
+
+	t.Run("enter with no rows does not set selectedPath", func(t *testing.T) {
+		m := uiModel{}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m2 := updated.(uiModel)
+		if m2.selectedPath != "" {
+			t.Errorf("selectedPath = %q, want empty on no rows", m2.selectedPath)
+		}
+	})
+
+	t.Run("q quit does not set selectedPath", func(t *testing.T) {
+		m := uiModel{rows: rows2, cursor: 0}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+		m2 := updated.(uiModel)
+		if m2.selectedPath != "" {
+			t.Errorf("q should not set selectedPath, got %q", m2.selectedPath)
+		}
+	})
+}
+
+func TestUIEmitCD(t *testing.T) {
+	t.Run("emits sentinel and human line", func(t *testing.T) {
+		var buf strings.Builder
+		deps := testDeps(&fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+
+		uiEmitCD(deps, "/some/path")
+
+		out := buf.String()
+		if !strings.Contains(out, "__TREEPAD_CD__\t/some/path") {
+			t.Errorf("missing sentinel in %q", out)
+		}
+		if !strings.Contains(out, "→ cd: /some/path") {
+			t.Errorf("missing human line in %q", out)
+		}
+		// Sentinel must come before human line
+		sentinelIdx := strings.Index(out, "__TREEPAD_CD__")
+		humanIdx := strings.Index(out, "→ cd:")
+		if sentinelIdx > humanIdx {
+			t.Error("sentinel must appear before human line")
+		}
+	})
 }
