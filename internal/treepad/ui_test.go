@@ -329,6 +329,158 @@ func TestUISync(t *testing.T) {
 	})
 }
 
+func TestUIDestructive(t *testing.T) {
+	rows2 := []StatusRow{
+		{Branch: "main", IsMain: true, Path: "/repo/main"},
+		{Branch: "feat", Path: "/repo/feat"},
+	}
+
+	t.Run("r enters confirmRemove mode with branch name", func(t *testing.T) {
+		m := uiModel{rows: rows2, cursor: 1}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeConfirmRemove {
+			t.Errorf("mode = %v, want uiModeConfirmRemove", m2.mode)
+		}
+		if m2.confirmBranch != "feat" {
+			t.Errorf("confirmBranch = %q, want %q", m2.confirmBranch, "feat")
+		}
+		if cmd != nil {
+			t.Error("r should not dispatch a command immediately")
+		}
+	})
+
+	t.Run("y in confirmRemove dispatches Remove and returns to normal mode", func(t *testing.T) {
+		m := uiModel{
+			rows:          rows2,
+			cursor:        1,
+			mode:          uiModeConfirmRemove,
+			confirmBranch: "feat",
+		}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal after confirm", m2.mode)
+		}
+		if !m2.actionInFlight {
+			t.Error("actionInFlight should be true after y confirm")
+		}
+		if cmd == nil {
+			t.Error("expected dispatch command after y confirm")
+		}
+	})
+
+	t.Run("non-y key in confirmRemove cancels and returns to normal", func(t *testing.T) {
+		m := uiModel{
+			mode:          uiModeConfirmRemove,
+			confirmBranch: "feat",
+		}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal after cancel", m2.mode)
+		}
+		if m2.confirmBranch != "" {
+			t.Errorf("confirmBranch = %q, want empty after cancel", m2.confirmBranch)
+		}
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false after cancel")
+		}
+	})
+
+	t.Run("p enters confirmPrune mode", func(t *testing.T) {
+		m := uiModel{rows: rows2}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeConfirmPrune {
+			t.Errorf("mode = %v, want uiModeConfirmPrune", m2.mode)
+		}
+		if cmd != nil {
+			t.Error("p should not dispatch immediately")
+		}
+	})
+
+	t.Run("y in confirmPrune dispatches Prune", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmPrune}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want normal", m2.mode)
+		}
+		if !m2.actionInFlight {
+			t.Error("actionInFlight should be true after prune confirm")
+		}
+		if cmd == nil {
+			t.Error("expected dispatch command")
+		}
+	})
+
+	t.Run("non-y key in confirmPrune cancels", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmPrune}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want normal", m2.mode)
+		}
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false after cancel")
+		}
+	})
+
+	t.Run("cursor cannot move while modal is open", func(t *testing.T) {
+		m := uiModel{rows: rows2, cursor: 0, mode: uiModeConfirmRemove, confirmBranch: "feat"}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m2 := updated.(uiModel)
+		if m2.cursor != 0 {
+			t.Error("cursor should not move while modal is open")
+		}
+		// The modal should be cancelled by the non-y key
+		if m2.mode != uiModeNormal {
+			t.Error("modal should cancel on non-y key")
+		}
+	})
+
+	t.Run("remove success shows toast and triggers refresh", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, cmd := m.Update(uiRemoveDoneMsg{branch: "feat", err: nil})
+		m2 := updated.(uiModel)
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false")
+		}
+		if m2.toast == nil {
+			t.Fatal("expected toast")
+		}
+		if !strings.Contains(m2.toast.msg, "feat") {
+			t.Errorf("toast = %q, want containing branch", m2.toast.msg)
+		}
+		if cmd == nil {
+			t.Error("expected refresh command")
+		}
+	})
+
+	t.Run("prune success shows toast", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, _ := m.Update(uiPruneDoneMsg{err: nil})
+		m2 := updated.(uiModel)
+		if m2.toast == nil {
+			t.Fatal("expected toast")
+		}
+		if !strings.Contains(m2.toast.msg, "prune") {
+			t.Errorf("toast = %q, want containing 'prune'", m2.toast.msg)
+		}
+	})
+
+	t.Run("view renders modal when in confirm mode", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmRemove, confirmBranch: "feat/my-branch"}
+		view := m.View()
+		for _, want := range []string{"feat/my-branch", "confirm", "cancel"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("modal view missing %q", want)
+			}
+		}
+	})
+}
+
 func TestUIEmitCD(t *testing.T) {
 	t.Run("emits sentinel and human line", func(t *testing.T) {
 		var buf strings.Builder
