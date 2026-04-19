@@ -278,6 +278,8 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
 	switch m.mode {
+	case uiModeNormal, uiModeHelp:
+		return m, nil
 	case uiModeConfirmRemove:
 		branch := m.confirmBranch
 		m.mode = uiModeNormal
@@ -504,6 +506,8 @@ func uiRenderHelp() string {
 func uiRenderModal(m uiModel) string {
 	var title, detail string
 	switch m.mode {
+	case uiModeNormal, uiModeHelp:
+		return ""
 	case uiModeConfirmRemove:
 		title = fmt.Sprintf("Remove worktree: %s", m.confirmBranch)
 		detail = "This will permanently delete the worktree and its branch."
@@ -548,5 +552,5 @@ func UI(ctx context.Context, d Deps, in StatusInput) error {
 // human-readable fallback line so users without the wrapper see where they'd land.
 func uiEmitCD(d Deps, path string) {
 	emitCD(d, path)
-	fmt.Fprintf(d.Out, "→ cd: %s\n", path)
+	_, _ = fmt.Fprintf(d.Out, "→ cd: %s\n", path)
 }

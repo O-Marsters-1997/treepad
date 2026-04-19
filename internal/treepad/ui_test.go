@@ -340,9 +340,9 @@ func TestUIPolish(t *testing.T) {
 		opener := &fakeOpener{}
 		deps := testDeps(&fakeRunner{}, &fakeSyncer{}, opener)
 		m := uiModel{
-			ctx:  context.Background(),
-			d:    deps,
-			rows: rows2,
+			ctx:    context.Background(),
+			d:      deps,
+			rows:   rows2,
 			cursor: 0,
 		}
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
