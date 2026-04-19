@@ -1,0 +1,4 @@
+tp-init-repo
+exec tp ui --script=y,q
+stdout '\x1b\]52;c;'
+stdout '📋 yanked'

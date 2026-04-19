@@ -475,7 +475,6 @@ Provides a repo-wide snapshot of all active worktrees, showing which ones have u
 | Flag | Description |
 |------|-------------|
 | `--json` | Emit JSON array instead of an aligned table |
-| `--watch` | Live-refresh every 2s (requires a TTY; mutually exclusive with `--json`) |
 
 ### Output Columns (Table Format)
 
@@ -497,23 +496,10 @@ tp status
 # Emit JSON for scripting or dashboards
 tp status --json
 
-# Live-monitor all worktrees with 2s refresh
-tp status --watch
-
 # Combine with standard tools
 tp status | grep dirty
 tp status --json | jq '.[] | select(.dirty == true)'
 ```
-
-### Watch Mode
-
-The `--watch` flag renders a live-updating terminal display that refreshes every 2 seconds, providing real-time visibility into worktree state across your fleet. Useful when running multiple Claude Code instances or monitoring long-running tasks.
-
-- Requires a TTY (terminal); returns error if piped or redirected
-- Mutually exclusive with `--json` flag
-- Press Ctrl-C to exit
-- Displays timestamp of last refresh and "Ctrl-C to exit" prompt
-- Gracefully restores terminal on exit (cursor visibility, screen mode)
 
 ### Output Examples
 
@@ -549,18 +535,38 @@ task/remove-guards       clean   ↑0 ↓6         8305b88 add pre-flight guards
 ]
 ```
 
-**Watch mode output (`--watch`):**
+## ui
+
+Open an interactive live fleet view in the terminal using a BubbleTea TUI. Requires a TTY; exits with code 2 if stdout is not a terminal.
 
 ```
-tp status --watch · every 2s · 2026-04-18 10:45:32 · Ctrl-C to exit
-
-BRANCH                   STATUS  AHEAD/BEHIND  LAST COMMIT                            TOUCHED  PATH
-main *                   dirty   ↑0 ↓0         ea69222 Merge PR #33 · 1h             1d       ~/treepad
-feat/status              clean   —             ea69222 Merge PR #33 · 1h             18m      ~/treepad-feat-status
-task/remove-guards       clean   ↑0 ↓6         8305b88 add pre-flight guards · 6h    —        ~/treepad-remove-guards
+tp ui
 ```
 
-(Screen refreshes automatically every 2 seconds; press Ctrl-C to exit)
+Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Shows the same worktree data as `tp status` plus a cursor for navigation and inline actions. When you navigate to a worktree and press Enter, `tp ui` exits and cd's your shell into that directory (requires shell integration).
+
+### Key Bindings
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` | Move cursor up |
+| `↓` / `j` | Move cursor down |
+| `Enter` | Exit and cd into selected worktree |
+| `s` | Sync selected worktree configs |
+| `S` | Sync all worktrees (fleet sync) |
+| `o` | Open artifact file for selected worktree |
+| `y` | Yank (copy) path to clipboard via OSC-52 |
+| `r` | Remove selected worktree (prompts for confirmation) |
+| `p` | Prune merged worktrees (prompts for confirmation) |
+| `?` | Toggle key binding help overlay |
+| `q` / `Ctrl-C` | Quit without cd |
+
+### Notes
+
+- Requires `eval "$(tp shell-init)"` for `Enter`→cd to take effect in the shell
+- `r` and `p` show an inline confirmation prompt; any key other than `y` cancels
+- While a sync, remove, or prune action is in flight the cursor is locked and a spinner is shown; auto-refresh is paused until the action completes
+- `y` writes the path to the system clipboard via the OSC-52 terminal escape sequence; supported by most modern terminal emulators
 
 ## diff
 
