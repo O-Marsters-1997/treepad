@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"treepad/internal/config"
 )
 
 func TestResolveSpec(t *testing.T) {
@@ -232,7 +234,7 @@ prompt_template = "branch={{.Branch}} spec={{.Spec}}"
 agent_command = []
 `
 
-	t.Run("file source creates worktree, writes PROMPT.md, and calls agent", func(t *testing.T) {
+	t.Run("file source creates worktree, renders prompt to temp, and calls agent", func(t *testing.T) {
 		specFile := filepath.Join(t.TempDir(), "spec.md")
 		if err := os.WriteFile(specFile, []byte(specBody), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
@@ -274,17 +276,60 @@ agent_command = ["echo", "{{.PromptPath}}"]
 			t.Errorf("agent name = %q, want echo", pt.calls[0].name)
 		}
 
-		// Verify PROMPT.md was written with rendered content.
-		promptPath := filepath.Join(pt.calls[0].dir, "PROMPT.md")
+		// Prompt must be in a temp file (not in the worktree).
+		if len(pt.calls[0].args) != 1 {
+			t.Fatalf("expected 1 arg to agent, got %d", len(pt.calls[0].args))
+		}
+		promptPath := pt.calls[0].args[0]
+		if strings.HasPrefix(promptPath, pt.calls[0].dir) {
+			t.Errorf("prompt file %q must not be inside the worktree %q", promptPath, pt.calls[0].dir)
+		}
 		content, err := os.ReadFile(promptPath)
 		if err != nil {
-			t.Fatalf("read PROMPT.md: %v", err)
+			t.Fatalf("read temp prompt: %v", err)
 		}
 		if !strings.Contains(string(content), specBody) {
-			t.Errorf("PROMPT.md does not contain spec body; got: %s", content)
+			t.Errorf("temp prompt does not contain spec body; got: %s", content)
 		}
 		if !strings.Contains(string(content), "feat/oauth") {
-			t.Errorf("PROMPT.md does not contain branch; got: %s", content)
+			t.Errorf("temp prompt does not contain branch; got: %s", content)
+		}
+
+		// Verify no PROMPT.md was written into the worktree.
+		if _, statErr := os.Stat(filepath.Join(pt.calls[0].dir, "PROMPT.md")); statErr == nil {
+			t.Error("PROMPT.md should not exist in the worktree")
+		}
+	})
+
+	t.Run("uses existing PROMPT.md from worktree without rendering template", func(t *testing.T) {
+		wt := t.TempDir()
+		existingContent := "my custom prompt"
+		promptFilePath := filepath.Join(wt, "PROMPT.md")
+		if err := os.WriteFile(promptFilePath, []byte(existingContent), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		res := createWorktreeResult{
+			WorktreePath: wt,
+			RC:           repoContext{Slug: "treepad"},
+			Cfg: config.Config{
+				FromSpec: config.FromSpecConfig{
+					PromptFilename: "PROMPT.md",
+					PromptTemplate: "should not be used: {{.Spec}}",
+				},
+			},
+		}
+		deps := testDeps(&seqRunner{}, &fakeSyncer{}, &fakeOpener{})
+
+		path, rendered, err := resolvePrompt(deps, res, "feat/test", specBody)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if path != promptFilePath {
+			t.Errorf("path = %q, want %q", path, promptFilePath)
+		}
+		if rendered != existingContent {
+			t.Errorf("rendered = %q, want existing file content %q", rendered, existingContent)
 		}
 	})
 

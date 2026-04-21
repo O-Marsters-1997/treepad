@@ -37,7 +37,7 @@ type promptData struct {
 }
 
 // FromSpec creates a worktree seeded from a spec (GitHub issue or local file),
-// renders a prompt into it, and hands off to a configured agent.
+// resolves a prompt (existing file or rendered template), and hands off to a configured agent.
 // Returns the agent's exit code (0 when no agent_command is configured).
 func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 	spec, err := resolveSpec(ctx, d, in.Issue, in.File)
@@ -50,7 +50,7 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 		return 0, err
 	}
 
-	promptPath, rendered, err := renderAndWritePrompt(d, res, in.Branch, spec)
+	promptPath, rendered, err := resolvePrompt(d, res, in.Branch, spec)
 	if err != nil {
 		return 0, err
 	}
@@ -75,18 +75,16 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 }
 
 // renderAndWritePrompt renders the configured prompt template and writes it into
-// the worktree. Returns the absolute path of the written file and the rendered body.
+// the worktree. Used by bulk mode where the written file is the deliverable.
 func renderAndWritePrompt(d Deps, res createWorktreeResult, branch, spec string) (path, rendered string, err error) {
 	if res.Cfg.FromSpec.PromptTemplate == "" {
 		return "", "", errors.New("from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default")
 	}
-
 	filename := res.Cfg.FromSpec.PromptFilename
 	if filename == "" {
 		filename = "PROMPT.md"
 	}
 	promptPath := filepath.Join(res.WorktreePath, filename)
-
 	data := promptData{
 		Spec:         spec,
 		Skills:       res.Cfg.FromSpec.Skills,
@@ -107,6 +105,52 @@ func renderAndWritePrompt(d Deps, res createWorktreeResult, branch, spec string)
 	}
 	d.Log.OK("wrote prompt to %s", promptPath)
 	return promptPath, body, nil
+}
+
+// resolvePrompt returns the prompt path and body to pass to the agent.
+// If a prompt file already exists in the worktree it is used as-is (not overwritten).
+// Otherwise the configured template is rendered and written to a temp file outside
+// the worktree so the working tree stays clean.
+func resolvePrompt(d Deps, res createWorktreeResult, branch, spec string) (path, rendered string, err error) {
+	filename := res.Cfg.FromSpec.PromptFilename
+	if filename == "" {
+		filename = "PROMPT.md"
+	}
+	worktreePromptPath := filepath.Join(res.WorktreePath, filename)
+
+	if existing, readErr := os.ReadFile(worktreePromptPath); readErr == nil {
+		d.Log.Info("using existing prompt at %s", worktreePromptPath)
+		return worktreePromptPath, string(existing), nil
+	}
+
+	if res.Cfg.FromSpec.PromptTemplate == "" {
+		return "", "", errors.New("from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default")
+	}
+
+	data := promptData{
+		Spec:         spec,
+		Skills:       res.Cfg.FromSpec.Skills,
+		Branch:       branch,
+		Slug:         res.RC.Slug,
+		WorktreePath: res.WorktreePath,
+		PromptPath:   worktreePromptPath,
+	}
+	body, err := renderPrompt(res.Cfg.FromSpec.PromptTemplate, data)
+	if err != nil {
+		return "", "", err
+	}
+
+	f, err := os.CreateTemp("", "treepad-prompt-*.md")
+	if err != nil {
+		return "", "", fmt.Errorf("create temp prompt: %w", err)
+	}
+	if _, werr := f.WriteString(body); werr != nil {
+		_ = f.Close()
+		return "", "", fmt.Errorf("write temp prompt: %w", werr)
+	}
+	_ = f.Close()
+	d.Log.Info("rendered prompt to %s", f.Name())
+	return f.Name(), body, nil
 }
 
 // resolveSpec returns the raw spec body from either a GitHub issue or a local file.
