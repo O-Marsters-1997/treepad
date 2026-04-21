@@ -8,17 +8,16 @@ import (
 )
 
 // shellFunc is the shell wrapper function users source via `eval "$(tp shell-init)"`.
-// It captures all output from the real tp binary, extracts the __TREEPAD_CD__ directive
-// emitted by `tp new`, cd's into that path, then prints the remaining output.
+// Stdout (fd 1) passes straight to the terminal via fd 4, so tp's output streams
+// in real time and interactive children (e.g. claude) inherit a real TTY.
+// TREEPAD_CD_FD=3 tells tp to write the __TREEPAD_CD__ directive to fd 3, which
+// is redirected into the $(...) capture so only that payload is captured.
 const shellFunc = `tp() {
-  local out rc cd_path
-  out=$(command tp "$@")
-  rc=$?
-  cd_path=$(printf '%s\n' "$out" | awk -F'\t' '/^__TREEPAD_CD__\t/ {print $2; exit}')
-  printf '%s\n' "$out" | grep -v '^__TREEPAD_CD__	' || true
-  [ -n "$cd_path" ] && cd "$cd_path"
+  local cd_path rc
+  cd_path="$(TREEPAD_CD_FD=3 command tp "$@" 3>&1 1>&4)"; rc=$?
+  [ -n "$cd_path" ] && cd -- "$cd_path"
   return $rc
-}`
+} 4>&1`
 
 func shellInitCommand() *cli.Command {
 	return &cli.Command{

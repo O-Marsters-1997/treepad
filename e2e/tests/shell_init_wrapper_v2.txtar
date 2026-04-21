@@ -1,0 +1,4 @@
+exec tp shell-init
+stdout 'TREEPAD_CD_FD=3'
+stdout '3>&1 1>&4'
+! stdout 'out=\$\(command tp'

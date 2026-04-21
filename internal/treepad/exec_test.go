@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,6 +186,44 @@ func TestExec_dispatch(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOsPassthroughRunner_NoTTY_Fallback(t *testing.T) {
+	orig := openTTY
+	defer func() { openTTY = orig }()
+	openTTY = func() *os.File { return nil }
+
+	code, err := osPassthroughRunner{}.Run(context.Background(), t.TempDir(), "true")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+}
+
+func TestOsPassthroughRunner_TTY_ChildInherits(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := openTTY
+	defer func() { openTTY = orig }()
+	openTTY = func() *os.File { return pw }
+
+	code, runErr := osPassthroughRunner{}.Run(context.Background(), t.TempDir(), "echo", "hello")
+	// pw is closed inside Run via defer tty.Close(); ReadAll gets EOF.
+	got, _ := io.ReadAll(pr)
+	_ = pr.Close()
+	if runErr != nil {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if !strings.Contains(string(got), "hello") {
+		t.Errorf("expected child stdout on tty fd; got %q", got)
 	}
 }
 

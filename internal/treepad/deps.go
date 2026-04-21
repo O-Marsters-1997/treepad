@@ -30,6 +30,10 @@ type Deps struct {
 	IsTerminal func(w io.Writer) bool
 	// Sleep returns a channel that receives after d elapses (injectable for tests).
 	Sleep func(d time.Duration) <-chan time.Time
+	// CDSentinel, when non-nil, returns the writer emitCD uses for the
+	// __TREEPAD_CD__ payload instead of the fd-3 probe. Tests set this to a
+	// bytes.Buffer to avoid touching real file descriptors.
+	CDSentinel func() io.Writer
 }
 
 // DefaultDeps wires production implementations. It is the single composition

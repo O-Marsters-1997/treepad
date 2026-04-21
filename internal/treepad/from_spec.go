@@ -64,6 +64,7 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 		PromptPath:   promptPath,
 		Prompt:       rendered,
 	}
+	maybeWarnStaleWrapper(d, len(res.Cfg.FromSpec.AgentCommand) > 0)
 	code, err := runAgent(ctx, d, res.Cfg.FromSpec.AgentCommand, data)
 	if err != nil {
 		return code, err
