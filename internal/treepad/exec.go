@@ -11,6 +11,7 @@ import (
 
 	"treepad/internal/config"
 	tpexec "treepad/internal/exec"
+	"treepad/internal/tty"
 	"treepad/internal/worktree"
 )
 
@@ -21,14 +22,25 @@ type PassthroughRunner interface {
 	Run(ctx context.Context, dir, name string, args ...string) (int, error)
 }
 
+// openTTY is the function used to acquire a controlling terminal for
+// interactive subprocesses. Overridable in tests.
+var openTTY = tty.Open
+
 type osPassthroughRunner struct{}
 
 func (osPassthroughRunner) Run(ctx context.Context, dir, name string, args ...string) (int, error) {
 	cmd := osexec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if tty := openTTY(); tty != nil {
+		defer tty.Close() //nolint:errcheck
+		cmd.Stdin = tty
+		cmd.Stdout = tty
+		cmd.Stderr = tty
+	} else {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Run(); err != nil {
 		var exitErr *osexec.ExitError
 		if errors.As(err, &exitErr) {

@@ -24,9 +24,14 @@ func TestShellInitCommand(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"tp()", "__TREEPAD_CD__"} {
+	for _, want := range []string{"tp()", "TREEPAD_CD_FD=3", "3>&1 1>&4"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("shell-init output missing %q; got:\n%s", want, out)
 		}
+	}
+	// Regression guard: stdout must not be captured by $(...) — that breaks
+	// interactive subprocesses and buffers all output until tp exits.
+	if strings.Contains(out, `out=$(command tp`) {
+		t.Errorf("shell-init output still uses old stdout-capturing pattern; got:\n%s", out)
 	}
 }
