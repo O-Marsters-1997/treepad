@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os/exec"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -48,6 +49,10 @@ type (
 	uiOpenDoneMsg struct {
 		path string
 		err  error
+	}
+	uiDiffDoneMsg struct {
+		branch string
+		err    error
 	}
 	uiYankClearMsg struct{}
 )
@@ -172,6 +177,15 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toast = &uiToast{msg: fmt.Sprintf("✓ opened %s", msg.path)}
 		return m, m.doToastTimer()
 
+	case uiDiffDoneMsg:
+		m.actionInFlight = false
+		if msg.err != nil {
+			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
+			return m, nil
+		}
+		m.toast = &uiToast{msg: fmt.Sprintf("✓ diffed %s", msg.branch)}
+		return m, m.doToastTimer()
+
 	case uiYankClearMsg:
 		m.yankPath = ""
 
@@ -260,6 +274,15 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.toast = nil
 				return m, m.doOpen(m.rows[m.cursor])
 			}
+		case "d":
+			if !m.actionInFlight && len(m.rows) > 0 {
+				row := m.rows[m.cursor]
+				if !row.Prunable {
+					m.actionInFlight = true
+					m.toast = nil
+					return m, m.doDiff(row)
+				}
+			}
 		case "y":
 			if len(m.rows) > 0 {
 				path := m.rows[m.cursor].Path
@@ -337,6 +360,26 @@ func (m uiModel) doOpen(row StatusRow) tea.Cmd {
 		err = m.d.Opener.Open(m.ctx, spec, data)
 		return uiOpenDoneMsg{path: openPath, err: err}
 	}
+}
+
+func (m uiModel) doDiff(row StatusRow) tea.Cmd {
+	var mainPath string
+	for _, r := range m.rows {
+		if r.IsMain {
+			mainPath = r.Path
+			break
+		}
+	}
+	base := "origin/main"
+	if mainPath != "" {
+		if cfg, err := config.Load(mainPath); err == nil {
+			base = cfg.Diff.Base
+		}
+	}
+	cmd := exec.Command("git", "-C", row.Path, "diff", base+"...HEAD")
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return uiDiffDoneMsg{branch: row.Branch, err: err}
+	})
 }
 
 func (m uiModel) doSync(branch string) tea.Cmd {
@@ -506,6 +549,7 @@ func uiRenderHelp() string {
 		"s           Sync selected worktree (config + artifact)\n" +
 		"S           Sync all worktrees\n" +
 		"o           Open artifact for selected worktree\n" +
+		"d           Diff selected worktree against base (default origin/main)\n" +
 		"y           Yank path of selected worktree (OSC-52)\n" +
 		"r           Remove selected worktree (with confirmation)\n" +
 		"p           Prune merged worktrees (with confirmation)\n" +

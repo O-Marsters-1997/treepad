@@ -165,6 +165,40 @@ prompt_template = "spec: {{.Spec}}"
 			t.Error("expected zero FromSpec when section omitted")
 		}
 	})
+
+	t.Run("default diff base is origin/main", func(t *testing.T) {
+		cfg, err := Load(t.TempDir())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Diff.Base != "origin/main" {
+			t.Errorf("Diff.Base = %q, want %q", cfg.Diff.Base, "origin/main")
+		}
+	})
+
+	t.Run("custom diff base is loaded", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), "[diff]\nbase = \"master\"\n")
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Diff.Base != "master" {
+			t.Errorf("Diff.Base = %q, want %q", cfg.Diff.Base, "master")
+		}
+	})
+
+	t.Run("omitting diff section retains origin/main default", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), "[sync]\ninclude = [\"a.txt\"]\n")
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.Diff.Base != "origin/main" {
+			t.Errorf("Diff.Base = %q, want %q", cfg.Diff.Base, "origin/main")
+		}
+	})
 }
 
 func TestDefaultSyncInclude(t *testing.T) {

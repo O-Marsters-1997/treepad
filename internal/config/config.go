@@ -80,6 +80,16 @@ func (o OpenConfig) IsZero() bool {
 	return len(o.Command) == 0
 }
 
+// DiffConfig controls the base ref used by `tp diff` and the `d` TUI binding.
+type DiffConfig struct {
+	Base string `toml:"base"` // default "origin/main"
+}
+
+// IsZero reports whether no diff configuration is present.
+func (d DiffConfig) IsZero() bool {
+	return d.Base == ""
+}
+
 // ExecConfig controls the task runner used by `tp exec`.
 type ExecConfig struct {
 	// Runner overrides auto-detection. Valid values: just, npm, pnpm, yarn, bun,
@@ -121,6 +131,7 @@ type Config struct {
 	Hooks    hook.Config    `toml:"hooks"`
 	Exec     ExecConfig     `toml:"exec"`
 	FromSpec FromSpecConfig `toml:"from_spec"`
+	Diff     DiffConfig     `toml:"diff"`
 }
 
 // GlobalConfigPath returns the path to the global config file.
@@ -185,6 +196,9 @@ func Load(repoRoot string) (Config, error) {
 	if !fileCfg.FromSpec.IsZero() {
 		cfg.FromSpec = fileCfg.FromSpec
 	}
+	if !fileCfg.Diff.IsZero() {
+		cfg.Diff = fileCfg.Diff
+	}
 
 	slog.Debug("loaded .treepad.toml", "dir", repoRoot, "syncInclude", cfg.Sync.Include)
 	return cfg, nil
@@ -198,5 +212,6 @@ func defaults() Config {
 			ContentTemplate:  defaultArtifactContentTemplate,
 		},
 		Open: OpenConfig{Command: []string{"open", "{{.ArtifactPath}}"}},
+		Diff: DiffConfig{Base: "origin/main"},
 	}
 }
