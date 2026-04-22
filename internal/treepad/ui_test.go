@@ -588,6 +588,215 @@ func TestUIDestructive(t *testing.T) {
 	})
 }
 
+func TestUIFilter(t *testing.T) {
+	rows3 := []StatusRow{
+		{Branch: "main", IsMain: true, Path: "/repo/main"},
+		{Branch: "feat/foo-bar", Path: "/repo/foo-bar"},
+		{Branch: "fix/baz", Path: "/repo/baz"},
+	}
+
+	t.Run("slash enters filter mode", func(t *testing.T) {
+		m := uiModel{rows: rows3}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeFilter {
+			t.Errorf("mode = %v, want uiModeFilter", m2.mode)
+		}
+		if m2.filterStr != "" {
+			t.Errorf("filterStr = %q, want empty on mode entry", m2.filterStr)
+		}
+		if cmd != nil {
+			t.Error("/ should not dispatch a command")
+		}
+	})
+
+	t.Run("typing appends to filterStr and narrows visible rows", func(t *testing.T) {
+		m := uiModel{rows: rows3, mode: uiModeFilter}
+		for _, r := range []rune{'f', 'e', 'a', 't'} {
+			updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			m = updated.(uiModel)
+		}
+		if m.filterStr != "feat" {
+			t.Errorf("filterStr = %q, want feat", m.filterStr)
+		}
+		vr := m.visibleRows()
+		if len(vr) != 1 || vr[0].Branch != "feat/foo-bar" {
+			t.Errorf("visibleRows = %v, want [feat/foo-bar]", vr)
+		}
+	})
+
+	t.Run("backspace trims last rune", func(t *testing.T) {
+		m := uiModel{rows: rows3, mode: uiModeFilter, filterStr: "feat"}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m2 := updated.(uiModel)
+		if m2.filterStr != "fea" {
+			t.Errorf("filterStr = %q, want fea after backspace", m2.filterStr)
+		}
+	})
+
+	t.Run("backspace on empty filterStr is a no-op", func(t *testing.T) {
+		m := uiModel{rows: rows3, mode: uiModeFilter, filterStr: ""}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m2 := updated.(uiModel)
+		if m2.filterStr != "" {
+			t.Errorf("filterStr = %q, want empty", m2.filterStr)
+		}
+	})
+
+	t.Run("esc clears filter and exits mode", func(t *testing.T) {
+		m := uiModel{rows: rows3, mode: uiModeFilter, filterStr: "feat"}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal", m2.mode)
+		}
+		if m2.filterStr != "" {
+			t.Errorf("filterStr = %q, want empty after esc", m2.filterStr)
+		}
+		if m2.filterActive {
+			t.Error("filterActive should be false after esc")
+		}
+	})
+
+	t.Run("enter commits non-empty filter", func(t *testing.T) {
+		m := uiModel{rows: rows3, mode: uiModeFilter, filterStr: "feat"}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal", m2.mode)
+		}
+		if !m2.filterActive {
+			t.Error("filterActive should be true after enter with non-empty filterStr")
+		}
+		if m2.filterStr != "feat" {
+			t.Errorf("filterStr = %q, want feat preserved", m2.filterStr)
+		}
+	})
+
+	t.Run("enter with empty filterStr does not activate filter", func(t *testing.T) {
+		m := uiModel{rows: rows3, mode: uiModeFilter, filterStr: ""}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		m2 := updated.(uiModel)
+		if m2.filterActive {
+			t.Error("filterActive should remain false when entering empty query")
+		}
+	})
+
+	t.Run("esc in normal mode clears committed filter", func(t *testing.T) {
+		m := uiModel{rows: rows3, filterStr: "feat", filterActive: true}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		m2 := updated.(uiModel)
+		if m2.filterActive {
+			t.Error("filterActive should be false after esc in normal mode")
+		}
+		if m2.filterStr != "" {
+			t.Errorf("filterStr = %q, want empty", m2.filterStr)
+		}
+	})
+
+	t.Run("action targets filtered row not original index", func(t *testing.T) {
+		deps := testDeps(&fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		m := uiModel{
+			ctx:          context.Background(),
+			d:            deps,
+			rows:         rows3,
+			filterStr:    "baz",
+			filterActive: true,
+			cursor:       0,
+		}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+		m2 := updated.(uiModel)
+		if m2.syncBranch != "fix/baz" {
+			t.Errorf("syncBranch = %q, want fix/baz (filtered row)", m2.syncBranch)
+		}
+	})
+
+	t.Run("refresh preserves filter state", func(t *testing.T) {
+		newRows := []StatusRow{
+			{Branch: "main", Path: "/repo/main"},
+			{Branch: "feat/foo-bar", Path: "/repo/foo-bar"},
+		}
+		m := uiModel{rows: rows3, filterStr: "feat", filterActive: true, cursor: 0}
+		updated, _ := m.Update(uiRefreshMsg{rows: newRows})
+		m2 := updated.(uiModel)
+		if m2.filterStr != "feat" {
+			t.Errorf("filterStr = %q, want feat preserved after refresh", m2.filterStr)
+		}
+		if !m2.filterActive {
+			t.Error("filterActive should remain true after refresh")
+		}
+		vr := m2.visibleRows()
+		if len(vr) != 1 || vr[0].Branch != "feat/foo-bar" {
+			t.Errorf("visibleRows after refresh = %v, want [feat/foo-bar]", vr)
+		}
+	})
+
+	t.Run("cursor clamps when filter narrows rows", func(t *testing.T) {
+		m := uiModel{rows: rows3, mode: uiModeFilter, filterStr: "", cursor: 2}
+		// type a query that narrows to 1 row
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+		m2 := updated.(uiModel)
+		vr := m2.visibleRows()
+		if len(vr) == 0 {
+			t.Fatal("expected at least one visible row for query 'b'")
+		}
+		if m2.cursor >= len(vr) {
+			t.Errorf("cursor = %d is out of bounds for %d visible rows", m2.cursor, len(vr))
+		}
+	})
+
+	t.Run("empty match shows no-matches message in view", func(t *testing.T) {
+		m := uiModel{rows: rows3, filterStr: "zzz", filterActive: true}
+		view := m.View()
+		if !strings.Contains(view, `no matches for "zzz"`) {
+			t.Errorf("view missing no-matches message, got:\n%s", view)
+		}
+	})
+
+	t.Run("footer shows typing indicator in filter mode", func(t *testing.T) {
+		m := uiModel{rows: rows3, mode: uiModeFilter, filterStr: "fe"}
+		view := m.View()
+		if !strings.Contains(view, "/ fe") {
+			t.Errorf("view missing filter prompt, got:\n%s", view)
+		}
+	})
+
+	t.Run("footer shows committed filter with esc hint", func(t *testing.T) {
+		m := uiModel{rows: rows3, filterStr: "feat", filterActive: true}
+		view := m.View()
+		if !strings.Contains(view, "(esc to clear)") {
+			t.Errorf("view missing esc hint, got:\n%s", view)
+		}
+	})
+
+	t.Run("help modal lists filter binding", func(t *testing.T) {
+		m := uiModel{mode: uiModeHelp}
+		view := m.View()
+		if !strings.Contains(view, "/") || !strings.Contains(view, "Filter") {
+			t.Errorf("help view missing filter binding, got:\n%s", view)
+		}
+	})
+
+	t.Run("toast dismiss does not eat slash", func(t *testing.T) {
+		m := uiModel{rows: rows3, toast: &uiToast{msg: "error msg", isErr: true}}
+		// first key dismisses the sticky error toast
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+		m2 := updated.(uiModel)
+		if m2.toast != nil {
+			t.Error("first key should dismiss sticky error toast")
+		}
+		if m2.mode == uiModeFilter {
+			t.Error("filter mode should not activate on toast dismiss key")
+		}
+		// subsequent / enters filter mode
+		updated2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+		m3 := updated2.(uiModel)
+		if m3.mode != uiModeFilter {
+			t.Errorf("mode = %v, want uiModeFilter on second /", m3.mode)
+		}
+	})
+}
+
 func TestUIEmitCD(t *testing.T) {
 	t.Run("emits sentinel and human line", func(t *testing.T) {
 		var buf strings.Builder
