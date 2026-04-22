@@ -1,6 +1,7 @@
 package treepad
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -107,10 +108,25 @@ func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifac
 }
 
 func writeStatusTable(d Deps, rows []StatusRow) error {
-	w := tabwriter.NewWriter(d.Out, 0, 0, 2, ' ', 0)
+	for _, line := range formatStatusRows(rows) {
+		fmt.Fprintln(d.Out, line)
+	}
+	if hasPrunable(rows) {
+		_, _ = fmt.Fprintln(d.Out,
+			"\nnote: stale worktree metadata detected — run 'tp prune' or 'git worktree prune' to clean up",
+		)
+	}
+	return nil
+}
+
+func formatStatusRows(rows []StatusRow) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	var buf bytes.Buffer
+	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
 
-	hasPrunable := false
 	for _, r := range rows {
 		branch := r.Branch
 		if r.IsMain {
@@ -118,7 +134,6 @@ func writeStatusTable(d Deps, rows []StatusRow) error {
 		}
 
 		if r.Prunable {
-			hasPrunable = true
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				branch, "prunable", "—", r.PrunableReason, "—", collapsePath(r.Path))
 			continue
@@ -152,15 +167,21 @@ func writeStatusTable(d Deps, rows []StatusRow) error {
 			branch, status, aheadBehind, lastCommit, touched, collapsePath(r.Path))
 	}
 
-	if err := w.Flush(); err != nil {
-		return err
+	_ = w.Flush()
+	raw := strings.TrimRight(buf.String(), "\n")
+	if raw == "" {
+		return nil
 	}
-	if hasPrunable {
-		_, _ = fmt.Fprintln(d.Out,
-			"\nnote: stale worktree metadata detected — run 'tp prune' or 'git worktree prune' to clean up",
-		)
+	return strings.Split(raw, "\n")
+}
+
+func hasPrunable(rows []StatusRow) bool {
+	for _, r := range rows {
+		if r.Prunable {
+			return true
+		}
 	}
-	return nil
+	return false
 }
 
 func since(t time.Time) string {

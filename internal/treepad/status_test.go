@@ -3,6 +3,7 @@ package treepad
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,48 @@ import (
 
 	"treepad/internal/slug"
 )
+
+var update = flag.Bool("update", false, "update golden files")
+
+func TestFormatStatusRows(t *testing.T) {
+	rows := []StatusRow{
+		{Branch: "main", Path: "/repo/main", IsMain: true, HasUpstream: true, Ahead: 0, Behind: 1},
+		{Branch: "feat-a", Path: "/repo/feat-a"},
+		{Branch: "feat-b", Path: "/repo/feat-b", Dirty: true, HasUpstream: true, Ahead: 1, Behind: 2},
+		{Branch: "stale", Path: "/repo/stale", Prunable: true, PrunableReason: "no gitdir"},
+	}
+
+	lines := formatStatusRows(rows)
+	if lines == nil {
+		t.Fatal("expected non-nil lines for non-empty rows")
+	}
+	got := strings.Join(lines, "\n")
+
+	const golden = "testdata/status_table_basic.golden"
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+
+	wantBytes, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("golden file missing — run with -update to create: %v", err)
+	}
+	if got != string(wantBytes) {
+		t.Errorf("formatStatusRows output differs from golden\ngot:\n%s\nwant:\n%s", got, string(wantBytes))
+	}
+}
+
+func TestFormatStatusRows_Empty(t *testing.T) {
+	if lines := formatStatusRows(nil); lines != nil {
+		t.Errorf("expected nil for empty rows, got %v", lines)
+	}
+}
 
 func TestStatus(t *testing.T) {
 	mainPath := t.TempDir()

@@ -21,6 +21,13 @@ type PruneInput struct {
 	Cwd string
 }
 
+type pruneSelection struct {
+	candidates []worktree.Worktree
+	force      bool
+	verb       string // substituted into "the following worktrees will be %s:"
+	emptyMsg   string
+}
+
 func Prune(ctx context.Context, d Deps, in PruneInput) error {
 	rc, err := loadRepoContext(ctx, d, in.OutputDir)
 	if err != nil {
@@ -35,13 +42,23 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 		}
 	}
 
+	var sel pruneSelection
 	if in.All {
-		return pruneAll(ctx, d, rc.Worktrees, rc.Main, rc.OutputDir, cwd, in.DryRun)
+		sel, err = gatherAll(rc, cwd)
+	} else {
+		sel, err = gatherMerged(ctx, d, rc, cwd, in.Base)
 	}
-
-	merged, err := worktree.MergedBranches(ctx, d.Runner, in.Base)
 	if err != nil {
 		return err
+	}
+
+	return executePrune(ctx, d, rc, sel, in.DryRun, in.Yes)
+}
+
+func gatherMerged(ctx context.Context, d Deps, rc repoContext, cwd, base string) (pruneSelection, error) {
+	merged, err := worktree.MergedBranches(ctx, d.Runner, base)
+	if err != nil {
+		return pruneSelection{}, err
 	}
 
 	mergedSet := make(map[string]bool, len(merged))
@@ -64,7 +81,7 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 
 		dirty, dirtyErr := worktree.Dirty(ctx, d.Runner, wt.Path)
 		if dirtyErr != nil {
-			return dirtyErr
+			return pruneSelection{}, dirtyErr
 		}
 		if dirty {
 			d.Log.Warn("skipping %s: has uncommitted changes or untracked files", wt.Branch)
@@ -73,7 +90,7 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 
 		ahead, _, hasUpstream, aheadErr := worktree.AheadBehind(ctx, d.Runner, wt.Path)
 		if aheadErr != nil {
-			return aheadErr
+			return pruneSelection{}, aheadErr
 		}
 		if hasUpstream && ahead > 0 {
 			d.Log.Warn("skipping %s: %d unpushed commit(s)", wt.Branch, ahead)
@@ -83,25 +100,55 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 		candidates = append(candidates, wt)
 	}
 
-	if len(candidates) == 0 {
-		d.Log.Info("no merged worktrees to remove")
-		if !in.DryRun {
+	return pruneSelection{
+		candidates: candidates,
+		force:      false,
+		verb:       "removed",
+		emptyMsg:   "no merged worktrees to remove",
+	}, nil
+}
+
+func gatherAll(rc repoContext, cwd string) (pruneSelection, error) {
+	if rel, relErr := filepath.Rel(rc.Main.Path, cwd); relErr != nil || strings.HasPrefix(rel, "..") {
+		return pruneSelection{}, fmt.Errorf("--all must be run from the main worktree (%s)", rc.Main.Path)
+	}
+
+	var candidates []worktree.Worktree
+	for _, wt := range rc.Worktrees {
+		if wt.IsMain || wt.Branch == rc.Main.Branch || wt.Branch == "(detached)" || wt.Prunable {
+			continue
+		}
+		candidates = append(candidates, wt)
+	}
+
+	return pruneSelection{
+		candidates: candidates,
+		force:      true,
+		verb:       "force-removed",
+		emptyMsg:   "no worktrees to remove",
+	}, nil
+}
+
+func executePrune(ctx context.Context, d Deps, rc repoContext, sel pruneSelection, dryRun, yes bool) error {
+	if len(sel.candidates) == 0 {
+		d.Log.Info(sel.emptyMsg)
+		if !dryRun {
 			pruneGitWorktreeMetadata(ctx, d)
 		}
 		return nil
 	}
 
-	if in.DryRun {
-		for _, c := range candidates {
+	if dryRun {
+		for _, c := range sel.candidates {
 			d.Log.Info("would remove: %s (%s)", c.Branch, c.Path)
 		}
 		d.Log.Info("would run: git worktree prune")
 		return nil
 	}
 
-	if !in.Yes {
-		d.Log.Step("the following worktrees will be removed:")
-		for _, c := range candidates {
+	if !yes {
+		d.Log.Step("the following worktrees will be %s:", sel.verb)
+		for _, c := range sel.candidates {
 			d.Log.Info("%s  %s", c.Branch, c.Path)
 		}
 		d.Log.Prompt("continue? [y/N]: ")
@@ -113,67 +160,8 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 	}
 
 	var failed []string
-	for _, c := range candidates {
-		if err := removeWorktreeAndArtifact(ctx, d, c, rc.Main, rc.OutputDir, false); err != nil {
-			d.Log.Err("error removing %s: %v", c.Branch, err)
-			failed = append(failed, c.Branch)
-		}
-	}
-
-	pruneGitWorktreeMetadata(ctx, d)
-
-	if len(failed) > 0 {
-		return fmt.Errorf("failed to remove: %s", strings.Join(failed, ", "))
-	}
-	return nil
-}
-
-func pruneAll(
-	ctx context.Context, d Deps,
-	worktrees []worktree.Worktree, main worktree.Worktree,
-	outputDir, cwd string, dryRun bool,
-) error {
-	// Must be invoked from the main worktree.
-	if rel, relErr := filepath.Rel(main.Path, cwd); relErr != nil || strings.HasPrefix(rel, "..") {
-		return fmt.Errorf("--all must be run from the main worktree (%s)", main.Path)
-	}
-
-	var candidates []worktree.Worktree
-	for _, wt := range worktrees {
-		if wt.IsMain || wt.Branch == main.Branch || wt.Branch == "(detached)" || wt.Prunable {
-			continue
-		}
-		candidates = append(candidates, wt)
-	}
-
-	if len(candidates) == 0 {
-		d.Log.Info("no worktrees to remove")
-		return nil
-	}
-
-	if dryRun {
-		for _, c := range candidates {
-			d.Log.Info("would remove: %s (%s)", c.Branch, c.Path)
-		}
-		d.Log.Info("would run: git worktree prune")
-		return nil
-	}
-
-	d.Log.Step("the following worktrees will be force-removed:")
-	for _, c := range candidates {
-		d.Log.Info("%s  %s", c.Branch, c.Path)
-	}
-	d.Log.Prompt("continue? [y/N]: ")
-
-	line, _ := bufio.NewReader(d.In).ReadString('\n')
-	if answer := strings.ToLower(strings.TrimSpace(line)); answer != "y" && answer != "yes" {
-		d.Log.Warn("aborted")
-		return nil
-	}
-
-	var failed []string
-	for _, c := range candidates {
-		if err := removeWorktreeAndArtifact(ctx, d, c, main, outputDir, true); err != nil {
+	for _, c := range sel.candidates {
+		if err := removeWorktreeAndArtifact(ctx, d, c, rc.Main, rc.OutputDir, sel.force); err != nil {
 			d.Log.Err("error removing %s: %v", c.Branch, err)
 			failed = append(failed, c.Branch)
 		}

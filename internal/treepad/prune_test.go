@@ -300,6 +300,65 @@ func TestPrune(t *testing.T) {
 		}
 	})
 
+	t.Run("--all --yes skips confirmation prompt", func(t *testing.T) {
+		wsFile := filepath.Join(outputDir, repoSlug+"-feat.code-workspace")
+		if err := os.WriteFile(wsFile, []byte("{}"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		rec := &recordingRunner{inner: &seqRunner{responses: []runResponse{
+			{output: twoPorcelain}, // git worktree list
+			{},                     // git worktree remove --force
+			{},                     // git branch -D
+			{},                     // git worktree prune
+		}}}
+		deps := Deps{Runner: rec, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: io.Discard, In: strings.NewReader("")}
+
+		err := Prune(context.Background(), deps, PruneInput{
+			All:       true,
+			Yes:       true,
+			OutputDir: outputDir,
+			Cwd:       mainPath,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if rec.inner.idx != 4 {
+			t.Errorf("runner called %d times, want 4 (list, remove, branch-D, prune)", rec.inner.idx)
+		}
+	})
+
+	t.Run("--all with no candidates runs git worktree prune", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: mainWorktreePorcelain(mainPath)}, // git worktree list (main only)
+			{},                                        // git worktree prune
+		}}
+		var buf strings.Builder
+		deps := Deps{
+			Runner: runner,
+			Syncer: &fakeSyncer{},
+			Opener: &fakeOpener{},
+			Out:    &buf,
+			Log:    ui.New(&buf),
+			In:     strings.NewReader(""),
+		}
+
+		err := Prune(context.Background(), deps, PruneInput{
+			All:       true,
+			OutputDir: outputDir,
+			Cwd:       mainPath,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if runner.idx != 2 {
+			t.Errorf("runner called %d times, want 2 (list + git worktree prune)", runner.idx)
+		}
+		if !strings.Contains(buf.String(), "no worktrees to remove") {
+			t.Errorf("output missing empty message; got:\n%s", buf.String())
+		}
+	})
+
 	t.Run("prunable worktrees are skipped and git worktree prune is called", func(t *testing.T) {
 		prunablePath := mainPath + "-stale"
 		porcelainWithPrunable := twoWorktreePorcelainWithPrunable(mainPath, prunablePath)

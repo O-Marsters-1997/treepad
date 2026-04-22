@@ -1,0 +1,5 @@
+BRANCH  STATUS    AHEAD/BEHIND  LAST COMMIT  TOUCHED  PATH
+main *  clean     ↑0 ↓1         —            —        /repo/main
+feat-a  clean     —             —            —        /repo/feat-a
+feat-b  dirty     ↑1 ↓2         —            —        /repo/feat-b
+stale   prunable  —             no gitdir    —        /repo/stale

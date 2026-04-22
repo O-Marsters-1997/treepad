@@ -1,13 +1,11 @@
 package treepad
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -478,7 +476,7 @@ func (m uiModel) View() string {
 		}
 	}
 
-	if uiHasPrunable(m.rows) {
+	if hasPrunable(m.rows) {
 		sb.WriteString("\nnote: stale worktree metadata detected — run 'tp prune' or 'git worktree prune' to clean up\n")
 	}
 
@@ -486,55 +484,7 @@ func (m uiModel) View() string {
 }
 
 func uiBuildTableLines(rows []StatusRow) []string {
-	var buf bytes.Buffer
-	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tAHEAD/BEHIND\tLAST COMMIT\tTOUCHED\tPATH")
-
-	for _, r := range rows {
-		branch := r.Branch
-		if r.IsMain {
-			branch += " *"
-		}
-		if r.Prunable {
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-				branch, "prunable", "—", r.PrunableReason, "—", collapsePath(r.Path))
-			continue
-		}
-
-		status := "clean"
-		if r.Dirty {
-			status = "dirty"
-		}
-
-		aheadBehind := "—"
-		if r.HasUpstream {
-			aheadBehind = fmt.Sprintf("↑%d ↓%d", r.Ahead, r.Behind)
-		}
-
-		lastCommit := "—"
-		if r.LastCommit.ShortSHA != "" {
-			subject := r.LastCommit.Subject
-			if len(subject) > 35 {
-				subject = subject[:35] + "…"
-			}
-			lastCommit = fmt.Sprintf("%s %s · %s", r.LastCommit.ShortSHA, subject, since(r.LastCommit.Committed))
-		}
-
-		touched := "—"
-		if !r.LastTouched.IsZero() {
-			touched = since(r.LastTouched)
-		}
-
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			branch, status, aheadBehind, lastCommit, touched, collapsePath(r.Path))
-	}
-
-	_ = w.Flush()
-	raw := strings.TrimRight(buf.String(), "\n")
-	if raw == "" {
-		return nil
-	}
-	return strings.Split(raw, "\n")
+	return formatStatusRows(rows)
 }
 
 var uiModalStyle = lipgloss.NewStyle().
@@ -573,15 +523,6 @@ func uiRenderModal(m uiModel) string {
 	}
 	body := fmt.Sprintf("%s\n%s\n\n[y] confirm  ·  [any other key] cancel", title, detail)
 	return uiModalStyle.Render(body)
-}
-
-func uiHasPrunable(rows []StatusRow) bool {
-	for _, r := range rows {
-		if r.Prunable {
-			return true
-		}
-	}
-	return false
 }
 
 // UI opens a full-screen fleet view. It returns ErrNotTTY when d.Out is not
