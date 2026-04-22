@@ -121,12 +121,19 @@ func TestDiff(t *testing.T) {
 
 	t.Run("base from config overrides default", func(t *testing.T) {
 		mainPath := makeMainWorktree(t)
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte("[diff]\nbase = \"master\"\n"), 0o644); err != nil {
+		contents := []byte("[diff]\nbase = \"master\"\n")
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), contents, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		featPath := t.TempDir()
 		pt := &fakePassthroughRunner{}
-		d := Deps{Runner: fakeRunner{output: twoWorktreePorcelainWithMain(mainPath, featPath)}, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&bytes.Buffer{}), In: strings.NewReader("")}
+		d := Deps{
+			Runner: fakeRunner{output: twoWorktreePorcelainWithMain(mainPath, featPath)},
+			Syncer: &fakeSyncer{},
+			Out:    &bytes.Buffer{},
+			Log:    ui.New(&bytes.Buffer{}),
+			In:     strings.NewReader(""),
+		}
 
 		if err := Diff(context.Background(), d, DiffInput{Branch: "feat", Runner: pt}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
