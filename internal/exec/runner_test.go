@@ -125,9 +125,10 @@ func TestParsePyprojectScripts(t *testing.T) {
 			want:  []string{"run"},
 		},
 		{
-			name:  "project scripts take precedence over poetry scripts",
-			input: "[project]\nname = \"x\"\n\n[project.scripts]\nserve = \"x:serve\"\n\n[tool.poetry.scripts]\nbuild = \"x:build\"\n",
-			want:  []string{"serve"},
+			name: "project scripts take precedence over poetry scripts",
+			input: "[project]\nname = \"x\"\n\n[project.scripts]\nserve = \"x:serve\"\n\n" +
+				"[tool.poetry.scripts]\nbuild = \"x:build\"\n",
+			want: []string{"serve"},
 		},
 		{
 			name:  "empty file",
@@ -343,8 +344,10 @@ func TestResolve(t *testing.T) {
 			wantName: "make",
 		},
 		{
-			name:        "poetry",
-			files:       map[string]string{"pyproject.toml": "[tool.poetry]\nname = \"x\"\n\n[tool.poetry.scripts]\nmyapp = \"myapp.cli:main\"\n"},
+			name: "poetry",
+			files: map[string]string{
+				"pyproject.toml": "[tool.poetry]\nname = \"x\"\n\n[tool.poetry.scripts]\nmyapp = \"myapp.cli:main\"\n",
+			},
 			wantName:    "poetry",
 			wantScripts: []string{"myapp"},
 		},
