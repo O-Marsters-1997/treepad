@@ -104,7 +104,7 @@ func Exec(ctx context.Context, d Deps, in ExecInput) (int, error) {
 		return 0, fmt.Errorf("load config: %w", err)
 	}
 
-	runner, err := tpexec.Detect(wt.Path, cfg.Exec.Runner)
+	runner, err := tpexec.Resolve(wt.Path, cfg.Exec.Runner)
 	if err != nil {
 		return 0, err
 	}
