@@ -14,9 +14,13 @@ func pruneCommand() *cli.Command {
 		Name:  "prune",
 		Usage: "remove worktrees whose branches are merged into a base branch",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "base", Value: "main", Usage: "base branch to check merges against"},
-			&cli.BoolFlag{Name: "dry-run", Usage: "preview removals without executing"},
-			&cli.BoolFlag{Name: "all", Usage: "force-remove all non-main worktrees (must be run from main)"},
+			&cli.StringFlag{Name: "base", Aliases: []string{"b"}, Value: "main", Usage: "base branch to check merges against"},
+			&cli.BoolFlag{Name: "dry-run", Aliases: []string{"n"}, Usage: "preview removals without executing"},
+			&cli.BoolFlag{
+				Name:    "all",
+				Aliases: []string{"a"},
+				Usage:   "force-remove all non-main worktrees (must be run from main)",
+			},
 			&cli.BoolFlag{Name: "yes", Aliases: []string{"y"}, Usage: "skip the confirmation prompt"},
 		},
 		Action: runPrune,
