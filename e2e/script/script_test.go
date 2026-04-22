@@ -22,6 +22,7 @@ func TestParseKeyScript(t *testing.T) {
 		{"esc", []tea.KeyMsg{{Type: tea.KeyEsc}}},
 		{"space", []tea.KeyMsg{{Type: tea.KeySpace}}},
 		{"ctrl-c", []tea.KeyMsg{{Type: tea.KeyCtrlC}}},
+		{"backspace", []tea.KeyMsg{{Type: tea.KeyBackspace}}},
 		{"j,enter", []tea.KeyMsg{
 			{Type: tea.KeyRunes, Runes: []rune("j")},
 			{Type: tea.KeyEnter},

@@ -81,6 +81,8 @@ func parseKeyScript(s string) []tea.KeyMsg {
 			out = append(out, tea.KeyMsg{Type: tea.KeyEsc})
 		case "space":
 			out = append(out, tea.KeyMsg{Type: tea.KeySpace})
+		case "backspace":
+			out = append(out, tea.KeyMsg{Type: tea.KeyBackspace})
 		case "ctrl-c":
 			out = append(out, tea.KeyMsg{Type: tea.KeyCtrlC})
 		default:

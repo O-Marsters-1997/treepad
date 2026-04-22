@@ -55,7 +55,7 @@ type (
 	uiYankClearMsg struct{}
 )
 
-// uiMode tracks whether the confirm modal is active.
+// uiMode tracks the current interaction mode.
 type uiMode int
 
 const (
@@ -63,6 +63,7 @@ const (
 	uiModeConfirmRemove        // r pressed — awaiting y/cancel
 	uiModeConfirmPrune         // p pressed — awaiting y/cancel
 	uiModeHelp                 // ? pressed — any key dismisses
+	uiModeFilter               // / pressed — typing filter query
 )
 
 // uiToast holds a transient message shown below the table.
@@ -89,6 +90,8 @@ type uiModel struct {
 	mode           uiMode
 	confirmBranch  string // branch name shown in the remove confirm modal
 	yankPath       string // emits OSC-52 in View() then cleared on next cycle
+	filterStr      string // query typed while in uiModeFilter; retained after commit
+	filterActive   bool   // true once Enter commits a non-empty filter
 
 	// Injectable behaviour. Nil means the feature is disabled; see UI() for
 	// production defaults and NewHeadlessUI for the headless/e2e overrides.
@@ -142,8 +145,10 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.err = nil
 			m.rows = msg.rows
-			if len(m.rows) > 0 && m.cursor >= len(m.rows) {
-				m.cursor = len(m.rows) - 1
+			if vr := m.visibleRows(); len(vr) > 0 && m.cursor >= len(vr) {
+				m.cursor = len(vr) - 1
+			} else if len(vr) == 0 {
+				m.cursor = 0
 			}
 		}
 
@@ -206,6 +211,40 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
 
 	case tea.KeyMsg:
+		// Filter mode intercepts all keystrokes for query editing.
+		if m.mode == uiModeFilter {
+			switch msg.Type {
+			case tea.KeyEnter:
+				m.mode = uiModeNormal
+				m.filterActive = m.filterStr != ""
+				m.cursor = 0
+				return m, nil
+			case tea.KeyEsc:
+				m.mode = uiModeNormal
+				m.filterStr = ""
+				m.filterActive = false
+				m.cursor = 0
+				return m, nil
+			case tea.KeyBackspace:
+				if runes := []rune(m.filterStr); len(runes) > 0 {
+					m.filterStr = string(runes[:len(runes)-1])
+					m.cursor = 0
+				}
+				return m, nil
+			case tea.KeyRunes:
+				m.filterStr += string(msg.Runes)
+				m.cursor = 0
+				return m, nil
+			case tea.KeySpace:
+				m.filterStr += " "
+				m.cursor = 0
+				return m, nil
+			case tea.KeyCtrlC:
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
 		// Dismiss sticky error toast on first key press.
 		if m.toast != nil && m.toast.isErr {
 			m.toast = nil
@@ -232,21 +271,23 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		vr := m.visibleRows()
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "enter":
-			if len(m.rows) > 0 {
-				m.selectedPath = m.rows[m.cursor].Path
+			if row, ok := m.visibleCursorRow(); ok {
+				m.selectedPath = row.Path
 				return m, tea.Quit
 			}
 		case "s":
-			if !m.actionInFlight && len(m.rows) > 0 {
-				branch := m.rows[m.cursor].Branch
-				m.actionInFlight = true
-				m.syncBranch = branch
-				m.toast = nil
-				return m, tea.Batch(m.doSync(branch), m.spinner.Tick)
+			if !m.actionInFlight {
+				if row, ok := m.visibleCursorRow(); ok {
+					m.actionInFlight = true
+					m.syncBranch = row.Branch
+					m.toast = nil
+					return m, tea.Batch(m.doSync(row.Branch), m.spinner.Tick)
+				}
 			}
 		case "S":
 			if !m.actionInFlight {
@@ -256,10 +297,12 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(m.doSyncFleet(), m.spinner.Tick)
 			}
 		case "r":
-			if !m.actionInFlight && len(m.rows) > 0 {
-				m.mode = uiModeConfirmRemove
-				m.confirmBranch = m.rows[m.cursor].Branch
-				return m, nil
+			if !m.actionInFlight {
+				if row, ok := m.visibleCursorRow(); ok {
+					m.mode = uiModeConfirmRemove
+					m.confirmBranch = row.Branch
+					return m, nil
+				}
 			}
 		case "p":
 			if !m.actionInFlight {
@@ -267,41 +310,70 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "o":
-			if !m.actionInFlight && len(m.rows) > 0 {
-				m.actionInFlight = true
-				m.toast = nil
-				return m, m.doOpen(m.rows[m.cursor])
+			if !m.actionInFlight {
+				if row, ok := m.visibleCursorRow(); ok {
+					m.actionInFlight = true
+					m.toast = nil
+					return m, m.doOpen(row)
+				}
 			}
 		case "d":
-			if !m.actionInFlight && len(m.rows) > 0 {
-				row := m.rows[m.cursor]
-				if !row.Prunable {
+			if !m.actionInFlight {
+				if row, ok := m.visibleCursorRow(); ok && !row.Prunable {
 					m.actionInFlight = true
 					m.toast = nil
 					return m, m.doDiff(row)
 				}
 			}
 		case "y":
-			if len(m.rows) > 0 {
-				path := m.rows[m.cursor].Path
-				m.yankPath = path
-				m.toast = &uiToast{msg: "📋 yanked " + path}
+			if row, ok := m.visibleCursorRow(); ok {
+				m.yankPath = row.Path
+				m.toast = &uiToast{msg: "📋 yanked " + row.Path}
 				return m, tea.Batch(m.doToastTimer(), func() tea.Msg { return uiYankClearMsg{} })
 			}
 		case "?":
 			m.mode = uiModeHelp
 			return m, nil
+		case "/":
+			m.mode = uiModeFilter
+			m.filterActive = false
+			return m, nil
+		case "esc":
+			if m.filterActive {
+				m.filterStr = ""
+				m.filterActive = false
+				m.cursor = 0
+			}
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(m.rows)-1 {
+			if m.cursor < len(vr)-1 {
 				m.cursor++
 			}
 		}
 	}
 	return m, nil
+}
+
+// visibleRows applies the active filter and returns the rows to display.
+// When no filter is active it returns m.rows unchanged.
+func (m uiModel) visibleRows() []StatusRow {
+	if !m.filterActive && m.mode != uiModeFilter {
+		return m.rows
+	}
+	return filterRows(m.rows, m.filterStr)
+}
+
+// visibleCursorRow returns the row under the cursor within the visible set.
+// Returns the zero value and false when the visible set is empty.
+func (m uiModel) visibleCursorRow() (StatusRow, bool) {
+	vr := m.visibleRows()
+	if len(vr) == 0 || m.cursor >= len(vr) {
+		return StatusRow{}, false
+	}
+	return vr[m.cursor], true
 }
 
 func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
@@ -425,44 +497,55 @@ func (m uiModel) View() string {
 		return sb.String()
 	}
 
-	lines := uiBuildTableLines(m.rows)
-	for i, line := range lines {
-		if i == 0 {
-			sb.WriteString("  ")
-			sb.WriteString(uiHeaderStyle.Render(line))
-		} else {
-			rowIdx := i - 1
-			isSyncing := m.actionInFlight && m.syncBranch != "" &&
-				rowIdx < len(m.rows) && m.rows[rowIdx].Branch == m.syncBranch
-
-			var prefix string
-			switch {
-			case isSyncing:
-				prefix = m.spinner.View() + " "
-			case rowIdx == m.cursor:
-				prefix = "▶ "
-			default:
-				prefix = "  "
-			}
-
-			if rowIdx == m.cursor {
-				sb.WriteString(uiCursorStyle.Render(prefix + line))
+	vr := m.visibleRows()
+	if len(vr) == 0 && m.filterStr != "" {
+		fmt.Fprintf(&sb, "  no matches for %q\n", m.filterStr)
+	} else {
+		lines := uiBuildTableLines(vr)
+		for i, line := range lines {
+			if i == 0 {
+				sb.WriteString("  ")
+				sb.WriteString(uiHeaderStyle.Render(line))
 			} else {
-				sb.WriteString(prefix + line)
+				rowIdx := i - 1
+				isSyncing := m.actionInFlight && m.syncBranch != "" &&
+					rowIdx < len(vr) && vr[rowIdx].Branch == m.syncBranch
+
+				var prefix string
+				switch {
+				case isSyncing:
+					prefix = m.spinner.View() + " "
+				case rowIdx == m.cursor:
+					prefix = "▶ "
+				default:
+					prefix = "  "
+				}
+
+				if rowIdx == m.cursor {
+					sb.WriteString(uiCursorStyle.Render(prefix + line))
+				} else {
+					sb.WriteString(prefix + line)
+				}
 			}
+			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
 	}
 
 	if m.err != nil {
 		fmt.Fprintf(&sb, "\nerror: %v\n", m.err)
 	}
 
+	if m.mode == uiModeFilter {
+		fmt.Fprintf(&sb, "\n/ %s█\n", m.filterStr)
+	} else if m.filterActive {
+		fmt.Fprintf(&sb, "\n/ %s  (esc to clear)\n", m.filterStr)
+	}
+
 	if m.mode == uiModeHelp {
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderHelp())
 		sb.WriteString("\n")
-	} else if m.mode != uiModeNormal {
+	} else if m.mode != uiModeNormal && m.mode != uiModeFilter {
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderModal(m))
 		sb.WriteString("\n")
@@ -503,6 +586,7 @@ func uiRenderHelp() string {
 		"y           Yank path of selected worktree (OSC-52)\n" +
 		"r           Remove selected worktree (with confirmation)\n" +
 		"p           Prune merged worktrees (with confirmation)\n" +
+		"/           Filter / search worktrees\n" +
 		"?           Show this help\n" +
 		"q / Ctrl-C  Quit\n\n" +
 		"Press any key to dismiss"
@@ -512,7 +596,7 @@ func uiRenderHelp() string {
 func uiRenderModal(m uiModel) string {
 	var title, detail string
 	switch m.mode {
-	case uiModeNormal, uiModeHelp:
+	case uiModeNormal, uiModeHelp, uiModeFilter:
 		return ""
 	case uiModeConfirmRemove:
 		title = fmt.Sprintf("Remove worktree: %s", m.confirmBranch)
