@@ -9,6 +9,8 @@ import (
 	osexec "os/exec"
 	"path/filepath"
 
+	"golang.org/x/term"
+
 	"treepad/internal/config"
 	tpexec "treepad/internal/exec"
 	"treepad/internal/tty"
@@ -26,20 +28,30 @@ type PassthroughRunner interface {
 // interactive subprocesses. Overridable in tests.
 var openTTY = tty.Open
 
+// stdioIsTTY reports whether all three standard streams are interactive
+// terminals. When true, the child inherits them directly — required for
+// Bun-compiled agents (e.g. Claude Code) which reject /dev/tty-opened fds
+// when constructing node:tty WriteStreams on macOS (kqueue EINVAL), but work
+// fine with directly-inherited terminal fds. Overridable in tests.
+var stdioIsTTY = func() bool {
+	return term.IsTerminal(0) && term.IsTerminal(1) && term.IsTerminal(2)
+}
+
 type osPassthroughRunner struct{}
 
 func (osPassthroughRunner) Run(ctx context.Context, dir, name string, args ...string) (int, error) {
 	cmd := osexec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	if tty := openTTY(); tty != nil {
-		defer tty.Close() //nolint:errcheck
-		cmd.Stdin = tty
-		cmd.Stdout = tty
-		cmd.Stderr = tty
-	} else {
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+	switch {
+	case stdioIsTTY():
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	default:
+		if tty := openTTY(); tty != nil {
+			defer tty.Close() //nolint:errcheck
+			cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
+		} else {
+			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		}
 	}
 	if err := cmd.Run(); err != nil {
 		var exitErr *osexec.ExitError

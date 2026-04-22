@@ -12,9 +12,11 @@ import (
 // writing. Returns nil when no controlling terminal is available (CI, detached
 // session, no-TTY environments).
 //
-// syscall.Open + os.NewFile is used instead of os.OpenFile so that Go's
-// runtime poller does not flip O_NONBLOCK on the file description. Node/Bun
-// children reject a non-blocking TTY fd when setting up their stdio streams.
+// Used as a fallback when parent stdio is not a terminal (e.g. old-wrapper
+// invocation where stdout is captured by a subshell). Note: Bun-compiled
+// agents on macOS reject /dev/tty-opened fds for TTY stream construction;
+// callers should prefer inheriting parent stdio directly when it is already a
+// terminal.
 func Open() *os.File {
 	fd, err := syscall.Open("/dev/tty", syscall.O_RDWR|syscall.O_CLOEXEC, 0)
 	if err != nil {
