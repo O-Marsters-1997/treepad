@@ -241,6 +241,8 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case tea.KeyCtrlC:
 				return m, tea.Quit
+			default:
+				// ignore unhandled keys in filter mode
 			}
 			return m, nil
 		}
@@ -390,6 +392,8 @@ func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
 		m.mode = uiModeNormal
 		m.actionInFlight = true
 		return m, tea.Batch(m.doPrune(), m.spinner.Tick)
+	case uiModeFilter:
+		return m, nil
 	}
 	return m, nil
 }
