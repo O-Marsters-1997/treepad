@@ -11,6 +11,17 @@ import (
 	"treepad/internal/ui"
 )
 
+// makeMainWorktree creates a temp dir with a .git subdirectory so that
+// worktree.isMainWorktree recognises it as the primary worktree.
+func makeMainWorktree(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestDiff(t *testing.T) {
 	t.Run("requires branch", func(t *testing.T) {
 		d := Deps{Runner: fakeRunner{}, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&bytes.Buffer{}), In: strings.NewReader("")}
@@ -44,8 +55,8 @@ func TestDiff(t *testing.T) {
 		wantArgs  []string
 	}{
 		{
-			name:     "default base is main",
-			wantArgs: []string{"diff", "main...HEAD"},
+			name:     "default base is origin/main",
+			wantArgs: []string{"diff", "origin/main...HEAD"},
 		},
 		{
 			name:     "custom base",
@@ -55,7 +66,7 @@ func TestDiff(t *testing.T) {
 		{
 			name:      "extra args forwarded",
 			extraArgs: []string{"--stat"},
-			wantArgs:  []string{"diff", "main...HEAD", "--stat"},
+			wantArgs:  []string{"diff", "origin/main...HEAD", "--stat"},
 		},
 	}
 	for _, tt := range streamTests {
@@ -83,6 +94,27 @@ func TestDiff(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("base from config overrides default", func(t *testing.T) {
+		mainPath := makeMainWorktree(t)
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte("[diff]\nbase = \"master\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		featPath := t.TempDir()
+		pt := &fakePassthroughRunner{}
+		d := Deps{Runner: fakeRunner{output: twoWorktreePorcelainWithMain(mainPath, featPath)}, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&bytes.Buffer{}), In: strings.NewReader("")}
+
+		if err := Diff(context.Background(), d, DiffInput{Branch: "feat", Runner: pt}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(pt.calls) == 0 {
+			t.Fatal("expected passthrough runner call, got none")
+		}
+		wantArgs := []string{"diff", "master...HEAD"}
+		if !equalStringSlice(pt.calls[0].args, wantArgs) {
+			t.Errorf("args = %v, want %v", pt.calls[0].args, wantArgs)
+		}
+	})
 
 	t.Run("file output writes plain patch", func(t *testing.T) {
 		dir := t.TempDir()

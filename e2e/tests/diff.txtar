@@ -1,4 +1,10 @@
 tp-init-repo
+
+# Seed an origin remote so the default base (origin/main) resolves.
+exec git init --bare ../origin.git
+exec git remote add origin ../origin.git
+exec git push -u origin main
+
 tp-add-worktree feat
 
 # Seed a commit on the feat branch so there is something to diff.

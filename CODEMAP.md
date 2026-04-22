@@ -93,7 +93,7 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 
 - `diffCommand()` — top-level diff command definition
   - Usage: `tp diff <branch> [-- <git-diff-args>...]`
-  - Flags: `--base` / `-b` (default: "main"), `--output` / `-o` (write to file)
+  - Flags: `--base` / `-b` (no hardcoded default; defers to config/fallback), `--output` / `-o` (write to file)
 - `runDiff(ctx, cmd)` — action handler for diffing worktrees
   - Parses branch argument (required) and extra args after `--`
   - Instantiates `treepad.Deps` via `DefaultDeps()`
@@ -106,19 +106,24 @@ Handles TOML configuration file loading, initialization, and display.
 
 ### `config.go`
 
-- `Config` struct — root config object with `Sync`, `Artifact`, `Open`, `Exec` fields
-- `SyncConfig` struct — contains `Files` (string array)
+- `Config` struct — root config object with `Sync`, `Artifact`, `Open`, `Exec`, `FromSpec`, `Diff` fields
+- `SyncConfig` struct — contains `Include` (string array of gitignore-style patterns)
 - `ArtifactConfig` struct — contains `FilenameTemplate` and `ContentTemplate` (text/template strings)
   - `IsZero()` — reports whether artifact is configured
 - `OpenConfig` struct — contains `Command` (string slice of template strings)
   - `IsZero()` — reports whether open command is configured
+- `DiffConfig` struct — contains `Base` (string; default `"origin/main"`)
+  - `IsZero()` — reports whether diff configuration is present
 - `ExecConfig` struct — contains `Runner` (string; valid values: just, npm, pnpm, yarn, bun, make, pip, poetry, uv)
   - `IsZero()` — reports whether exec runner is explicitly configured
+- `FromSpecConfig` struct — contains `PromptTemplate`, `PromptFilename`, `Skills`, `AgentCommand`
+  - `IsZero()` — reports whether from-spec configuration is present
 - `GlobalConfigPath()` — resolves global config path
   - Resolution order: `$TREEPAD_CONFIG` → `$XDG_CONFIG_HOME/treepad/config.toml` → `~/.config/treepad/config.toml`
 - `Load(repoRoot)` — loads `.treepad.toml` from repo, falls back to defaults
   - Returns clear error if legacy `.treepad.json` is found: "found .treepad.json; treepad now uses TOML..."
-- `defaultSyncFiles()` — built-in list of files to sync (VS Code, Claude, env)
+  - Merges file config with defaults: explicitly configured sections override defaults (IsZero check per section)
+- `defaultSyncInclude()` — built-in list of files to sync (VS Code, Claude, env)
 
 ### `init.go`
 
@@ -251,14 +256,19 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
 ### `diff.go`
 
 - `DiffInput` struct — parameterizes a tp diff invocation
-  - Fields: `Branch`, `Base` (default "main" if empty), `OutputFile` (optional), `ExtraArgs` (forwarded to git diff), `Runner` (PassthroughRunner override for testing)
+  - Fields: `Branch`, `Base` (empty defaults to config value via `resolveBase()`), `OutputFile` (optional), `ExtraArgs` (forwarded to git diff), `Runner` (PassthroughRunner override for testing)
 - `Diff(ctx, Deps, DiffInput)` — shows diff of target worktree against base using three-dot merge-base semantics
   - Lists worktrees and locates target by branch
   - Returns error if branch not found or worktree is prunable (with clear message and suggestion)
+  - Resolves base: if `DiffInput.Base` empty, calls `resolveBase(worktrees)` to load from config or use fallback
   - Uses three-dot semantics: `<base>...HEAD` (matches GitHub PR diff)
   - If OutputFile is set: runs `git -C <targetPath> diff --no-color <base>...HEAD [extra-args]`, captures output, writes uncolored patch to file, logs `[OK]`
   - If OutputFile is empty: executes `git diff <base>...HEAD [extra-args]` via PassthroughRunner with stdio inherited, respecting target worktree's git config (color, pager, delta, diff-so-fancy)
   - Exit code 0 on success; non-zero only on git command failure or file write error
+- `resolveBase(worktrees)` — helper function that resolves the base ref for diffing
+  - Finds the main worktree and loads its config via `config.Load()`
+  - Returns `config.Diff.Base` if configured
+  - Falls back to `"origin/main"` if config is not found or field is unset
 
 ### `opener.go`
 
@@ -356,7 +366,7 @@ tp [--verbose] <command>
 │       Routes through runner if command matches enumerated script
 │       Override with [exec] runner in .treepad.toml
 ├── diff [options] <branch> [-- <git-diff-args>...]
-│   ├── --base (-b, default: main)
+│   ├── --base (-b, default: from config or origin/main)
 │   └── --output (-o, optional)
 └── config
     ├── init [--global]
@@ -499,22 +509,24 @@ tp [--verbose] <command>
    - `Init()` dispatches `doRefresh()` and `doTick()` commands
    - `doRefresh()` calls `refreshStatus()` asynchronously; result arrives as `uiRefreshMsg`
    - Tick fires every 5s via `uiTickMsg`; skipped if an action is in flight
-   - Key events dispatch sync (`uiSyncDoneMsg`), remove (`uiRemoveDoneMsg`), prune (`uiPruneDoneMsg`), open (`uiOpenDoneMsg`) as async commands
+   - Key events dispatch sync (`uiSyncDoneMsg`), remove (`uiRemoveDoneMsg`), prune (`uiPruneDoneMsg`), open (`uiOpenDoneMsg`), diff (`uiDiffDoneMsg`) as async commands
+   - `d` key (if not prunable) calls `doDiff()` to suspend alt-screen, run `git diff <base>...HEAD`, and return to TUI on exit
    - `y` key stores path in `yankPath`; `View()` emits OSC-52 escape sequence; `uiYankClearMsg` clears it next tick
    - `Enter` sets `selectedPath` and returns `tea.Quit`
 7. After `p.Run()` returns, if `selectedPath` is non-empty:
    - Emits `__TREEPAD_CD__\t<path>` sentinel to stdout (shell wrapper cd's)
    - Emits human-readable `→ cd: <path>` line
 
-## Data Flow Example: `tp diff <branch> [--base main] [-o file] [-- <git-diff-args>...]`
+## Data Flow Example: `tp diff <branch> [--base ref] [-o file] [-- <git-diff-args>...]`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
-2. `commands.diffCommand()` defines CLI interface with branch positional arg, `--base` / `-b` flag (default "main"), `--output` / `-o` flag, and `--` arg forwarding
+2. `commands.diffCommand()` defines CLI interface with branch positional arg, `--base` / `-b` flag (no hardcoded default), `--output` / `-o` flag, and `--` arg forwarding
 3. `runDiff()` parses branch arg, base and output flags, and extra args after `--`; instantiates `treepad.Deps` via `DefaultDeps()`, calls `Diff()`
 4. `Diff()` executes:
    - Lists all worktrees via `worktree.List()` and finds target by branch
    - Returns error if branch not found (with suggestion to sync)
    - Checks if worktree is prunable; returns clear error with suggestion to prune if so
+   - Resolves base: if `DiffInput.Base` is empty, calls `resolveBase(worktrees)` to load from config or use fallback `"origin/main"`
    - Builds three-dot ref string: `<base>...HEAD`
    - **If output file specified:** runs `git -C <targetPath> diff --no-color <base>...HEAD [extra-args]` via `d.Runner.Run()` (uncolored capture), writes raw patch bytes to file, logs `[OK]` to stderr, returns
    - **If no output file:** executes `git diff <base>...HEAD [extra-args]` via PassthroughRunner with stdio inherited from caller, respecting target worktree's git config (pager, color, delta, diff-so-fancy), returns exit code or error
@@ -522,4 +534,4 @@ tp [--verbose] <command>
 
 ---
 
-**Last Updated:** April 19, 2026 (replaced `tp status --watch` with `tp ui` BubbleTea TUI fleet commander; added `internal/treepad/ui.go` and `internal/commands/ui.go`; extracted `refreshStatus()` seam in `status.go`; added `ErrNotTTY` sentinel; added OSC-52 yank, Enter→cd, inline sync/remove/prune actions, help overlay)
+**Last Updated:** April 22, 2026 (added `DiffConfig` struct to config with `Base` field (default `origin/main`); added `resolveBase()` helper in `diff.go` to resolve base from config; removed hardcoded default from `--base` flag in `tp diff` (now defers to config/fallback); added `d` key binding in TUI with `doDiff()` method and `uiDiffDoneMsg` for inline diffing in fleet view; updated help overlay and documentation)

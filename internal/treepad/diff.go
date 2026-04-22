@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"treepad/internal/config"
 	"treepad/internal/worktree"
 )
 
@@ -23,10 +24,6 @@ func Diff(ctx context.Context, d Deps, in DiffInput) error {
 	if in.Branch == "" {
 		return fmt.Errorf("branch name is required")
 	}
-	base := in.Base
-	if base == "" {
-		base = "main"
-	}
 
 	wts, err := listWorktrees(ctx, d)
 	if err != nil {
@@ -38,6 +35,11 @@ func Diff(ctx context.Context, d Deps, in DiffInput) error {
 	}
 	if target.Prunable {
 		return fmt.Errorf("worktree for %q is prunable (%s); run `tp prune`", in.Branch, target.PrunableReason)
+	}
+
+	base := in.Base
+	if base == "" {
+		base = resolveBase(wts)
 	}
 
 	refs := base + "...HEAD"
@@ -64,4 +66,15 @@ func Diff(ctx context.Context, d Deps, in DiffInput) error {
 		return fmt.Errorf("git diff: %w", err)
 	}
 	return nil
+}
+
+// resolveBase returns the base ref for diffing, loading from config when
+// available. Falls back to "origin/main".
+func resolveBase(wts []worktree.Worktree) string {
+	if main, err := worktree.MainWorktree(wts); err == nil {
+		if cfg, err := config.Load(main.Path); err == nil {
+			return cfg.Diff.Base
+		}
+	}
+	return "origin/main"
 }
