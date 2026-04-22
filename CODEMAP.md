@@ -40,7 +40,9 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `shell_init.go`
 
 - `shellInitCommand()` — prints shell wrapper function for `eval "$(tp shell-init)"`
-  - Wrapper intercepts `__TREEPAD_CD__` directive from `tp new` and cd's into the new worktree
+  - Wrapper intercepts `__TREEPAD_CD__` directive from `tp new`, `tp cd`, and `tp ui`, cd's into the target worktree
+  - Tracks `$TP_PREV_WORKTREE` env var to store the last visited worktree, enabling `tp cd -` toggle support
+  - Updates previous worktree before changing directory to support toggle-back functionality
 
 ### `remove.go`
 
@@ -151,11 +153,12 @@ Task runner detection and script enumeration for the `tp exec` command.
 
 - `Runner` struct — describes a detected task runner
   - Fields: `Name` (e.g. "just", "pnpm"), `ScriptCmd` (prefix before script name, e.g. ["pnpm", "run"]), `Scripts` (enumerated script names, sorted)
-- `Detect(worktreePath, override)` — identifies task runner in worktree
+- `Resolve(fs fs.FS, override)` — identifies task runner using `fs.FS` interface
+  - Accepts `fs.FS` instead of real filesystem paths (enables testing and flexible filesystem backends)
   - Checks for marker files in order: justfile, package.json, Makefile, pyproject.toml
   - Returns error if multiple runners detected and no override specified
   - Uses override if provided (from `[exec] runner` in `.treepad.toml`)
-  - Enumerates available scripts via `ListScripts()`
+  - Enumerates available scripts via pure `ListScripts()` (no side effects)
 - `ListScripts(worktreePath, runnerName)` — enumerates scripts for a given runner
   - Supports: just, npm, pnpm, yarn, bun, poetry, uv, make, pip
   - Returns nil for runners without script enumeration (make, pip)
@@ -243,10 +246,14 @@ Pure business logic for worktree syncing and artifact file generation. Formerly 
   - Resolves artifact file path and modtime via `artifact.Path()` and `os.Stat()`
   - Skips probing prunable worktrees (metadata without git queries)
   - Returns `[]StatusRow` sorted as encountered
-- `writeStatusTable(d Deps, rows []StatusRow)` — renders table via `text/tabwriter`
-  - Columns: BRANCH, STATUS, AHEAD/BEHIND, LAST COMMIT, TOUCHED, PATH
+- `formatStatusRows(rows []StatusRow)` — formats status rows for table display
+  - Extracted from `ui.go` to separate formatting from presentation
   - Formats relative times via `since()` helper
   - Collapses home directory paths via `collapsePath()` helper
+  - Returns formatted strings for rendering
+- `writeStatusTable(d Deps, rows []StatusRow)` — renders table via `text/tabwriter`
+  - Columns: BRANCH, STATUS, AHEAD/BEHIND, LAST COMMIT, TOUCHED, PATH
+  - Formats rows via `formatStatusRows()`
   - Appends note if any prunable worktrees found
 
 ### `source.go`
@@ -534,4 +541,11 @@ tp [--verbose] <command>
 
 ---
 
-**Last Updated:** April 22, 2026 (added `DiffConfig` struct to config with `Base` field (default `origin/main`); added `resolveBase()` helper in `diff.go` to resolve base from config; removed hardcoded default from `--base` flag in `tp diff` (now defers to config/fallback); added `d` key binding in TUI with `doDiff()` method and `uiDiffDoneMsg` for inline diffing in fleet view; updated help overlay and documentation)
+**Last Updated:** April 22, 2026
+
+**Recent Changes:**
+- Task runner detection refactored to use `fs.FS` interface; `Detect()` renamed to `Resolve()`
+- `formatStatusRows()` extracted from `ui.go` into `status.go` for cleaner separation of concerns
+- Shell wrapper now tracks `$TP_PREV_WORKTREE` to enable `tp cd -` toggle-back functionality
+- Added short flag aliases: `-b` for `--base`, `-n` for `--dry-run`, `-a` for `--all`, `-y` for `--yes` (prune); `-j` for `--json` (status); `-g` for `--global` (config init)
+- Renamed `--use-current` to `--current` in sync command with backwards-compatible alias
