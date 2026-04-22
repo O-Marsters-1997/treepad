@@ -331,7 +331,7 @@ func TestPrune(t *testing.T) {
 	t.Run("--all with no candidates runs git worktree prune", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: mainWorktreePorcelain(mainPath)}, // git worktree list (main only)
-			{},                                        // git worktree prune
+			{}, // git worktree prune
 		}}
 		var buf strings.Builder
 		deps := Deps{

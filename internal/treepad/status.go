@@ -109,7 +109,7 @@ func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifac
 
 func writeStatusTable(d Deps, rows []StatusRow) error {
 	for _, line := range formatStatusRows(rows) {
-		fmt.Fprintln(d.Out, line)
+		_, _ = fmt.Fprintln(d.Out, line)
 	}
 	if hasPrunable(rows) {
 		_, _ = fmt.Fprintln(d.Out,
