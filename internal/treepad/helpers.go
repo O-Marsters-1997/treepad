@@ -52,7 +52,11 @@ func createWorktreeWithSync(ctx context.Context, d Deps, branch, base, outputDir
 	}
 	d.Log.OK("created worktree at %s", worktreePath)
 
-	cfg, err := loadAndSync(ctx, d, rc.Main.Path, nil, []syncTarget{{path: worktreePath, branch: branch}}, rc.Slug, rc.OutputDir)
+	cfg, err := loadAndSync(
+		ctx, d, rc.Main.Path, nil,
+		[]syncTarget{{path: worktreePath, branch: branch}},
+		rc.Slug, rc.OutputDir,
+	)
 	if err != nil {
 		return createWorktreeResult{}, err
 	}
@@ -83,7 +87,11 @@ type syncTarget struct {
 
 // loadAndSync loads config from sourceDir, syncs it to targets, and returns the config.
 // Pass a nil targets slice to skip syncing and only load the config.
-func loadAndSync(ctx context.Context, d Deps, sourceDir string, extraPatterns []string, targets []syncTarget, repoSlug, outputDir string) (config.Config, error) {
+func loadAndSync(
+	ctx context.Context, d Deps, sourceDir string,
+	extraPatterns []string, targets []syncTarget,
+	repoSlug, outputDir string,
+) (config.Config, error) {
 	cfg, err := config.Load(sourceDir)
 	if err != nil {
 		return config.Config{}, fmt.Errorf("load config: %w", err)

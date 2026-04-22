@@ -30,7 +30,10 @@ func completeExecBranch(ctx context.Context, cmd *cli.Command) {
 	completeWorktreeBranch(ctx, cmd)
 }
 
-func writeBranches(ctx context.Context, runner worktree.CommandRunner, w io.Writer, include func(worktree.Worktree) bool) {
+func writeBranches(
+	ctx context.Context, runner worktree.CommandRunner,
+	w io.Writer, include func(worktree.Worktree) bool,
+) {
 	wts, err := worktree.List(ctx, runner)
 	if err != nil {
 		return

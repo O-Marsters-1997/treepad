@@ -446,7 +446,9 @@ prompt_filename = "PROMPT.md"
 		if err := os.WriteFile(specFile, []byte(specBody), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
-		toml := "[[hooks.pre_new]]\ncommand = \"marker-pre\"\n\n[[hooks.post_new]]\ncommand = \"marker-post\"\n\n" + fromSpecTOML
+		toml := "[[hooks.pre_new]]\ncommand = \"marker-pre\"\n\n" +
+			"[[hooks.post_new]]\ncommand = \"marker-post\"\n\n" +
+			fromSpecTOML
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}

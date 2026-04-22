@@ -128,7 +128,11 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 	return nil
 }
 
-func pruneAll(ctx context.Context, d Deps, worktrees []worktree.Worktree, main worktree.Worktree, outputDir, cwd string, dryRun bool) error {
+func pruneAll(
+	ctx context.Context, d Deps,
+	worktrees []worktree.Worktree, main worktree.Worktree,
+	outputDir, cwd string, dryRun bool,
+) error {
 	// Must be invoked from the main worktree.
 	if rel, relErr := filepath.Rel(main.Path, cwd); relErr != nil || strings.HasPrefix(rel, "..") {
 		return fmt.Errorf("--all must be run from the main worktree (%s)", main.Path)

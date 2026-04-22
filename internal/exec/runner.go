@@ -57,10 +57,14 @@ func Detect(worktreePath, override string) (Runner, error) {
 	}
 
 	if len(detected) == 0 {
-		return Runner{}, fmt.Errorf("no task runner detected; check that a justfile, package.json, Makefile, or pyproject.toml is present")
+		return Runner{}, fmt.Errorf("no task runner detected; check that a justfile, " +
+			"package.json, Makefile, or pyproject.toml is present")
 	}
 	if len(detected) > 1 {
-		return Runner{}, fmt.Errorf("multiple task runners detected (%s); set [exec]\nrunner = %q (or another) in .treepad.toml to disambiguate", strings.Join(detected, ", "), detected[0])
+		return Runner{}, fmt.Errorf(
+			"multiple task runners detected (%s); set [exec]\nrunner = %q (or another) in .treepad.toml to disambiguate",
+			strings.Join(detected, ", "), detected[0],
+		)
 	}
 
 	name := detected[0]

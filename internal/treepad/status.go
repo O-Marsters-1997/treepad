@@ -156,7 +156,9 @@ func writeStatusTable(d Deps, rows []StatusRow) error {
 		return err
 	}
 	if hasPrunable {
-		_, _ = fmt.Fprintln(d.Out, "\nnote: stale worktree metadata detected — run 'tp prune' or 'git worktree prune' to clean up")
+		_, _ = fmt.Fprintln(d.Out,
+			"\nnote: stale worktree metadata detected — run 'tp prune' or 'git worktree prune' to clean up",
+		)
 	}
 	return nil
 }

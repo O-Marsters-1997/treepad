@@ -24,7 +24,13 @@ func makeMainWorktree(t *testing.T) string {
 
 func TestDiff(t *testing.T) {
 	t.Run("requires branch", func(t *testing.T) {
-		d := Deps{Runner: fakeRunner{}, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&bytes.Buffer{}), In: strings.NewReader("")}
+		d := Deps{
+			Runner: fakeRunner{},
+			Syncer: &fakeSyncer{},
+			Out:    &bytes.Buffer{},
+			Log:    ui.New(&bytes.Buffer{}),
+			In:     strings.NewReader(""),
+		}
 		err := Diff(context.Background(), d, DiffInput{})
 		if err == nil || !strings.Contains(err.Error(), "branch name is required") {
 			t.Fatalf("want branch required error, got %v", err)
@@ -32,7 +38,13 @@ func TestDiff(t *testing.T) {
 	})
 
 	t.Run("unknown branch", func(t *testing.T) {
-		d := Deps{Runner: fakeRunner{output: twoWorktreePorcelain}, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&bytes.Buffer{}), In: strings.NewReader("")}
+		d := Deps{
+			Runner: fakeRunner{output: twoWorktreePorcelain},
+			Syncer: &fakeSyncer{},
+			Out:    &bytes.Buffer{},
+			Log:    ui.New(&bytes.Buffer{}),
+			In:     strings.NewReader(""),
+		}
 		err := Diff(context.Background(), d, DiffInput{Branch: "nonexistent"})
 		if err == nil || !strings.Contains(err.Error(), `no worktree found for branch "nonexistent"`) {
 			t.Fatalf("want not-found error, got %v", err)
@@ -41,7 +53,13 @@ func TestDiff(t *testing.T) {
 
 	t.Run("prunable branch", func(t *testing.T) {
 		porcelain := twoWorktreePorcelainWithPrunable(t.TempDir(), t.TempDir())
-		d := Deps{Runner: fakeRunner{output: porcelain}, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&bytes.Buffer{}), In: strings.NewReader("")}
+		d := Deps{
+			Runner: fakeRunner{output: porcelain},
+			Syncer: &fakeSyncer{},
+			Out:    &bytes.Buffer{},
+			Log:    ui.New(&bytes.Buffer{}),
+			In:     strings.NewReader(""),
+		}
 		err := Diff(context.Background(), d, DiffInput{Branch: "stale-branch"})
 		if err == nil || !strings.Contains(err.Error(), "prunable") {
 			t.Fatalf("want prunable error, got %v", err)
@@ -73,7 +91,13 @@ func TestDiff(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			pt := &fakePassthroughRunner{}
-			d := Deps{Runner: fakeRunner{output: worktreePorcelainWithPath("feat", dir)}, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&bytes.Buffer{}), In: strings.NewReader("")}
+			d := Deps{
+				Runner: fakeRunner{output: worktreePorcelainWithPath("feat", dir)},
+				Syncer: &fakeSyncer{},
+				Out:    &bytes.Buffer{},
+				Log:    ui.New(&bytes.Buffer{}),
+				In:     strings.NewReader(""),
+			}
 
 			err := Diff(context.Background(), d, DiffInput{Branch: "feat", Base: tt.base, ExtraArgs: tt.extraArgs, Runner: pt})
 			if err != nil {
@@ -97,12 +121,19 @@ func TestDiff(t *testing.T) {
 
 	t.Run("base from config overrides default", func(t *testing.T) {
 		mainPath := makeMainWorktree(t)
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte("[diff]\nbase = \"master\"\n"), 0o644); err != nil {
+		contents := []byte("[diff]\nbase = \"master\"\n")
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), contents, 0o644); err != nil {
 			t.Fatal(err)
 		}
 		featPath := t.TempDir()
 		pt := &fakePassthroughRunner{}
-		d := Deps{Runner: fakeRunner{output: twoWorktreePorcelainWithMain(mainPath, featPath)}, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&bytes.Buffer{}), In: strings.NewReader("")}
+		d := Deps{
+			Runner: fakeRunner{output: twoWorktreePorcelainWithMain(mainPath, featPath)},
+			Syncer: &fakeSyncer{},
+			Out:    &bytes.Buffer{},
+			Log:    ui.New(&bytes.Buffer{}),
+			In:     strings.NewReader(""),
+		}
 
 		if err := Diff(context.Background(), d, DiffInput{Branch: "feat", Runner: pt}); err != nil {
 			t.Fatalf("unexpected error: %v", err)

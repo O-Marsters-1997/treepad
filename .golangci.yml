@@ -10,6 +10,10 @@ linters:
     - unused # unused code
     - misspell # spelling
     - exhaustive # exhaustive enum switches
+    - lll # line length
+  settings:
+    lll:
+      line-length: 120
 
 formatters:
   enable:

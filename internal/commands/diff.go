@@ -16,7 +16,11 @@ func diffCommand() *cli.Command {
 		Usage:     "diff a worktree against a base branch",
 		ArgsUsage: "<branch> [-- <git-diff-args>...]",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "base", Aliases: []string{"b"}, Usage: "base branch to diff against (default: origin/main, or [diff] base in .treepad.toml)"},
+			&cli.StringFlag{
+				Name:    "base",
+				Aliases: []string{"b"},
+				Usage:   "base branch to diff against (default: origin/main, or [diff] base in .treepad.toml)",
+			},
 			&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Usage: "write diff to `file` instead of terminal"},
 		},
 		Action: runDiff,

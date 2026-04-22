@@ -79,7 +79,9 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 // the worktree. Used by bulk mode where the written file is the deliverable.
 func renderAndWritePrompt(d Deps, res createWorktreeResult, branch, spec string) (path, rendered string, err error) {
 	if res.Cfg.FromSpec.PromptTemplate == "" {
-		return "", "", errors.New("from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default")
+		return "", "", errors.New(
+			"from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default",
+		)
 	}
 	filename := res.Cfg.FromSpec.PromptFilename
 	if filename == "" {
@@ -125,7 +127,9 @@ func resolvePrompt(d Deps, res createWorktreeResult, branch, spec string) (path,
 	}
 
 	if res.Cfg.FromSpec.PromptTemplate == "" {
-		return "", "", errors.New("from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default")
+		return "", "", errors.New(
+			"from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default",
+		)
 	}
 
 	data := promptData{

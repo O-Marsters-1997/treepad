@@ -14,7 +14,10 @@ import (
 // that was never pushed is not a "remote-gone" finding.
 // Returns (false, true, nil) when an upstream is configured but the remote no
 // longer has the branch.
-func RemoteBranchExists(ctx context.Context, runner CommandRunner, path, branch string) (exists, hasUpstream bool, err error) {
+func RemoteBranchExists(
+	ctx context.Context, runner CommandRunner,
+	path, branch string,
+) (exists, hasUpstream bool, err error) {
 	out, err := runner.Run(ctx, "git", "-C", path, "rev-parse", "--abbrev-ref", "@{upstream}")
 	if err != nil {
 		return false, false, nil
