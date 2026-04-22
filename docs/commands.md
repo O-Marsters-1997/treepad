@@ -14,17 +14,19 @@ By default, uses the main worktree (the one with a `.git` directory) as the conf
 
 **Source resolution precedence:**
 1. Explicit `source-path` argument
-2. `--use-current` flag (current directory)
+2. `--current` flag (current directory)
 3. Auto-detected main worktree
 
 ### Flags
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--use-current` | `-c` | Use current directory as config source instead of the main worktree |
+| `--current` | `-c` | Use current directory as config source instead of the main worktree |
 | `--sync-only` | | Sync configs only; skip artifact file generation |
 | `--output-dir` | `-o` | Directory for generated artifact files (default: `~/<repo-slug>-workspaces/`) |
 | `--include` | | Additional file patterns to sync (appended to `sync.include` in `.treepad.toml`) |
+
+**Note:** `--use-current` is accepted as a backwards-compatible alias for `--current`.
 
 ### Examples
 
@@ -36,7 +38,7 @@ tp sync
 tp sync --sync-only
 
 # Use the current directory as the config source
-tp sync --use-current
+tp sync --current
 
 # Write artifact files to a custom directory
 tp sync --output-dir ~/my-workspaces
@@ -68,7 +70,7 @@ Creates a new worktree branched from a specified ref (default: `main`), syncs ed
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--base` | | Ref to branch the new worktree from (default: `main`) |
+| `--base` | `-b` | Ref to branch the new worktree from (default: `main`) |
 | `--open` | `-o` | Open the generated artifact file (using the command specified in `[open].command`) |
 | `--current` | `-c` | Stay in the current directory instead of cd-ing into the new worktree |
 
@@ -112,7 +114,7 @@ One of `--issue` or `--file` is required; they are mutually exclusive.
 |------|-------|-------------|
 | `--issue` | `-i` | GitHub issue `number` to use as the spec (mutually exclusive with `--file`) |
 | `--file` | `-f` | Path to a local markdown spec `file` (mutually exclusive with `--issue`) |
-| `--base` | | Ref to branch the new worktree from (default: `main`) |
+| `--base` | `-b` | Ref to branch the new worktree from (default: `main`) |
 | `--current` | `-c` | Stay in the current directory instead of cd-ing into the new worktree |
 
 ### Examples
@@ -153,11 +155,11 @@ Partial failures are non-fatal: if one issue fails (bad number, empty body, work
 
 ### Flags
 
-| Flag | Description |
-|------|-------------|
-| `--issues` | Comma-separated issue numbers, e.g. `"12,14,19"` (required) |
-| `--branch-prefix` | Prefix prepended to the slugified issue title (default: empty) |
-| `--base` | Ref to branch every worktree from (default: `main`) |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--issues` | `-i` | Comma-separated issue numbers, e.g. `"12,14,19"` (required) |
+| `--branch-prefix` | | Prefix prepended to the slugified issue title (default: empty) |
+| `--base` | `-b` | Ref to branch every worktree from (default: `main`) |
 
 ### Examples
 
@@ -188,13 +190,16 @@ The shell `cd` directive (`__TREEPAD_CD__`) is never emitted — there is no sin
 
 ## cd
 
-cd into an existing worktree by branch name.
+cd into an existing worktree by branch name, or toggle back to the previous worktree.
 
 ```
 tp cd <branch>
+tp cd -
 ```
 
 Looks up the worktree registered under `<branch>` from `git worktree list` and emits a `__TREEPAD_CD__` directive. The shell wrapper installed by `shell-init` intercepts it and changes the current directory. No flags — positional branch argument only.
+
+Use `tp cd -` to go back to the previous worktree (like `cd -` in bash). The shell wrapper tracks the last visited worktree in the `$TP_PREV_WORKTREE` environment variable. If no previous worktree is set, an error is returned.
 
 If the branch has no associated worktree, an error is returned with a suggestion to use `tp new <branch>`.
 
@@ -211,6 +216,9 @@ eval "$(tp shell-init)"
 ```bash
 # cd into an existing worktree
 tp cd feature-x
+
+# Toggle back to the previous worktree
+tp cd -
 
 # Run the binary directly to inspect the directive
 command tp cd feature-x
@@ -257,9 +265,9 @@ By default, writes `.treepad.toml` to the main worktree root (the directory cont
 
 #### Flags
 
-| Flag | Description |
-|------|-------------|
-| `--global` | Write to the global config path instead of `.treepad.toml` in the main worktree |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--global` | `-g` | Write to the global config path instead of `.treepad.toml` in the main worktree |
 
 #### Examples
 
@@ -357,11 +365,12 @@ Automatically identifies and removes worktrees whose branches have been merged i
 
 ### Flags
 
-| Flag | Description |
-|------|-------------|
-| `--base` | Ref to check merges against (default: `main`) |
-| `--dry-run` | Preview removals without executing |
-| `--all` | Force-remove all non-main worktrees regardless of merge status (must be run from main worktree, requires confirmation) |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--base` | `-b` | Ref to check merges against (default: `main`) |
+| `--dry-run` | `-n` | Preview removals without executing |
+| `--all` | `-a` | Force-remove all non-main worktrees regardless of merge status (must be run from main worktree, requires confirmation) |
+| `--yes` | `-y` | Skip confirmation prompt (use with caution) |
 
 ### Filtering
 
@@ -472,9 +481,9 @@ Provides a repo-wide snapshot of all active worktrees, showing which ones have u
 
 ### Flags
 
-| Flag | Description |
-|------|-------------|
-| `--json` | Emit JSON array instead of an aligned table |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--json` | `-j` | Emit JSON array instead of an aligned table |
 
 ### Output Columns (Table Format)
 
