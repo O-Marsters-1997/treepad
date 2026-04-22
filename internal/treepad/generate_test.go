@@ -6,17 +6,33 @@ import (
 	"strings"
 	"testing"
 
-	internalsync "treepad/internal/sync"
 	"treepad/internal/worktree"
 )
 
 func TestGenerate(t *testing.T) {
+	mainWT := worktree.Worktree{Branch: "main", Path: "/repo/main", IsMain: true}
+	featWT := worktree.Worktree{Branch: "feat", Path: "/repo/feat"}
+	otherWT := worktree.Worktree{Branch: "other", Path: "/repo/other"}
+
+	twoFake := &fakeRepoView{
+		main:      mainWT,
+		worktrees: []worktree.Worktree{mainWT, featWT},
+	}
+	threeFake := &fakeRepoView{
+		main:      mainWT,
+		worktrees: []worktree.Worktree{mainWT, featWT, otherWT},
+	}
+
+	withFake := func(f *fakeRepoView) func(context.Context, string) (RepoView, error) {
+		return func(_ context.Context, _ string) (RepoView, error) { return f, nil }
+	}
+
 	t.Run("syncs non-source worktrees", func(t *testing.T) {
 		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{output: twoWorktreePorcelain}, syn, nil)
+		deps := testDeps(fakeRunner{}, syn, nil)
+		deps.NewRepoView = withFake(twoFake)
 
-		err := Generate(context.Background(), deps, GenerateInput{SourcePath: "/repo/main", SyncOnly: true})
-		if err != nil {
+		if err := Generate(context.Background(), deps, GenerateInput{SourcePath: "/repo/main", SyncOnly: true}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(syn.calls) != 1 {
@@ -29,14 +45,14 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("Branch filters to one target", func(t *testing.T) {
 		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+		deps := testDeps(fakeRunner{}, syn, nil)
+		deps.NewRepoView = withFake(threeFake)
 
-		err := Generate(context.Background(), deps, GenerateInput{
+		if err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
 			SyncOnly:   true,
 			Branch:     "feat",
-		})
-		if err != nil {
+		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(syn.calls) != 1 {
@@ -49,7 +65,8 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("unknown Branch returns clear error", func(t *testing.T) {
 		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+		deps := testDeps(fakeRunner{}, syn, nil)
+		deps.NewRepoView = withFake(threeFake)
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -63,13 +80,13 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("empty Branch syncs all targets", func(t *testing.T) {
 		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+		deps := testDeps(fakeRunner{}, syn, nil)
+		deps.NewRepoView = withFake(threeFake)
 
-		err := Generate(context.Background(), deps, GenerateInput{
+		if err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
 			SyncOnly:   true,
-		})
-		if err != nil {
+		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(syn.calls) != 2 {
@@ -77,42 +94,25 @@ func TestGenerate(t *testing.T) {
 		}
 	})
 
-	errorTests := []struct {
-		name    string
-		runner  worktree.CommandRunner
-		syncer  internalsync.Syncer
-		input   GenerateInput
-		wantErr string
-	}{
-		{
-			name:    "propagates syncer error",
-			runner:  fakeRunner{output: twoWorktreePorcelain},
-			syncer:  &fakeSyncer{err: errors.New("sync failed")},
-			input:   GenerateInput{SourcePath: "/repo/main", SyncOnly: true},
-			wantErr: "sync failed",
-		},
-		{
-			name:    "no worktrees",
-			runner:  fakeRunner{output: []byte{}},
-			syncer:  &fakeSyncer{},
-			input:   GenerateInput{SourcePath: "/repo/main"},
-			wantErr: "no git worktrees found",
-		},
-		{
-			name:    "runner error",
-			runner:  fakeRunner{err: errors.New("git not found")},
-			syncer:  &fakeSyncer{},
-			input:   GenerateInput{},
-			wantErr: "git not found",
-		},
-	}
-	for _, tt := range errorTests {
-		t.Run(tt.name, func(t *testing.T) {
-			deps := testDeps(tt.runner, tt.syncer, nil)
-			err := Generate(context.Background(), deps, tt.input)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
-			}
-		})
-	}
+	t.Run("propagates syncer error", func(t *testing.T) {
+		syn := &fakeSyncer{err: errors.New("sync failed")}
+		deps := testDeps(fakeRunner{}, syn, nil)
+		deps.NewRepoView = withFake(twoFake)
+
+		err := Generate(context.Background(), deps, GenerateInput{SourcePath: "/repo/main", SyncOnly: true})
+		if err == nil || !strings.Contains(err.Error(), "sync failed") {
+			t.Errorf("got error %v, want containing 'sync failed'", err)
+		}
+	})
+
+	t.Run("NewRepoView failure propagates", func(t *testing.T) {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, nil)
+		deps.NewRepoView = func(_ context.Context, _ string) (RepoView, error) {
+			return nil, errors.New("git not found")
+		}
+		err := Generate(context.Background(), deps, GenerateInput{SourcePath: "/repo/main"})
+		if err == nil || !strings.Contains(err.Error(), "git not found") {
+			t.Errorf("got error %v, want containing 'git not found'", err)
+		}
+	})
 }

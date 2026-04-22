@@ -23,10 +23,11 @@ type GenerateInput struct {
 }
 
 func Generate(ctx context.Context, d Deps, in GenerateInput) error {
-	worktrees, err := listWorktrees(ctx, d)
+	v, err := d.NewRepoView(ctx, in.OutputDir)
 	if err != nil {
 		return err
 	}
+	worktrees := v.Worktrees()
 
 	cwd, err := os.Getwd()
 	if err != nil {

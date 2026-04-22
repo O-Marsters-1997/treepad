@@ -2,14 +2,16 @@ package treepad
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"treepad/internal/slug"
+	"treepad/internal/worktree"
 )
 
 func TestStatus(t *testing.T) {
@@ -20,40 +22,45 @@ func TestStatus(t *testing.T) {
 	featPath := mainPath + "-feat"
 	outputDir := t.TempDir()
 	repoSlug := slug.Slug(filepath.Base(mainPath))
-	porcelain := twoWorktreePorcelainWithMain(mainPath, featPath)
 
-	commitOutput := func(sha, subject string) []byte {
-		return fmt.Appendf(nil, "%s\x00%s\x002024-06-01T12:00:00Z\n", sha, subject)
+	mainWT := worktree.Worktree{Branch: "main", Path: mainPath, IsMain: true}
+	featWT := worktree.Worktree{Branch: "feat", Path: featPath}
+
+	newFake := func(opts ...func(*fakeRepoView)) func(context.Context, string) (RepoView, error) {
+		f := &fakeRepoView{
+			main:      mainWT,
+			worktrees: []worktree.Worktree{mainWT, featWT},
+			slug:      repoSlug,
+			outputDir: outputDir,
+		}
+		for _, o := range opts {
+			o(f)
+		}
+		return func(_ context.Context, _ string) (RepoView, error) { return f, nil }
 	}
 
 	t.Run("renders table for two worktrees", func(t *testing.T) {
-		// main: clean, upstream (0 ahead, 1 behind)
-		// feat: dirty, no upstream
-		// artifact file for feat exists; main's does not
 		featArtifact := filepath.Join(outputDir, repoSlug+"-feat.code-workspace")
 		if err := os.WriteFile(featArtifact, []byte("{}"), 0o644); err != nil {
 			t.Fatalf("setup artifact: %v", err)
 		}
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},                        // git worktree list
-			{output: []byte("")},                       // dirty: main (clean)
-			{output: []byte("origin/main\n")},          // rev-parse @{upstream}: main
-			{output: []byte("0\t1\n")},                 // rev-list: main (0↑ 1↓)
-			{output: commitOutput("abc1234", "init")},  // git log: main
-			{output: []byte("M file.go\n")},            // dirty: feat
-			{err: errors.New("no upstream")},           // rev-parse @{upstream}: feat (none)
-			{output: commitOutput("def5678", "add x")}, // git log: feat
-		}}
-
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
-		err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
-		if err != nil {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = newFake(func(f *fakeRepoView) {
+			f.dirtyByBranch = map[string]bool{"feat": true}
+			f.aheadBehindByBranch = map[string]fakeAheadBehind{
+				"main": {A: 0, B: 1, HasUpstream: true},
+			}
+			f.lastCommitByBranch = map[string]worktree.CommitInfo{
+				"main": {ShortSHA: "abc1234", Subject: "init"},
+				"feat": {ShortSHA: "def5678", Subject: "add x"},
+			}
+		})
+
+		if err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
-		}
-		if runner.idx != 8 {
-			t.Errorf("runner called %d times, want 8", runner.idx)
 		}
 		out := buf.String()
 		for _, want := range []string{"BRANCH", "main", "feat", "clean", "dirty", "↑0 ↓1", "—", "abc1234", "def5678"} {
@@ -64,24 +71,29 @@ func TestStatus(t *testing.T) {
 	})
 
 	t.Run("json flag emits JSON array", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},
-			{err: errors.New("no upstream")},
-			{output: commitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{err: errors.New("no upstream")},
-			{output: commitOutput("def5678", "add x")},
-		}}
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
-		err := Status(context.Background(), deps, StatusInput{JSON: true, OutputDir: outputDir})
-		if err != nil {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = newFake(func(f *fakeRepoView) {
+			f.lastCommitByBranch = map[string]worktree.CommitInfo{
+				"main": {ShortSHA: "abc1234", Subject: "init"},
+				"feat": {ShortSHA: "def5678", Subject: "add x"},
+			}
+		})
+
+		if err := Status(context.Background(), deps, StatusInput{JSON: true, OutputDir: outputDir}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := buf.String()
 		if !strings.HasPrefix(out, "[") {
 			t.Errorf("expected JSON array, got: %s", out)
+		}
+		var rows []StatusRow
+		if err := json.Unmarshal([]byte(out), &rows); err != nil {
+			t.Fatalf("invalid JSON: %v", err)
+		}
+		if len(rows) != 2 {
+			t.Errorf("got %d rows, want 2", len(rows))
 		}
 		for _, want := range []string{"main", "feat", `"dirty"`, `"branch"`} {
 			if !strings.Contains(out, want) {
@@ -92,25 +104,31 @@ func TestStatus(t *testing.T) {
 
 	t.Run("prunable worktree renders without git calls", func(t *testing.T) {
 		prunablePath := mainPath + "-stale"
-		porcelainWithPrunable := twoWorktreePorcelainWithPrunable(mainPath, prunablePath)
-
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelainWithPrunable},           // git worktree list
-			{output: []byte("")},                      // dirty: main (clean)
-			{output: []byte("origin/main\n")},         // rev-parse @{upstream}: main
-			{output: []byte("0\t0\n")},                // rev-list: main
-			{output: commitOutput("abc1234", "init")}, // git log: main
-		}}
+		prunableWT := worktree.Worktree{
+			Branch: "stale-branch", Path: prunablePath,
+			Prunable: true, PrunableReason: "gitdir file points to non-existent location",
+		}
 
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
-		err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = func(_ context.Context, _ string) (RepoView, error) {
+			return &fakeRepoView{
+				main:      mainWT,
+				worktrees: []worktree.Worktree{mainWT, prunableWT},
+				slug:      repoSlug,
+				outputDir: outputDir,
+				aheadBehindByBranch: map[string]fakeAheadBehind{
+					"main": {A: 0, B: 0, HasUpstream: true},
+				},
+				lastCommitByBranch: map[string]worktree.CommitInfo{
+					"main": {ShortSHA: "abc1234", Subject: "init"},
+				},
+			}, nil
 		}
-		// Only 5 runner calls: list + 4 for main. No calls for the prunable worktree.
-		if runner.idx != 5 {
-			t.Errorf("runner called %d times, want 5 (no git calls for prunable)", runner.idx)
+
+		if err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 		out := buf.String()
 		for _, want := range []string{"stale-branch", "prunable", "gitdir file points to non-existent location", "tp prune"} {
@@ -120,44 +138,51 @@ func TestStatus(t *testing.T) {
 		}
 	})
 
-	errorTests := []struct {
-		name    string
-		runner  *seqRunner
-		wantErr string
-	}{
-		{
-			name: "git worktree list fails",
-			runner: &seqRunner{responses: []runResponse{
-				{err: errors.New("git not found")},
-			}},
-			wantErr: "git not found",
-		},
-		{
-			name: "dirty probe fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{err: errors.New("status failed")},
-			}},
-			wantErr: "status failed",
-		},
-		{
-			name: "last commit probe fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{output: []byte("")},             // dirty: clean
-				{err: errors.New("no upstream")}, // no upstream
-				{err: errors.New("log failed")},  // log fails
-			}},
-			wantErr: "log failed",
-		},
-	}
-	for _, tt := range errorTests {
-		t.Run(tt.name, func(t *testing.T) {
-			deps := testDeps(tt.runner, &fakeSyncer{}, &fakeOpener{})
-			err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
+	t.Run("artifact path and last-touched populated when file exists", func(t *testing.T) {
+		artifactFile := filepath.Join(outputDir, repoSlug+"-feat.code-workspace")
+		if err := os.WriteFile(artifactFile, []byte("{}"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		var buf strings.Builder
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = newFake(func(f *fakeRepoView) {
+			f.lastCommitByBranch = map[string]worktree.CommitInfo{
+				"main": {ShortSHA: "abc1234", Subject: "init", Committed: time.Now().Add(-1 * time.Hour)},
+				"feat": {ShortSHA: "def5678", Subject: "add x", Committed: time.Now().Add(-2 * time.Hour)},
 			}
 		})
-	}
+
+		rows, err := refreshStatus(context.Background(), deps, StatusInput{OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var featRow *StatusRow
+		for i := range rows {
+			if rows[i].Branch == "feat" {
+				featRow = &rows[i]
+			}
+		}
+		if featRow == nil {
+			t.Fatal("no feat row returned")
+		}
+		if featRow.ArtifactPath == "" {
+			t.Error("expected ArtifactPath to be set for feat")
+		}
+		if featRow.LastTouched.IsZero() {
+			t.Error("expected LastTouched to be set for feat")
+		}
+	})
+
+	t.Run("NewRepoView failure propagates", func(t *testing.T) {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = func(_ context.Context, _ string) (RepoView, error) {
+			return nil, errors.New("git not found")
+		}
+		err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), "git not found") {
+			t.Errorf("got error %v, want error containing %q", err, "git not found")
+		}
+	})
 }

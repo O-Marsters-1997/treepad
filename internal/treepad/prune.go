@@ -22,7 +22,7 @@ type PruneInput struct {
 }
 
 func Prune(ctx context.Context, d Deps, in PruneInput) error {
-	rc, err := loadRepoContext(ctx, d, in.OutputDir)
+	v, err := d.NewRepoView(ctx, in.OutputDir)
 	if err != nil {
 		return err
 	}
@@ -36,51 +36,40 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 	}
 
 	if in.All {
-		return pruneAll(ctx, d, rc.Worktrees, rc.Main, rc.OutputDir, cwd, in.DryRun)
+		return pruneAll(ctx, d, v.Worktrees(), v.Main(), v.OutputDir(), cwd, in.DryRun)
 	}
 
-	merged, err := worktree.MergedBranches(ctx, d.Runner, in.Base)
+	merged, err := v.MergedInto(ctx, in.Base)
 	if err != nil {
 		return err
 	}
 
-	mergedSet := make(map[string]bool, len(merged))
-	for _, b := range merged {
-		mergedSet[b] = true
+	snaps, err := v.Snapshots(ctx, Probe{Dirty: true, AheadBehind: true})
+	if err != nil {
+		return err
 	}
 
 	var candidates []worktree.Worktree
-	for _, wt := range rc.Worktrees {
-		if wt.IsMain || wt.Branch == rc.Main.Branch || wt.Branch == "(detached)" || wt.Prunable {
+	for _, s := range snaps {
+		if s.IsMain || s.Branch == v.Main().Branch || s.Branch == "(detached)" || s.Prunable {
 			continue
 		}
-		if !mergedSet[wt.Branch] {
+		if !merged[s.Branch] {
 			continue
 		}
-		if rel, relErr := filepath.Rel(wt.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
-			d.Log.Warn("skipping %s: currently in this worktree", wt.Branch)
+		if rel, relErr := filepath.Rel(s.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
+			d.Log.Warn("skipping %s: currently in this worktree", s.Branch)
 			continue
 		}
-
-		dirty, dirtyErr := worktree.Dirty(ctx, d.Runner, wt.Path)
-		if dirtyErr != nil {
-			return dirtyErr
-		}
-		if dirty {
-			d.Log.Warn("skipping %s: has uncommitted changes or untracked files", wt.Branch)
+		if s.Dirty {
+			d.Log.Warn("skipping %s: has uncommitted changes or untracked files", s.Branch)
 			continue
 		}
-
-		ahead, _, hasUpstream, aheadErr := worktree.AheadBehind(ctx, d.Runner, wt.Path)
-		if aheadErr != nil {
-			return aheadErr
-		}
-		if hasUpstream && ahead > 0 {
-			d.Log.Warn("skipping %s: %d unpushed commit(s)", wt.Branch, ahead)
+		if s.HasUpstream && s.Ahead > 0 {
+			d.Log.Warn("skipping %s: %d unpushed commit(s)", s.Branch, s.Ahead)
 			continue
 		}
-
-		candidates = append(candidates, wt)
+		candidates = append(candidates, s.Worktree)
 	}
 
 	if len(candidates) == 0 {
@@ -114,7 +103,7 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 
 	var failed []string
 	for _, c := range candidates {
-		if err := removeWorktreeAndArtifact(ctx, d, c, rc.Main, rc.OutputDir, false); err != nil {
+		if err := removeWorktreeAndArtifact(ctx, d, c, v.Main(), v.OutputDir(), false); err != nil {
 			d.Log.Err("error removing %s: %v", c.Branch, err)
 			failed = append(failed, c.Branch)
 		}

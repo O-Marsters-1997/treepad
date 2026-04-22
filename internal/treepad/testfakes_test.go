@@ -174,4 +174,73 @@ func newTestPrinter(w io.Writer) *ui.Printer {
 	return ui.New(w)
 }
 
+type fakeAheadBehind struct {
+	A, B        int
+	HasUpstream bool
+}
+
+// fakeRepoView implements RepoView for tests without touching the git wire protocol.
+type fakeRepoView struct {
+	main                worktree.Worktree
+	worktrees           []worktree.Worktree
+	slug, outputDir     string
+	dirtyByBranch       map[string]bool
+	aheadBehindByBranch map[string]fakeAheadBehind
+	lastCommitByBranch  map[string]worktree.CommitInfo
+	merged              map[string][]string // base → merged branches
+}
+
+func (f *fakeRepoView) Main() worktree.Worktree       { return f.main }
+func (f *fakeRepoView) Worktrees() []worktree.Worktree { return f.worktrees }
+func (f *fakeRepoView) Slug() string                   { return f.slug }
+func (f *fakeRepoView) OutputDir() string              { return f.outputDir }
+
+func (f *fakeRepoView) Snapshots(_ context.Context, p Probe) ([]Snapshot, error) {
+	snaps := make([]Snapshot, 0, len(f.worktrees))
+	for _, wt := range f.worktrees {
+		s := Snapshot{Worktree: wt}
+		if !wt.Prunable {
+			s.Probed = true
+			f.applyProbe(wt.Branch, p, &s)
+		}
+		snaps = append(snaps, s)
+	}
+	return snaps, nil
+}
+
+func (f *fakeRepoView) Inspect(_ context.Context, branch string, p Probe) (Snapshot, error) {
+	wt, ok := worktree.FindByBranch(f.worktrees, branch)
+	if !ok {
+		return Snapshot{}, fmt.Errorf("no worktree found for branch %q", branch)
+	}
+	s := Snapshot{Worktree: wt}
+	if !wt.Prunable {
+		s.Probed = true
+		f.applyProbe(branch, p, &s)
+	}
+	return s, nil
+}
+
+func (f *fakeRepoView) MergedInto(_ context.Context, base string) (map[string]bool, error) {
+	set := make(map[string]bool, len(f.merged[base]))
+	for _, b := range f.merged[base] {
+		set[b] = true
+	}
+	return set, nil
+}
+
+func (f *fakeRepoView) applyProbe(branch string, p Probe, s *Snapshot) {
+	if p.Dirty {
+		s.Dirty = f.dirtyByBranch[branch]
+	}
+	if p.AheadBehind {
+		if ab, ok := f.aheadBehindByBranch[branch]; ok {
+			s.Ahead, s.Behind, s.HasUpstream = ab.A, ab.B, ab.HasUpstream
+		}
+	}
+	if p.LastCommit {
+		s.LastCommit = f.lastCommitByBranch[branch]
+	}
+}
+
 var errExitNonZero = errors.New("exit status 1")

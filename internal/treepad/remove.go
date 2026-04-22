@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"treepad/internal/worktree"
 )
 
 type RemoveInput struct {
@@ -18,18 +16,18 @@ type RemoveInput struct {
 }
 
 func Remove(ctx context.Context, d Deps, in RemoveInput) error {
-	rc, err := loadRepoContext(ctx, d, in.OutputDir)
+	v, err := d.NewRepoView(ctx, in.OutputDir)
 	if err != nil {
 		return err
 	}
 
-	if in.Branch == rc.Main.Branch {
+	if in.Branch == v.Main().Branch {
 		return fmt.Errorf("cannot remove the main worktree")
 	}
 
-	found, ok := worktree.FindByBranch(rc.Worktrees, in.Branch)
-	if !ok {
-		return fmt.Errorf("no worktree found for branch %q", in.Branch)
+	s, err := v.Inspect(ctx, in.Branch, Probe{})
+	if err != nil {
+		return err
 	}
 
 	cwd := in.Cwd
@@ -39,9 +37,9 @@ func Remove(ctx context.Context, d Deps, in RemoveInput) error {
 			return fmt.Errorf("get current directory: %w", err)
 		}
 	}
-	if rel, relErr := filepath.Rel(found.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
+	if rel, relErr := filepath.Rel(s.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
 		return fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
 	}
 
-	return removeWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, false)
+	return removeWorktreeAndArtifact(ctx, d, s.Worktree, v.Main(), v.OutputDir(), false)
 }

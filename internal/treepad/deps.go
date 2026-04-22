@@ -1,6 +1,7 @@
 package treepad
 
 import (
+	"context"
 	"io"
 	"os"
 	"time"
@@ -34,13 +35,16 @@ type Deps struct {
 	// __TREEPAD_CD__ payload instead of the fd-3 probe. Tests set this to a
 	// bytes.Buffer to avoid touching real file descriptors.
 	CDSentinel func() io.Writer
+	// NewRepoView constructs a RepoView for the given output directory.
+	// Tests substitute a fakeRepoView factory to avoid the git wire protocol.
+	NewRepoView func(ctx context.Context, outputDir string) (RepoView, error)
 }
 
 // DefaultDeps wires production implementations. It is the single composition
 // root for callers that do not need custom dependencies.
 func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
 	runner := worktree.ExecRunner{}
-	return Deps{
+	d := Deps{
 		Runner:     runner,
 		Syncer:     internalsync.FileSyncer{},
 		Opener:     artifact.ExecOpener{Runner: runner},
@@ -58,4 +62,8 @@ func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
 		},
 		Sleep: time.After,
 	}
+	d.NewRepoView = func(ctx context.Context, outputDir string) (RepoView, error) {
+		return OpenRepo(ctx, d, outputDir)
+	}
+	return d
 }

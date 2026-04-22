@@ -10,19 +10,19 @@ import (
 	"time"
 
 	"treepad/internal/artifact"
+	"treepad/internal/slug"
 	internalsync "treepad/internal/sync"
+	"treepad/internal/worktree"
 )
 
-// recentCommitOutput returns a git log line for a commit made 1 minute ago.
-func recentCommitOutput(sha, subject string) []byte {
-	t := time.Now().Add(-1 * time.Minute).Format(time.RFC3339)
-	return []byte(sha + "\x00" + subject + "\x00" + t + "\n")
+// recentCommit returns a CommitInfo with Committed set 1 minute ago.
+func recentCommit(sha, subject string) worktree.CommitInfo {
+	return worktree.CommitInfo{ShortSHA: sha, Subject: subject, Committed: time.Now().Add(-1 * time.Minute)}
 }
 
-// staleCommitOutput returns a git log line for a commit made 60 days ago.
-func staleCommitOutput(sha, subject string) []byte {
-	t := time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)
-	return []byte(sha + "\x00" + subject + "\x00" + t + "\n")
+// staleCommit returns a CommitInfo with Committed set 60 days ago.
+func staleCommit(sha, subject string) worktree.CommitInfo {
+	return worktree.CommitInfo{ShortSHA: sha, Subject: subject, Committed: time.Now().Add(-60 * 24 * time.Hour)}
 }
 
 func TestDoctor(t *testing.T) {
@@ -32,37 +32,49 @@ func TestDoctor(t *testing.T) {
 	}
 	featPath := t.TempDir()
 	outputDir := t.TempDir()
-	porcelain := twoWorktreePorcelainWithMain(mainPath, featPath)
 
-	// offlineInput returns a DoctorInput with Offline=true so tests don't need
-	// to stub rev-parse / ls-remote calls unless specifically testing remote-gone.
+	mainWT := worktree.Worktree{Branch: "main", Path: mainPath, IsMain: true}
+	featWT := worktree.Worktree{Branch: "feat", Path: featPath}
+
 	offlineInput := func(extra ...func(*DoctorInput)) DoctorInput {
-		in := DoctorInput{
-			StaleDays: 30,
-			Base:      "main",
-			Offline:   true,
-			OutputDir: outputDir,
-		}
+		in := DoctorInput{StaleDays: 30, Base: "main", Offline: true, OutputDir: outputDir}
 		for _, f := range extra {
 			f(&in)
 		}
 		return in
 	}
 
-	t.Run("stale finding when last commit exceeds threshold", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},                                // git worktree list
-			{output: []byte("")},                               // git branch --merged (nothing)
-			{output: recentCommitOutput("abc1234", "init")},    // log: main (recent)
-			{output: []byte("")},                               // dirty: main (clean)
-			{output: staleCommitOutput("def5678", "old work")}, // log: feat (stale)
-			{output: []byte("")},                               // dirty: feat (clean)
-		}}
-		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+	repoSlug := slug.Slug(filepath.Base(mainPath))
 
-		err := Doctor(context.Background(), d, offlineInput())
-		if err != nil {
+	newFake := func(opts ...func(*fakeRepoView)) *fakeRepoView {
+		f := &fakeRepoView{
+			main:      mainWT,
+			worktrees: []worktree.Worktree{mainWT, featWT},
+			slug:      repoSlug,
+			outputDir: outputDir,
+			lastCommitByBranch: map[string]worktree.CommitInfo{
+				"main": recentCommit("abc1234", "init"),
+				"feat": recentCommit("def5678", "feat x"),
+			},
+		}
+		for _, o := range opts {
+			o(f)
+		}
+		return f
+	}
+	withFake := func(f *fakeRepoView) func(context.Context, string) (RepoView, error) {
+		return func(_ context.Context, _ string) (RepoView, error) { return f, nil }
+	}
+
+	t.Run("stale finding when last commit exceeds threshold", func(t *testing.T) {
+		var buf strings.Builder
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = withFake(newFake(func(f *fakeRepoView) {
+			f.lastCommitByBranch["feat"] = staleCommit("def5678", "old work")
+		}))
+
+		if err := Doctor(context.Background(), deps, offlineInput()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := buf.String()
@@ -75,45 +87,35 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("dirty-old finding supersedes stale when worktree is also dirty", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},                               // dirty: main clean
-			{output: staleCommitOutput("def5678", "old work")}, // feat: stale
-			{output: []byte("M file.go\n")},                    // dirty: feat dirty
-		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = withFake(newFake(func(f *fakeRepoView) {
+			f.lastCommitByBranch["feat"] = staleCommit("def5678", "old work")
+			f.dirtyByBranch = map[string]bool{"feat": true}
+		}))
 
-		err := Doctor(context.Background(), d, offlineInput())
-		if err != nil {
+		if err := Doctor(context.Background(), deps, offlineInput()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := buf.String()
 		if !strings.Contains(out, "dirty-old") {
 			t.Errorf("output missing 'dirty-old' finding:\n%s", out)
 		}
-		// stale should NOT appear separately when dirty-old is reported
 		if strings.Contains(out, "stale\t") {
 			t.Errorf("stale should not be reported alongside dirty-old:\n%s", out)
 		}
 	})
 
 	t.Run("merged-present finding when worktree branch is in merged set", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("feat\n")},                        // branch --merged: feat is merged
-			{output: recentCommitOutput("abc1234", "init")},   // log: main
-			{output: []byte("")},                              // dirty: main
-			{output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{output: []byte("")},                              // dirty: feat
-		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = withFake(newFake(func(f *fakeRepoView) {
+			f.merged = map[string][]string{"main": {"feat"}}
+		}))
 
-		err := Doctor(context.Background(), d, offlineInput())
-		if err != nil {
+		if err := Doctor(context.Background(), deps, offlineInput()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := buf.String()
@@ -126,99 +128,74 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("remote-gone finding when upstream configured but branch absent on remote", func(t *testing.T) {
+		// RemoteBranchExists calls: rev-parse (no upstream for main), rev-parse+ls-remote for feat
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},                              // branch --merged: none
-			{output: recentCommitOutput("abc1234", "init")},   // log: main
-			{output: []byte("")},                              // dirty: main
-			{err: errors.New("no upstream")},                  // rev-parse @{upstream}: main (none)
-			{output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{output: []byte("")},                              // dirty: feat
-			{output: []byte("origin/feat\n")},                 // rev-parse @{upstream}: feat has upstream
-			{output: []byte("")},                              // ls-remote: empty → branch gone
+			{err: errors.New("no upstream")}, // main: no upstream
+			{output: []byte("origin/feat\n")}, // feat: has upstream
+			{output: []byte("")},              // ls-remote: empty → branch gone
 		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = withFake(newFake())
 
 		in := DoctorInput{StaleDays: 30, Base: "main", Offline: false, OutputDir: outputDir}
-		err := Doctor(context.Background(), d, in)
-		if err != nil {
+		if err := Doctor(context.Background(), deps, in); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		out := buf.String()
-		if !strings.Contains(out, "remote-gone") {
-			t.Errorf("output missing 'remote-gone' finding:\n%s", out)
+		if !strings.Contains(buf.String(), "remote-gone") {
+			t.Errorf("output missing 'remote-gone' finding:\n%s", buf.String())
+		}
+		if runner.idx != 3 {
+			t.Errorf("runner called %d times, want 3 (2 worktrees × remote checks)", runner.idx)
 		}
 	})
 
 	t.Run("offline flag skips remote-gone check", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
-		}}
-		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		runner := &seqRunner{responses: []runResponse{}}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake())
 
-		err := Doctor(context.Background(), d, offlineInput())
-		if err != nil {
+		if err := Doctor(context.Background(), deps, offlineInput()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// All 6 calls consumed; any 7th would trip seqRunner's out-of-bounds guard.
-		if runner.idx != 6 {
-			t.Errorf("runner called %d times, want 6 (rev-parse/ls-remote must be skipped)", runner.idx)
+		if runner.idx != 0 {
+			t.Errorf("runner called %d times, want 0 (remote checks must be skipped)", runner.idx)
 		}
 	})
 
 	t.Run("artifact-missing finding when expected file is absent", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
-		}}
-		// outputDir has no artifact files on disk → both worktrees flagged missing.
 		emptyOutputDir := t.TempDir()
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
-
-		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
-			in.OutputDir = emptyOutputDir
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = withFake(newFake(func(f *fakeRepoView) {
+			f.outputDir = emptyOutputDir
 		}))
-		if err != nil {
+
+		if err := Doctor(context.Background(), deps, offlineInput(func(in *DoctorInput) {
+			in.OutputDir = emptyOutputDir
+		})); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		out := buf.String()
-		if !strings.Contains(out, "artifact-missing") {
-			t.Errorf("output missing 'artifact-missing' finding:\n%s", out)
+		if !strings.Contains(buf.String(), "artifact-missing") {
+			t.Errorf("output missing 'artifact-missing' finding:\n%s", buf.String())
 		}
 	})
 
 	t.Run("config-drift finding when worktree has different sync files", func(t *testing.T) {
-		// Write a .treepad.toml with different sync files to featPath.
 		toml := "[sync]\ninclude = [\"custom-file\"]\n"
 		if err := os.WriteFile(filepath.Join(featPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(featPath, ".treepad.toml")) })
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
-		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = withFake(newFake())
 
-		err := Doctor(context.Background(), d, offlineInput())
-		if err != nil {
+		if err := Doctor(context.Background(), deps, offlineInput()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := buf.String()
@@ -231,27 +208,20 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("no issues found message when everything is clean", func(t *testing.T) {
-		// Create artifact files so artifact-missing is not triggered.
 		artifactDir := t.TempDir()
-		repoSlug := strings.TrimSuffix(filepath.Base(mainPath), filepath.Ext(filepath.Base(mainPath)))
 		_ = os.WriteFile(filepath.Join(artifactDir, repoSlug+"-main.code-workspace"), []byte("{}"), 0o644)
 		_ = os.WriteFile(filepath.Join(artifactDir, repoSlug+"-feat.code-workspace"), []byte("{}"), 0o644)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
-		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
-
-		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
-			in.OutputDir = artifactDir
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = withFake(newFake(func(f *fakeRepoView) {
+			f.outputDir = artifactDir
 		}))
-		if err != nil {
+
+		if err := Doctor(context.Background(), deps, offlineInput(func(in *DoctorInput) {
+			in.OutputDir = artifactDir
+		})); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if !strings.Contains(buf.String(), "no issues found") {
@@ -260,21 +230,16 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("json flag emits JSON array", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("feat\n")}, // merged
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
-		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
-
-		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
-			in.JSON = true
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.Out = &buf
+		deps.NewRepoView = withFake(newFake(func(f *fakeRepoView) {
+			f.merged = map[string][]string{"main": {"feat"}}
 		}))
-		if err != nil {
+
+		if err := Doctor(context.Background(), deps, offlineInput(func(in *DoctorInput) {
+			in.JSON = true
+		})); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := buf.String()
@@ -289,17 +254,12 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("strict returns error when findings exist", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("feat\n")}, // merged → finding
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
-		}}
-		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake(func(f *fakeRepoView) {
+			f.merged = map[string][]string{"main": {"feat"}}
+		}))
 
-		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
+		err := Doctor(context.Background(), deps, offlineInput(func(in *DoctorInput) {
 			in.Strict = true
 		}))
 		if err == nil {
@@ -312,96 +272,59 @@ func TestDoctor(t *testing.T) {
 
 	t.Run("strict returns nil when no findings", func(t *testing.T) {
 		artifactDir := t.TempDir()
-		repoSlug := strings.TrimSuffix(filepath.Base(mainPath), filepath.Ext(filepath.Base(mainPath)))
 		_ = os.WriteFile(filepath.Join(artifactDir, repoSlug+"-main.code-workspace"), []byte("{}"), 0o644)
 		_ = os.WriteFile(filepath.Join(artifactDir, repoSlug+"-feat.code-workspace"), []byte("{}"), 0o644)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
-		}}
-		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake(func(f *fakeRepoView) {
+			f.outputDir = artifactDir
+		}))
 
-		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
+		if err := Doctor(context.Background(), deps, offlineInput(func(in *DoctorInput) {
 			in.Strict = true
 			in.OutputDir = artifactDir
-		}))
-		if err != nil {
+		})); err != nil {
 			t.Fatalf("strict with no findings should return nil, got: %v", err)
 		}
 	})
 
 	t.Run("skips detached-head worktrees", func(t *testing.T) {
-		detachedPorcelain := []byte("worktree " + mainPath + "\nHEAD abc123\ndetached\n\n")
-		runner := &seqRunner{responses: []runResponse{
-			{output: detachedPorcelain},
-			{output: []byte("")}, // branch --merged
-			// no per-worktree calls because detached is skipped
-		}}
-		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
-
-		err := Doctor(context.Background(), d, offlineInput())
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		detachedWT := worktree.Worktree{Branch: "(detached)", Path: mainPath, IsMain: true}
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = func(_ context.Context, _ string) (RepoView, error) {
+			return &fakeRepoView{
+				main:      detachedWT,
+				worktrees: []worktree.Worktree{detachedWT},
+				outputDir: outputDir,
+			}, nil
 		}
-		if runner.idx != 2 {
-			t.Errorf("runner called %d times, want 2 (no per-wt calls for detached)", runner.idx)
+
+		if err := Doctor(context.Background(), deps, offlineInput()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
-	errorTests := []struct {
-		name    string
-		runner  *seqRunner
-		wantErr string
-	}{
-		{
-			name: "git worktree list fails",
-			runner: &seqRunner{responses: []runResponse{
-				{err: errors.New("git not found")},
-			}},
-			wantErr: "git not found",
-		},
-		{
-			name: "git branch --merged fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{err: errors.New("unknown revision")},
-			}},
-			wantErr: "unknown revision",
-		},
-		{
-			name: "last commit probe fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{output: []byte("")},
-				{err: errors.New("git log failed")},
-			}},
-			wantErr: "git log failed",
-		},
-		{
-			name: "dirty probe fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{output: []byte("")},
-				{output: recentCommitOutput("abc1234", "init")},
-				{err: errors.New("git status failed")},
-			}},
-			wantErr: "git status failed",
-		},
-	}
-	for _, tt := range errorTests {
-		t.Run(tt.name, func(t *testing.T) {
-			d := testDeps(tt.runner, &fakeSyncer{}, &fakeOpener{})
-			err := Doctor(context.Background(), d, offlineInput())
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
-			}
-		})
-	}
+	t.Run("NewRepoView failure propagates", func(t *testing.T) {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = func(_ context.Context, _ string) (RepoView, error) {
+			return nil, errors.New("git not found")
+		}
+		err := Doctor(context.Background(), deps, offlineInput())
+		if err == nil || !strings.Contains(err.Error(), "git not found") {
+			t.Errorf("got error %v, want error containing 'git not found'", err)
+		}
+	})
+
+	t.Run("MergedInto failure propagates", func(t *testing.T) {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = func(_ context.Context, _ string) (RepoView, error) {
+			return nil, errors.New("unknown revision")
+		}
+		err := Doctor(context.Background(), deps, offlineInput())
+		if err == nil || !strings.Contains(err.Error(), "unknown revision") {
+			t.Errorf("got error %v, want error containing 'unknown revision'", err)
+		}
+	})
 }
 
 // Ensure DoctorInput and DoctorFinding are usable in tests without importing

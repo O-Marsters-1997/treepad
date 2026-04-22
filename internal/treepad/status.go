@@ -35,15 +35,19 @@ type StatusRow struct {
 }
 
 func refreshStatus(ctx context.Context, d Deps, in StatusInput) ([]StatusRow, error) {
-	rc, err := loadRepoContext(ctx, d, in.OutputDir)
+	v, err := d.NewRepoView(ctx, in.OutputDir)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(rc.Main.Path)
+	cfg, err := config.Load(v.Main().Path)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	return collectStatusRows(ctx, d, rc, artifactSpec(cfg.Artifact))
+	snaps, err := v.Snapshots(ctx, ProbeAll)
+	if err != nil {
+		return nil, err
+	}
+	return collectStatusRows(snaps, v.Slug(), v.OutputDir(), artifactSpec(cfg.Artifact))
 }
 
 func Status(ctx context.Context, d Deps, in StatusInput) error {
@@ -57,40 +61,27 @@ func Status(ctx context.Context, d Deps, in StatusInput) error {
 	return writeStatusTable(d, rows)
 }
 
-func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifact.Spec) ([]StatusRow, error) {
-	rows := make([]StatusRow, 0, len(rc.Worktrees))
-	for _, wt := range rc.Worktrees {
+func collectStatusRows(snaps []Snapshot, repoSlug, outputDir string, spec artifact.Spec) ([]StatusRow, error) {
+	rows := make([]StatusRow, 0, len(snaps))
+	for _, s := range snaps {
 		row := StatusRow{
-			Branch:         wt.Branch,
-			Path:           wt.Path,
-			IsMain:         wt.IsMain,
-			Prunable:       wt.Prunable,
-			PrunableReason: wt.PrunableReason,
+			Branch:         s.Branch,
+			Path:           s.Path,
+			IsMain:         s.IsMain,
+			Prunable:       s.Prunable,
+			PrunableReason: s.PrunableReason,
+			Dirty:          s.Dirty,
+			Ahead:          s.Ahead,
+			Behind:         s.Behind,
+			HasUpstream:    s.HasUpstream,
+			LastCommit:     s.LastCommit,
 		}
-
-		if wt.Prunable {
+		if s.Prunable {
 			rows = append(rows, row)
 			continue
 		}
-
-		var err error
-		row.Dirty, err = worktree.Dirty(ctx, d.Runner, wt.Path)
-		if err != nil {
-			return nil, err
-		}
-
-		row.Ahead, row.Behind, row.HasUpstream, err = worktree.AheadBehind(ctx, d.Runner, wt.Path)
-		if err != nil {
-			return nil, err
-		}
-
-		row.LastCommit, err = worktree.LastCommit(ctx, d.Runner, wt.Path)
-		if err != nil {
-			return nil, err
-		}
-
-		data := templateData(rc.Slug, wt.Branch, wt.Path, rc.OutputDir)
-		artifactPath, ok, err := artifact.Path(spec, rc.OutputDir, data)
+		data := templateData(repoSlug, s.Branch, s.Path, outputDir)
+		artifactPath, ok, err := artifact.Path(spec, outputDir, data)
 		if err != nil {
 			return nil, fmt.Errorf("resolve artifact path: %w", err)
 		}
@@ -100,7 +91,6 @@ func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifac
 				row.LastTouched = info.ModTime()
 			}
 		}
-
 		rows = append(rows, row)
 	}
 	return rows, nil

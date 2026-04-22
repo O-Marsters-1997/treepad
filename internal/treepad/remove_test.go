@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"treepad/internal/slug"
+	"treepad/internal/worktree"
 )
 
 func TestRemove(t *testing.T) {
@@ -19,45 +20,52 @@ func TestRemove(t *testing.T) {
 	featPath := mainPath + "-feat"
 	outputDir := t.TempDir()
 	repoSlug := slug.Slug(filepath.Base(mainPath))
-	porcelain := twoWorktreePorcelainWithMain(mainPath, featPath)
+
+	mainWT := worktree.Worktree{Branch: "main", Path: mainPath, IsMain: true}
+	featWT := worktree.Worktree{Branch: "feat", Path: featPath}
+
+	newFake := func() *fakeRepoView {
+		return &fakeRepoView{
+			main:      mainWT,
+			worktrees: []worktree.Worktree{mainWT, featWT},
+			slug:      repoSlug,
+			outputDir: outputDir,
+		}
+	}
+	withFake := func(f *fakeRepoView) func(context.Context, string) (RepoView, error) {
+		return func(_ context.Context, _ string) (RepoView, error) { return f, nil }
+	}
 
 	t.Run("removes worktree, artifact file, and branch", func(t *testing.T) {
-		// Default config template: <slug>-<branch>.code-workspace
 		wsFile := filepath.Join(outputDir, repoSlug+"-feat.code-workspace")
 		if err := os.WriteFile(wsFile, []byte("{}"), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain}, // git worktree list
-			{},                  // git worktree remove
-			{},                  // git branch -d
+			{}, // git worktree remove
+			{}, // git branch -d
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake())
 
-		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir})
-		if err != nil {
+		if err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-
 		if _, err := os.Stat(wsFile); !os.IsNotExist(err) {
 			t.Error("artifact file should have been deleted")
 		}
-		if runner.idx != 3 {
-			t.Errorf("runner called %d times, want 3", runner.idx)
+		if runner.idx != 2 {
+			t.Errorf("runner called %d times, want 2 (worktree remove + branch -d)", runner.idx)
 		}
 	})
 
 	t.Run("artifact file missing is not an error", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{},
-			{},
-		}}
+		runner := &seqRunner{responses: []runResponse{{}, {}}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake())
 
-		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir})
-		if err != nil {
+		if err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -69,14 +77,11 @@ func TestRemove(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{},
-			{},
-		}}
+		runner := &seqRunner{responses: []runResponse{{}, {}}}
 		hr := &fakeHookRunner{}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 		deps.HookRunner = hr
+		deps.NewRepoView = withFake(newFake())
 
 		if err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -102,12 +107,11 @@ func TestRemove(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{
-			{output: porcelain},
-		}}}
+		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{}}}
 		hr := &fakeHookRunner{err: errors.New("pre remove aborted")}
 		deps := testDeps(rr, &fakeSyncer{}, &fakeOpener{})
 		deps.HookRunner = hr
+		deps.NewRepoView = withFake(newFake())
 
 		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir})
 		if err == nil || !strings.Contains(err.Error(), "pre remove aborted") {
@@ -127,85 +131,72 @@ func TestRemove(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{},
-			{},
-		}}
+		runner := &seqRunner{responses: []runResponse{{}, {}}}
 		hr := &fakeHookRunner{err: errors.New("post remove failed")}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 		deps.HookRunner = hr
+		deps.NewRepoView = withFake(newFake())
 
 		if err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir}); err != nil {
 			t.Errorf("PostRemove hook failure should not abort operation, got error: %v", err)
 		}
 	})
 
-	errorTests := []struct {
-		name    string
-		runner  *seqRunner
-		branch  string
-		wantErr string
-	}{
-		{
-			name:   "git worktree list fails",
-			branch: "feat",
-			runner: &seqRunner{responses: []runResponse{
-				{err: errors.New("git not found")},
-			}},
-			wantErr: "git not found",
-		},
-		{
-			name:   "branch not found in worktree list",
-			branch: "feat",
-			runner: &seqRunner{responses: []runResponse{
-				{output: mainWorktreePorcelain(mainPath)},
-			}},
-			wantErr: `no worktree found for branch "feat"`,
-		},
-		{
-			name:   "git worktree remove fails",
-			branch: "feat",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{err: errors.New("locked worktree")},
-			}},
-			wantErr: "locked worktree",
-		},
-		{
-			name:   "git branch -d fails",
-			branch: "feat",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{},
-				{err: errors.New("branch not found")},
-			}},
-			wantErr: "branch not found",
-		},
-		{
-			name:   "refuses to remove main worktree",
-			branch: "main",
-			runner: &seqRunner{responses: []runResponse{
-				{output: mainWorktreePorcelain(mainPath)},
-			}},
-			wantErr: "main worktree",
-		},
-	}
-	for _, tt := range errorTests {
-		t.Run(tt.name, func(t *testing.T) {
-			deps := testDeps(tt.runner, &fakeSyncer{}, &fakeOpener{})
-			err := Remove(context.Background(), deps, RemoveInput{Branch: tt.branch, OutputDir: outputDir})
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
-			}
-		})
-	}
+	t.Run("refuses to remove the main worktree", func(t *testing.T) {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake())
 
-	t.Run("refuses to remove worktree user is currently in", func(t *testing.T) {
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "main", OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), "main worktree") {
+			t.Errorf("got error %v, want error containing 'main worktree'", err)
+		}
+	})
+
+	t.Run("branch not found returns clear error", func(t *testing.T) {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(&fakeRepoView{
+			main:      mainWT,
+			worktrees: []worktree.Worktree{mainWT}, // feat not present
+			outputDir: outputDir,
+		})
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), `no worktree found for branch "feat"`) {
+			t.Errorf("got error %v, want error containing branch-not-found message", err)
+		}
+	})
+
+	t.Run("git worktree remove failure propagates", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
+			{err: errors.New("locked worktree")},
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake())
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), "locked worktree") {
+			t.Errorf("got error %v, want error containing 'locked worktree'", err)
+		}
+	})
+
+	t.Run("git branch -d failure propagates", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{},
+			{err: errors.New("branch not found")},
+		}}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake())
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), "branch not found") {
+			t.Errorf("got error %v, want error containing 'branch not found'", err)
+		}
+	})
+
+	t.Run("refuses to remove worktree user is currently in", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{}}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = withFake(newFake())
 
 		err := Remove(context.Background(), deps, RemoveInput{
 			Branch:    "feat",
@@ -213,10 +204,21 @@ func TestRemove(t *testing.T) {
 			Cwd:       featPath,
 		})
 		if err == nil || !strings.Contains(err.Error(), "currently in") {
-			t.Errorf("got error %v, want error containing %q", err, "currently in")
+			t.Errorf("got error %v, want error containing 'currently in'", err)
 		}
-		if runner.idx != 1 {
-			t.Errorf("runner called %d times after guard, want 1 (list only)", runner.idx)
+		if runner.idx != 0 {
+			t.Errorf("runner called %d times, want 0 (no git calls after guard)", runner.idx)
+		}
+	})
+
+	t.Run("NewRepoView failure propagates", func(t *testing.T) {
+		deps := testDeps(fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps.NewRepoView = func(_ context.Context, _ string) (RepoView, error) {
+			return nil, errors.New("git not found")
+		}
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir})
+		if err == nil || !strings.Contains(err.Error(), "git not found") {
+			t.Errorf("got error %v, want error containing 'git not found'", err)
 		}
 	})
 }

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"text/tabwriter"
@@ -14,7 +13,6 @@ import (
 
 	"treepad/internal/artifact"
 	"treepad/internal/config"
-	"treepad/internal/slug"
 	"treepad/internal/worktree"
 )
 
@@ -35,140 +33,117 @@ type DoctorFinding struct {
 }
 
 func Doctor(ctx context.Context, d Deps, in DoctorInput) error {
-	worktrees, err := listWorktrees(ctx, d)
+	v, err := d.NewRepoView(ctx, in.OutputDir)
 	if err != nil {
 		return err
 	}
 
-	mainWT, err := worktree.MainWorktree(worktrees)
-	if err != nil {
-		return err
-	}
-
-	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
-
-	outputDir, err := resolveOutputDir(in.OutputDir, repoSlug)
-	if err != nil {
-		return err
-	}
-
-	mainCfg, err := config.Load(mainWT.Path)
+	mainCfg, err := config.Load(v.Main().Path)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-
 	spec := artifactSpec(mainCfg.Artifact)
 
-	mergedBranches, err := worktree.MergedBranches(ctx, d.Runner, in.Base)
+	merged, err := v.MergedInto(ctx, in.Base)
 	if err != nil {
 		return fmt.Errorf("merged branches: %w", err)
 	}
-	mergedSet := make(map[string]bool, len(mergedBranches))
-	for _, b := range mergedBranches {
-		mergedSet[b] = true
+
+	snaps, err := v.Snapshots(ctx, Probe{Dirty: true, LastCommit: true})
+	if err != nil {
+		return err
 	}
 
 	staleThreshold := time.Duration(in.StaleDays) * 24 * time.Hour
-
 	var findings []DoctorFinding
 
-	for _, wt := range worktrees {
-		if wt.Prunable {
+	for _, s := range snaps {
+		if s.Prunable {
 			findings = append(findings, DoctorFinding{
-				Branch: wt.Branch,
-				Path:   wt.Path,
+				Branch: s.Branch,
+				Path:   s.Path,
 				Kind:   "prunable",
-				Detail: wt.PrunableReason + " — run 'tp prune' or 'git worktree prune' to clean up",
+				Detail: s.PrunableReason + " — run 'tp prune' or 'git worktree prune' to clean up",
 			})
 			continue
 		}
 
-		if wt.Branch == "(detached)" {
+		if s.Branch == "(detached)" {
 			continue
 		}
 
-		commit, err := worktree.LastCommit(ctx, d.Runner, wt.Path)
-		if err != nil {
-			return err
-		}
-
-		dirty, err := worktree.Dirty(ctx, d.Runner, wt.Path)
-		if err != nil {
-			return err
-		}
-
-		if commit.ShortSHA != "" {
-			age := time.Since(commit.Committed)
-			if dirty && age > staleThreshold {
+		if s.LastCommit.ShortSHA != "" {
+			age := time.Since(s.LastCommit.Committed)
+			if s.Dirty && age > staleThreshold {
 				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
+					Branch: s.Branch,
+					Path:   s.Path,
 					Kind:   "dirty-old",
-					Detail: fmt.Sprintf("uncommitted changes, last commit %s ago", since(commit.Committed)),
+					Detail: fmt.Sprintf("uncommitted changes, last commit %s ago", since(s.LastCommit.Committed)),
 				})
 			} else if age > staleThreshold {
 				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
+					Branch: s.Branch,
+					Path:   s.Path,
 					Kind:   "stale",
-					Detail: fmt.Sprintf("last commit %s ago", since(commit.Committed)),
+					Detail: fmt.Sprintf("last commit %s ago", since(s.LastCommit.Committed)),
 				})
 			}
 		}
 
-		if !wt.IsMain && mergedSet[wt.Branch] {
+		if !s.IsMain && merged[s.Branch] {
 			findings = append(findings, DoctorFinding{
-				Branch: wt.Branch,
-				Path:   wt.Path,
+				Branch: s.Branch,
+				Path:   s.Path,
 				Kind:   "merged-present",
 				Detail: fmt.Sprintf("branch already merged into %s", in.Base),
 			})
 		}
 
 		if !in.Offline {
-			exists, hasUpstream, err := worktree.RemoteBranchExists(ctx, d.Runner, wt.Path, wt.Branch)
+			exists, hasUpstream, err := worktree.RemoteBranchExists(ctx, d.Runner, s.Path, s.Branch)
 			if err != nil {
 				return err
 			}
 			if hasUpstream && !exists {
 				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
+					Branch: s.Branch,
+					Path:   s.Path,
 					Kind:   "remote-gone",
 					Detail: "branch no longer exists on remote",
 				})
 			}
 		}
 
-		data := templateData(repoSlug, wt.Branch, wt.Path, outputDir)
-		artifactPath, ok, err := artifact.Path(spec, outputDir, data)
+		data := templateData(v.Slug(), s.Branch, s.Path, v.OutputDir())
+		artifactPath, ok, err := artifact.Path(spec, v.OutputDir(), data)
 		if err != nil {
 			return fmt.Errorf("resolve artifact path: %w", err)
 		}
 		if ok {
 			if _, statErr := os.Stat(artifactPath); os.IsNotExist(statErr) {
 				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
+					Branch: s.Branch,
+					Path:   s.Path,
 					Kind:   "artifact-missing",
 					Detail: fmt.Sprintf("expected artifact at %s", collapsePath(artifactPath)),
 				})
 			}
 		}
 
-		if !wt.IsMain {
-			wtCfg, cfgErr := config.Load(wt.Path)
+		if !s.IsMain {
+			wtCfg, cfgErr := config.Load(s.Path)
 			if cfgErr != nil {
 				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
+					Branch: s.Branch,
+					Path:   s.Path,
 					Kind:   "config-drift",
 					Detail: fmt.Sprintf("could not load .treepad.toml: %s", cfgErr),
 				})
 			} else if !reflect.DeepEqual(wtCfg, mainCfg) {
 				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
+					Branch: s.Branch,
+					Path:   s.Path,
 					Kind:   "config-drift",
 					Detail: configDriftDetail(mainCfg, wtCfg),
 				})
