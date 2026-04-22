@@ -19,6 +19,7 @@ func fromSpecBulkCommand() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:     "issues",
+				Aliases:  []string{"i"},
 				Usage:    "comma-separated issue `numbers`, e.g. \"12,14,19\"",
 				Required: true,
 			},
@@ -27,9 +28,10 @@ func fromSpecBulkCommand() *cli.Command {
 				Usage: "prefix prepended to the slugified issue title for each branch name",
 			},
 			&cli.StringFlag{
-				Name:  "base",
-				Usage: "ref to branch every new worktree from",
-				Value: "main",
+				Name:    "base",
+				Aliases: []string{"b"},
+				Usage:   "ref to branch every new worktree from",
+				Value:   "main",
 			},
 		},
 		Action: runFromSpecBulk,

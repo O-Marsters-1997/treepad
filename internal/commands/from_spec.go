@@ -27,9 +27,10 @@ func fromSpecCommand() *cli.Command {
 				Usage:   "`path` to a local markdown spec file (mutually exclusive with --issue)",
 			},
 			&cli.StringFlag{
-				Name:  "base",
-				Usage: "ref to branch the new worktree from",
-				Value: "main",
+				Name:    "base",
+				Aliases: []string{"b"},
+				Usage:   "ref to branch the new worktree from",
+				Value:   "main",
 			},
 			&cli.BoolFlag{
 				Name:    "current",

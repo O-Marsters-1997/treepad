@@ -17,9 +17,10 @@ func newCommand() *cli.Command {
 		ArgsUsage: "<branch>",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "base",
-				Usage: "ref to branch the new worktree from",
-				Value: "main",
+				Name:    "base",
+				Aliases: []string{"b"},
+				Usage:   "ref to branch the new worktree from",
+				Value:   "main",
 			},
 			&cli.BoolFlag{
 				Name:    "open",

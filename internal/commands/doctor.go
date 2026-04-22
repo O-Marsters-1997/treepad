@@ -14,9 +14,9 @@ func doctorCommand() *cli.Command {
 		Name:  "doctor",
 		Usage: "report cross-worktree health issues (stale, merged-present, remote-gone, config-drift)",
 		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "json", Usage: "emit JSON instead of a table"},
+			&cli.BoolFlag{Name: "json", Aliases: []string{"j"}, Usage: "emit JSON instead of a table"},
 			&cli.IntFlag{Name: "stale-days", Value: 30, Usage: "flag worktrees with no commit in this many days"},
-			&cli.StringFlag{Name: "base", Value: "main", Usage: "branch to check merges against"},
+			&cli.StringFlag{Name: "base", Aliases: []string{"b"}, Value: "main", Usage: "branch to check merges against"},
 			&cli.BoolFlag{Name: "offline", Usage: "skip remote branch existence check"},
 			&cli.BoolFlag{Name: "strict", Usage: "exit non-zero if any findings are reported"},
 		},

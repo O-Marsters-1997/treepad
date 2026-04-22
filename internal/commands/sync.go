@@ -17,8 +17,8 @@ func syncCommand() *cli.Command {
 		ArgsUsage: "[source-path]",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
-				Name:    "use-current",
-				Aliases: []string{"c"},
+				Name:    "current",
+				Aliases: []string{"c", "use-current"},
 				Usage:   "use current directory as config source instead of the main worktree",
 			},
 			&cli.BoolFlag{
@@ -40,11 +40,11 @@ func syncCommand() *cli.Command {
 }
 
 func runSync(ctx context.Context, cmd *cli.Command) error {
-	useCurrentFlag := cmd.Bool("use-current")
+	useCurrentFlag := cmd.Bool("current")
 	sourcePath := cmd.Args().First()
 
 	if useCurrentFlag && sourcePath != "" {
-		return fmt.Errorf("--use-current and a source path argument are mutually exclusive")
+		return fmt.Errorf("--current and a source path argument are mutually exclusive")
 	}
 
 	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
