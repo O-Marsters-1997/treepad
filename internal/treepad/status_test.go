@@ -23,36 +23,38 @@ func TestFormatStatusRows(t *testing.T) {
 		{Branch: "stale", Path: "/repo/stale", Prunable: true, PrunableReason: "no gitdir"},
 	}
 
-	lines := formatStatusRows(rows)
-	if lines == nil {
-		t.Fatal("expected non-nil lines for non-empty rows")
-	}
-	got := strings.Join(lines, "\n")
-
-	const golden = "testdata/status_table_basic.golden"
-	if *update {
-		if err := os.MkdirAll("testdata", 0o755); err != nil {
-			t.Fatal(err)
+	t.Run("basic", func(t *testing.T) {
+		lines := formatStatusRows(rows)
+		if lines == nil {
+			t.Fatal("expected non-nil lines for non-empty rows")
 		}
-		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
+		got := strings.Join(lines, "\n")
+
+		const golden = "testdata/status_table_basic.golden"
+		if *update {
+			if err := os.MkdirAll("testdata", 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return
 		}
-		return
-	}
 
-	wantBytes, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatalf("golden file missing — run with -update to create: %v", err)
-	}
-	if got != string(wantBytes) {
-		t.Errorf("formatStatusRows output differs from golden\ngot:\n%s\nwant:\n%s", got, string(wantBytes))
-	}
-}
+		wantBytes, err := os.ReadFile(golden)
+		if err != nil {
+			t.Fatalf("golden file missing — run with -update to create: %v", err)
+		}
+		if got != string(wantBytes) {
+			t.Errorf("formatStatusRows output differs from golden\ngot:\n%s\nwant:\n%s", got, string(wantBytes))
+		}
+	})
 
-func TestFormatStatusRows_Empty(t *testing.T) {
-	if lines := formatStatusRows(nil); lines != nil {
-		t.Errorf("expected nil for empty rows, got %v", lines)
-	}
+	t.Run("empty", func(t *testing.T) {
+		if lines := formatStatusRows(nil); lines != nil {
+			t.Errorf("expected nil for empty rows, got %v", lines)
+		}
+	})
 }
 
 func TestStatus(t *testing.T) {
