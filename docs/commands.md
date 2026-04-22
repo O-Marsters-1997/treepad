@@ -555,6 +555,7 @@ Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Sh
 | `s` | Sync selected worktree configs |
 | `S` | Sync all worktrees (fleet sync) |
 | `o` | Open artifact file for selected worktree |
+| `d` | Diff selected worktree against base (default from config or `origin/main`) |
 | `y` | Yank (copy) path to clipboard via OSC-52 |
 | `r` | Remove selected worktree (prompts for confirmation) |
 | `p` | Prune merged worktrees (prompts for confirmation) |
@@ -576,13 +577,13 @@ Show the diff of a worktree against a base branch using three-dot merge-base sem
 tp diff [options] <branch> [-- <git-diff-args>...]
 ```
 
-Displays the diff between the target worktree's branch and a base ref (default: `main`) using `git diff <base>...HEAD` semantics, which matches the diff view in GitHub pull requests. The diff is shown in the terminal with color and paging inherited from the target worktree's git configuration (respects `delta`, `diff-so-fancy`, or other configured tools). Optionally writes a plain (uncolored) patch to a file with `--output`.
+Displays the diff between the target worktree's branch and a base ref (default: `origin/main`, or the value of `[diff] base` in `.treepad.toml`) using `git diff <base>...HEAD` semantics, which matches the diff view in GitHub pull requests. The diff is shown in the terminal with color and paging inherited from the target worktree's git configuration (respects `delta`, `diff-so-fancy`, or other configured tools). Optionally writes a plain (uncolored) patch to a file with `--output`.
 
 ### Flags
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--base` | `-b` | Ref to diff against (default: `main`) |
+| `--base` | `-b` | Ref to diff against (default: from config `[diff] base` or `origin/main`; not set via CLI flag unless explicitly provided) |
 | `--output` | `-o` | Write uncolored patch to `file` instead of terminal; outputs `[OK]` to stderr on success |
 
 ### Argument Forwarding

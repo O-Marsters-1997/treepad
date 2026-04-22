@@ -105,6 +105,33 @@ Command to run when `tp new --open` is used. Each element is a Go text/template 
 command = ["open", "{{.ArtifactPath}}"]
 ```
 
+### `[diff]` section
+
+Configuration for the `tp diff` command and the `d` key in `tp ui`. Controls the base ref used for diffing.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `base` | string | Git ref to diff against (default: `origin/main`); used by `tp diff` when `--base` is not specified, and by the TUI `d` key binding |
+
+**Default** (when no `[diff]` section is present):
+
+```toml
+[diff]
+base = "origin/main"
+```
+
+**Examples:**
+
+```toml
+[diff]
+base = "main"
+```
+
+```toml
+[diff]
+base = "develop"
+```
+
 ### `[from_spec]` section
 
 Configuration for the `tp from-spec` command, which creates worktrees from specifications (GitHub issues or markdown files) and hands off to agents.
