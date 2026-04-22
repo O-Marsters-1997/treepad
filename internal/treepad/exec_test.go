@@ -208,8 +208,10 @@ func TestOsPassthroughRunner_TTY_ChildInherits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	orig := openTTY
-	defer func() { openTTY = orig }()
+	origTTY := openTTY
+	origIsTTY := stdioIsTTY
+	defer func() { openTTY = origTTY; stdioIsTTY = origIsTTY }()
+	stdioIsTTY = func() bool { return false } // force /dev/tty path regardless of test environment
 	openTTY = func() *os.File { return pw }
 
 	code, runErr := osPassthroughRunner{}.Run(context.Background(), t.TempDir(), "echo", "hello")
@@ -224,6 +226,26 @@ func TestOsPassthroughRunner_TTY_ChildInherits(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "hello") {
 		t.Errorf("expected child stdout on tty fd; got %q", got)
+	}
+}
+
+func TestOsPassthroughRunner_PrefersInheritedWhenStdioIsTTY(t *testing.T) {
+	ttyOpened := false
+	origTTY := openTTY
+	origIsTTY := stdioIsTTY
+	defer func() { openTTY = origTTY; stdioIsTTY = origIsTTY }()
+	stdioIsTTY = func() bool { return true }
+	openTTY = func() *os.File { ttyOpened = true; return nil }
+
+	code, err := osPassthroughRunner{}.Run(context.Background(), t.TempDir(), "true")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if ttyOpened {
+		t.Error("openTTY was called; expected inherited stdio path to be taken")
 	}
 }
 
