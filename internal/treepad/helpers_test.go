@@ -19,8 +19,8 @@ func TestEmitCD_CDSentinelPath(t *testing.T) {
 	}
 	emitCD(d, "/some/path")
 
-	if !strings.Contains(sentinel.String(), "__TREEPAD_CD__\t/some/path") {
-		t.Errorf("sentinel missing payload; got %q", sentinel.String())
+	if sentinel.String() != "/some/path\n" {
+		t.Errorf("sentinel = %q, want %q", sentinel.String(), "/some/path\n")
 	}
 	if out.Len() > 0 {
 		t.Errorf("expected nothing written to d.Out; got %q", out.String())
