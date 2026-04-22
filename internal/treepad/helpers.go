@@ -158,12 +158,11 @@ func templateData(repoSlug, branch, worktreePath, outputDir string) artifact.Tem
 }
 
 func emitCD(d Deps, path string) {
-	line := fmt.Sprintf("__TREEPAD_CD__\t%s\n", path)
 	if w := cdSentinelWriter(d); w != nil {
-		_, _ = io.WriteString(w, line)
+		_, _ = io.WriteString(w, path+"\n")
 		return
 	}
-	_, _ = io.WriteString(d.Out, line)
+	_, _ = fmt.Fprintf(d.Out, "__TREEPAD_CD__\t%s\n", path)
 }
 
 // cdSentinelWriter returns a writer for the __TREEPAD_CD__ sentinel.
