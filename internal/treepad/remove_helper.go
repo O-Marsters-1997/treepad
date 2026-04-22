@@ -16,7 +16,11 @@ import (
 // removeWorktreeAndArtifact removes a git worktree, its generated artifact file,
 // and the associated branch. When force is true, passes --force to git worktree remove
 // and -D (instead of -d) to git branch.
-func removeWorktreeAndArtifact(ctx context.Context, d Deps, target, main worktree.Worktree, outputDir string, force bool) error {
+func removeWorktreeAndArtifact(
+	ctx context.Context, d Deps,
+	target, main worktree.Worktree,
+	outputDir string, force bool,
+) error {
 	removeArgs := []string{"worktree", "remove", target.Path}
 	removeVerb := "git worktree remove"
 	branchFlag := "-d"

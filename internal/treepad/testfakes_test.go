@@ -119,14 +119,18 @@ func twoWorktreePorcelainWithMain(mainPath, featPath string) []byte {
 
 func twoWorktreePorcelainWithPrunable(mainPath, prunablePath string) []byte {
 	return fmt.Appendf(nil,
-		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\nworktree %s\nHEAD def456\nbranch refs/heads/stale-branch\nprunable gitdir file points to non-existent location\n\n",
+		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\n"+
+			"worktree %s\nHEAD def456\nbranch refs/heads/stale-branch\n"+
+			"prunable gitdir file points to non-existent location\n\n",
 		mainPath, prunablePath,
 	)
 }
 
 func threeWorktreePorcelainWithMain(mainPath, feat1Path, feat2Path string) []byte {
 	return fmt.Appendf(nil,
-		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\nworktree %s\nHEAD def456\nbranch refs/heads/feat\n\nworktree %s\nHEAD ghi789\nbranch refs/heads/other\n\n",
+		"worktree %s\nHEAD abc123\nbranch refs/heads/main\n\n"+
+			"worktree %s\nHEAD def456\nbranch refs/heads/feat\n\n"+
+			"worktree %s\nHEAD ghi789\nbranch refs/heads/other\n\n",
 		mainPath, feat1Path, feat2Path,
 	)
 }
@@ -152,7 +156,10 @@ type depsOption func(*Deps)
 // from an empty stdin unless the caller substitutes those fields.
 // HookRunner defaults to a no-op fakeHookRunner; override deps.HookRunner for tests
 // that assert hook behavior.
-func testDeps(runner worktree.CommandRunner, syncer internalsync.Syncer, opener artifact.Opener, opts ...depsOption) Deps {
+func testDeps(
+	runner worktree.CommandRunner, syncer internalsync.Syncer,
+	opener artifact.Opener, opts ...depsOption,
+) Deps {
 	d := Deps{
 		Runner:     runner,
 		Syncer:     syncer,

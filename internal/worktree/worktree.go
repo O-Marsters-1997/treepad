@@ -150,7 +150,9 @@ func Dirty(ctx context.Context, runner CommandRunner, path string) (bool, error)
 // AheadBehind returns the number of commits the branch at path is ahead of and
 // behind its upstream. hasUpstream is false when no upstream is configured; this
 // is not an error.
-func AheadBehind(ctx context.Context, runner CommandRunner, path string) (ahead, behind int, hasUpstream bool, err error) {
+func AheadBehind(
+	ctx context.Context, runner CommandRunner, path string,
+) (ahead, behind int, hasUpstream bool, err error) {
 	if _, err := runner.Run(ctx, "git", "-C", path, "rev-parse", "--abbrev-ref", "@{upstream}"); err != nil {
 		return 0, 0, false, nil
 	}

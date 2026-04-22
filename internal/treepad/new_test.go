@@ -130,7 +130,11 @@ func TestNew(t *testing.T) {
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 		deps.HookRunner = hr
 
-		if err := New(context.Background(), deps, NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir}); err != nil {
+		if err := New(context.Background(), deps, NewInput{
+			Branch:    "feature/auth",
+			Base:      "main",
+			OutputDir: outputDir,
+		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(hr.calls) != 2 {
@@ -187,7 +191,11 @@ func TestNew(t *testing.T) {
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 		deps.HookRunner = hr
 
-		if err := New(context.Background(), deps, NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir}); err != nil {
+		if err := New(context.Background(), deps, NewInput{
+			Branch:    "feature/auth",
+			Base:      "main",
+			OutputDir: outputDir,
+		}); err != nil {
 			t.Errorf("PostNew hook failure should not abort operation, got error: %v", err)
 		}
 	})

@@ -201,7 +201,14 @@ func TestPrune(t *testing.T) {
 			{output: threePorcelain}, // git worktree list
 		}}
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("")}
+		deps := Deps{
+			Runner: runner,
+			Syncer: &fakeSyncer{},
+			Opener: &fakeOpener{},
+			Out:    &buf,
+			Log:    ui.New(&buf),
+			In:     strings.NewReader(""),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{
 			All:       true,
@@ -229,7 +236,14 @@ func TestPrune(t *testing.T) {
 			{output: twoPorcelain}, // git worktree list
 		}}
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("n\n")}
+		deps := Deps{
+			Runner: runner,
+			Syncer: &fakeSyncer{},
+			Opener: &fakeOpener{},
+			Out:    &buf,
+			Log:    ui.New(&buf),
+			In:     strings.NewReader("n\n"),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{
 			All:       true,
@@ -314,7 +328,14 @@ func TestPrune(t *testing.T) {
 			{output: []byte("")},             // dirty: feat (clean)
 			{err: errors.New("no upstream")}, // rev-parse @{upstream}: feat
 		}}
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("")}
+		deps := Deps{
+			Runner: runner,
+			Syncer: &fakeSyncer{},
+			Opener: &fakeOpener{},
+			Out:    &buf,
+			Log:    ui.New(&buf),
+			In:     strings.NewReader(""),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{Base: "main", OutputDir: outputDir, DryRun: true})
 		if err != nil {
@@ -336,7 +357,14 @@ func TestPrune(t *testing.T) {
 			{output: []byte("M f.go\n")}, // dirty: feat (dirty)
 			{},                           // git worktree prune (no candidates remain)
 		}}
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("")}
+		deps := Deps{
+			Runner: runner,
+			Syncer: &fakeSyncer{},
+			Opener: &fakeOpener{},
+			Out:    &buf,
+			Log:    ui.New(&buf),
+			In:     strings.NewReader(""),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{Base: "main", OutputDir: outputDir, Yes: true})
 		if err != nil {
@@ -360,7 +388,14 @@ func TestPrune(t *testing.T) {
 			{output: []byte("2\t0\n")},        // rev-list: 2 ahead, 0 behind
 			{},                                // git worktree prune
 		}}
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("")}
+		deps := Deps{
+			Runner: runner,
+			Syncer: &fakeSyncer{},
+			Opener: &fakeOpener{},
+			Out:    &buf,
+			Log:    ui.New(&buf),
+			In:     strings.NewReader(""),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{Base: "main", OutputDir: outputDir, Yes: true})
 		if err != nil {
@@ -382,7 +417,14 @@ func TestPrune(t *testing.T) {
 			{output: []byte("")},             // dirty: feat (clean)
 			{err: errors.New("no upstream")}, // rev-parse: feat (no upstream)
 		}}
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("n\n")}
+		deps := Deps{
+			Runner: runner,
+			Syncer: &fakeSyncer{},
+			Opener: &fakeOpener{},
+			Out:    &buf,
+			Log:    ui.New(&buf),
+			In:     strings.NewReader("n\n"),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{Base: "main", OutputDir: outputDir})
 		if err != nil {
@@ -408,7 +450,14 @@ func TestPrune(t *testing.T) {
 			{},                               // git branch -d
 			{},                               // git worktree prune
 		}}
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, Log: ui.New(&buf), In: strings.NewReader("y\n")}
+		deps := Deps{
+			Runner: runner,
+			Syncer: &fakeSyncer{},
+			Opener: &fakeOpener{},
+			Out:    &buf,
+			Log:    ui.New(&buf),
+			In:     strings.NewReader("y\n"),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{Base: "main", OutputDir: outputDir})
 		if err != nil {

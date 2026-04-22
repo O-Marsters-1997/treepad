@@ -37,7 +37,11 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 	if err != nil {
 		return fmt.Errorf("resolve source directory: %w", err)
 	}
-	slog.Debug("resolved source directory", "sourceDir", sourceDir, "useCurrentDir", in.UseCurrentDir, "sourcePath", in.SourcePath)
+	slog.Debug("resolved source directory",
+		"sourceDir", sourceDir,
+		"useCurrentDir", in.UseCurrentDir,
+		"sourcePath", in.SourcePath,
+	)
 	d.Log.Info("using config source: %s", sourceDir)
 
 	repoSlug := slug.Slug(filepath.Base(sourceDir))

@@ -549,9 +549,11 @@ func UI(ctx context.Context, d Deps, in StatusInput) error {
 	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	m := uiModel{
 		ctx: ctx, d: d, in: in, loading: true, spinner: sp,
-		tickCmd:       func() tea.Cmd { return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiTickMsg{} }) },
-		toastTimerCmd: func() tea.Cmd { return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiToastExpiredMsg{} }) },
-		headerClock:   func() string { return time.Now().Format("15:04:05") },
+		tickCmd: func() tea.Cmd { return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiTickMsg{} }) },
+		toastTimerCmd: func() tea.Cmd {
+			return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiToastExpiredMsg{} })
+		},
+		headerClock: func() string { return time.Now().Format("15:04:05") },
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
 	final, err := p.Run()
