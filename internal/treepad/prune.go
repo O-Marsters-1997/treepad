@@ -61,6 +61,8 @@ func gatherMerged(ctx context.Context, d Deps, rc repoContext, cwd, base string)
 		return pruneSelection{}, err
 	}
 
+	d.Log.Debug("base=%s merged=%v", base, merged)
+
 	mergedSet := make(map[string]bool, len(merged))
 	for _, b := range merged {
 		mergedSet[b] = true
@@ -68,10 +70,13 @@ func gatherMerged(ctx context.Context, d Deps, rc repoContext, cwd, base string)
 
 	var candidates []worktree.Worktree
 	for _, wt := range rc.Worktrees {
+		d.Log.Debug("worktree branch=%q isMain=%v prunable=%v", wt.Branch, wt.IsMain, wt.Prunable)
 		if wt.IsMain || wt.Branch == rc.Main.Branch || wt.Branch == "(detached)" || wt.Prunable {
+			d.Log.Debug("  skip: main/detached/prunable")
 			continue
 		}
 		if !mergedSet[wt.Branch] {
+			d.Log.Debug("  skip: not merged into %s", base)
 			continue
 		}
 		if rel, relErr := filepath.Rel(wt.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
@@ -97,8 +102,17 @@ func gatherMerged(ctx context.Context, d Deps, rc repoContext, cwd, base string)
 			continue
 		}
 
+		d.Log.Debug("  candidate: %s", wt.Branch)
 		candidates = append(candidates, wt)
 	}
+
+	d.Log.Debug("candidates=%v", func() []string {
+		names := make([]string, len(candidates))
+		for i, c := range candidates {
+			names[i] = c.Branch
+		}
+		return names
+	}())
 
 	return pruneSelection{
 		candidates: candidates,

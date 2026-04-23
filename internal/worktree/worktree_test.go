@@ -155,38 +155,87 @@ func TestParsePorcelain_doesNotSetIsMain(t *testing.T) {
 	}
 }
 
+type seqFakeRunner struct {
+	responses []fakeResponse
+	idx       int
+}
+
+type fakeResponse struct {
+	output []byte
+	err    error
+}
+
+func (s *seqFakeRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	if s.idx >= len(s.responses) {
+		return nil, errors.New("unexpected runner call")
+	}
+	r := s.responses[s.idx]
+	s.idx++
+	return r.output, r.err
+}
+
 func TestMergedBranches(t *testing.T) {
 	ctx := context.Background()
 
+	const baseSHA = "aaa111\n"
+
 	tests := []struct {
-		name    string
-		output  []byte
-		err     error
-		base    string
-		want    []string
-		wantErr bool
+		name      string
+		responses []fakeResponse
+		base      string
+		want      []string
+		wantErr   bool
 	}{
 		{
-			name:   "returns merged branches excluding base",
-			output: []byte("main\nfeat\nfix/bug\n"),
-			base:   "main",
-			want:   []string{"feat", "fix/bug"},
+			name: "returns merged branches excluding base and fresh tips",
+			responses: []fakeResponse{
+				{output: []byte(baseSHA)},
+				{output: []byte("main aaa111\nfeat bbb222\nfix/bug ccc333\n")},
+			},
+			base: "main",
+			want: []string{"feat", "fix/bug"},
 		},
 		{
-			name:   "blank lines ignored",
-			output: []byte("\nfeat\n\n"),
-			base:   "main",
-			want:   []string{"feat"},
+			name: "excludes branches whose tip equals base tip (fresh worktrees)",
+			responses: []fakeResponse{
+				{output: []byte(baseSHA)},
+				{output: []byte("fresh aaa111\nreal bbb222\n")},
+			},
+			base: "main",
+			want: []string{"real"},
 		},
 		{
-			name:   "nothing merged besides base",
-			output: []byte("main\n"),
-			base:   "main",
-			want:   nil,
+			name: "blank lines ignored",
+			responses: []fakeResponse{
+				{output: []byte(baseSHA)},
+				{output: []byte("\nfeat bbb222\n\n")},
+			},
+			base: "main",
+			want: []string{"feat"},
 		},
 		{
-			name:    "runner error",
-			err:     errors.New("git not found"),
+			name: "nothing merged besides base",
+			responses: []fakeResponse{
+				{output: []byte(baseSHA)},
+				{output: []byte("main aaa111\n")},
+			},
+			base: "main",
+			want: nil,
+		},
+		{
+			name: "rev-parse error",
+			responses: []fakeResponse{
+				{err: errors.New("unknown revision")},
+			},
+			base:    "main",
+			wantErr: true,
+		},
+		{
+			name: "for-each-ref error",
+			responses: []fakeResponse{
+				{output: []byte(baseSHA)},
+				{err: errors.New("git for-each-ref failed")},
+			},
 			base:    "main",
 			wantErr: true,
 		},
@@ -194,7 +243,7 @@ func TestMergedBranches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := MergedBranches(ctx, fakeRunner{output: tt.output, err: tt.err}, tt.base)
+			got, err := MergedBranches(ctx, &seqFakeRunner{responses: tt.responses}, tt.base)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")

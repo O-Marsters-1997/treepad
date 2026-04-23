@@ -12,17 +12,20 @@ package ui
 import (
 	"fmt"
 	"io"
+	"os"
 )
 
 // Printer writes fixed-width tagged lines to an io.Writer.
 // A nil Printer is safe to use; all calls are no-ops.
 type Printer struct {
-	w io.Writer
+	w     io.Writer
+	debug bool
 }
 
 // New returns a Printer that writes to w.
+// Debug output is enabled when TREEPAD_DEBUG is set to a non-empty value.
 func New(w io.Writer) *Printer {
-	return &Printer{w: w}
+	return &Printer{w: w, debug: os.Getenv("TREEPAD_DEBUG") != ""}
 }
 
 // Step emits a [STEP] line for an action in progress.
@@ -39,6 +42,14 @@ func (p *Printer) Warn(format string, a ...any) { p.write("[WARN] ", format, a..
 
 // Err emits an [ERR]  line for fatal errors presented to the user.
 func (p *Printer) Err(format string, a ...any) { p.write("[ERR]  ", format, a...) }
+
+// Debug emits a [DEBG] line, but only when TREEPAD_DEBUG is set.
+func (p *Printer) Debug(format string, a ...any) {
+	if p == nil || !p.debug {
+		return
+	}
+	p.write("[DEBG] ", format, a...)
+}
 
 // Prompt writes a bare prompt string to stderr without a trailing newline or tag.
 // Used for interactive confirmation prompts where a tag would look odd.

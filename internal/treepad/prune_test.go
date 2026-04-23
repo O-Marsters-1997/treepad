@@ -27,10 +27,11 @@ func TestPrune(t *testing.T) {
 
 	t.Run("dry-run lists candidates without removing", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
-			{output: twoPorcelain},           // git worktree list
-			{output: []byte("feat\n")},       // git branch --merged
-			{output: []byte("")},             // dirty: feat (clean)
-			{err: errors.New("no upstream")}, // rev-parse @{upstream}: feat (no upstream)
+			{output: twoPorcelain},            // git worktree list
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // git for-each-ref --merged
+			{output: []byte("")},              // dirty: feat (clean)
+			{err: errors.New("no upstream")},  // rev-parse @{upstream}: feat (no upstream)
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 
@@ -38,8 +39,8 @@ func TestPrune(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 4 {
-			t.Errorf("runner called %d times, want 4 (no removes in dry-run)", runner.idx)
+		if runner.idx != 5 {
+			t.Errorf("runner called %d times, want 5 (no removes in dry-run)", runner.idx)
 		}
 	})
 
@@ -50,13 +51,14 @@ func TestPrune(t *testing.T) {
 		}
 
 		runner := &seqRunner{responses: []runResponse{
-			{output: twoPorcelain},           // git worktree list
-			{output: []byte("feat\n")},       // git branch --merged
-			{output: []byte("")},             // dirty: feat (clean)
-			{err: errors.New("no upstream")}, // rev-parse @{upstream}: feat
-			{},                               // git worktree remove
-			{},                               // git branch -d
-			{},                               // git worktree prune
+			{output: twoPorcelain},            // git worktree list
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // git for-each-ref --merged
+			{output: []byte("")},              // dirty: feat (clean)
+			{err: errors.New("no upstream")},  // rev-parse @{upstream}: feat
+			{},                                // git worktree remove
+			{},                                // git branch -d
+			{},                                // git worktree prune
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 
@@ -64,8 +66,8 @@ func TestPrune(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 7 {
-			t.Errorf("runner called %d times, want 7", runner.idx)
+		if runner.idx != 8 {
+			t.Errorf("runner called %d times, want 8", runner.idx)
 		}
 		if _, statErr := os.Stat(wsFile); !os.IsNotExist(statErr) {
 			t.Error("artifact file should have been deleted")
@@ -75,8 +77,9 @@ func TestPrune(t *testing.T) {
 	t.Run("skips unmerged worktrees", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain},
-			{output: []byte("")}, // nothing merged
-			{},                   // git worktree prune
+			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{output: []byte("")},         // git for-each-ref --merged (empty)
+			{},                           // git worktree prune
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 
@@ -84,20 +87,39 @@ func TestPrune(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 3 {
-			t.Errorf("runner called %d times, want 3", runner.idx)
+		if runner.idx != 4 {
+			t.Errorf("runner called %d times, want 4", runner.idx)
+		}
+	})
+
+	t.Run("skips fresh worktree whose tip equals base tip", func(t *testing.T) {
+		runner := &seqRunner{responses: []runResponse{
+			{output: twoPorcelain},
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat aaa111\n")}, // feat tip == main tip; filtered out
+			{},                                // git worktree prune
+		}}
+		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+
+		err := Prune(context.Background(), deps, PruneInput{Base: "main", OutputDir: outputDir, Yes: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if runner.idx != 4 {
+			t.Errorf("runner called %d times, want 4 (fresh branch kept)", runner.idx)
 		}
 	})
 
 	t.Run("skips target when cwd is inside it, continues others", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: threePorcelain},
-			{output: []byte("feat\nother\n")}, // both merged
-			{output: []byte("")},              // dirty: other (clean)
-			{err: errors.New("no upstream")},  // rev-parse @{upstream}: other
-			{},                                // git worktree remove (other)
-			{},                                // git branch -d (other)
-			{},                                // git worktree prune
+			{output: []byte("aaa111\n")},                    // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\nother ccc333\n")}, // both merged
+			{output: []byte("")},                            // dirty: other (clean)
+			{err: errors.New("no upstream")},                // rev-parse @{upstream}: other
+			{},                                              // git worktree remove (other)
+			{},                                              // git branch -d (other)
+			{},                                              // git worktree prune
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 
@@ -111,23 +133,24 @@ func TestPrune(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 7 {
-			t.Errorf("runner called %d times, want 7 (skip feat, remove other)", runner.idx)
+		if runner.idx != 8 {
+			t.Errorf("runner called %d times, want 8 (skip feat, remove other)", runner.idx)
 		}
 	})
 
 	t.Run("per-target failure does not stop remaining removals", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: threePorcelain},
-			{output: []byte("feat\nother\n")},
-			{output: []byte("")},                 // dirty: feat (clean)
-			{err: errors.New("no upstream")},     // rev-parse @{upstream}: feat
-			{output: []byte("")},                 // dirty: other (clean)
-			{err: errors.New("no upstream")},     // rev-parse @{upstream}: other
-			{err: errors.New("locked worktree")}, // git worktree remove feat fails
-			{},                                   // git worktree remove other
-			{},                                   // git branch -d other
-			{},                                   // git worktree prune
+			{output: []byte("aaa111\n")},                    // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\nother ccc333\n")}, // git for-each-ref --merged
+			{output: []byte("")},                            // dirty: feat (clean)
+			{err: errors.New("no upstream")},                // rev-parse @{upstream}: feat
+			{output: []byte("")},                            // dirty: other (clean)
+			{err: errors.New("no upstream")},                // rev-parse @{upstream}: other
+			{err: errors.New("locked worktree")},            // git worktree remove feat fails
+			{},                                              // git worktree remove other
+			{},                                              // git branch -d other
+			{},                                              // git worktree prune
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 
@@ -138,8 +161,8 @@ func TestPrune(t *testing.T) {
 		if !strings.Contains(err.Error(), "feat") {
 			t.Errorf("error %q should mention failed branch", err)
 		}
-		if runner.idx != 10 {
-			t.Errorf("runner called %d times, want 10", runner.idx)
+		if runner.idx != 11 {
+			t.Errorf("runner called %d times, want 11", runner.idx)
 		}
 	})
 
@@ -156,12 +179,21 @@ func TestPrune(t *testing.T) {
 			wantErr: "git not found",
 		},
 		{
-			name: "git branch --merged fails",
+			name: "git rev-parse base fails",
 			runner: &seqRunner{responses: []runResponse{
 				{output: twoPorcelain},
-				{err: errors.New("unknown branch")},
+				{err: errors.New("unknown revision")},
 			}},
-			wantErr: "unknown branch",
+			wantErr: "unknown revision",
+		},
+		{
+			name: "git for-each-ref --merged fails",
+			runner: &seqRunner{responses: []runResponse{
+				{output: twoPorcelain},
+				{output: []byte("aaa111\n")},
+				{err: errors.New("for-each-ref failed")},
+			}},
+			wantErr: "for-each-ref failed",
 		},
 	}
 	for _, tt := range errorTests {
@@ -365,7 +397,8 @@ func TestPrune(t *testing.T) {
 
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelainWithPrunable}, // git worktree list (main + prunable stale-branch)
-			{output: []byte("")},            // git branch --merged (nothing merged)
+			{output: []byte("aaa111\n")},    // git rev-parse main^{commit}
+			{output: []byte("")},            // git for-each-ref --merged (nothing merged)
 			{},                              // git worktree prune (cleans stale metadata)
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
@@ -374,8 +407,8 @@ func TestPrune(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 3 {
-			t.Errorf("runner called %d times, want 3", runner.idx)
+		if runner.idx != 4 {
+			t.Errorf("runner called %d times, want 4", runner.idx)
 		}
 	})
 
@@ -383,9 +416,10 @@ func TestPrune(t *testing.T) {
 		var buf strings.Builder
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain},
-			{output: []byte("feat\n")},
-			{output: []byte("")},             // dirty: feat (clean)
-			{err: errors.New("no upstream")}, // rev-parse @{upstream}: feat
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // git for-each-ref --merged
+			{output: []byte("")},              // dirty: feat (clean)
+			{err: errors.New("no upstream")},  // rev-parse @{upstream}: feat
 		}}
 		deps := Deps{
 			Runner: runner,
@@ -403,8 +437,8 @@ func TestPrune(t *testing.T) {
 		if !strings.Contains(buf.String(), "git worktree prune") {
 			t.Errorf("dry-run output should mention 'git worktree prune'; got:\n%s", buf.String())
 		}
-		if runner.idx != 4 {
-			t.Errorf("runner called %d times in dry-run, want 4", runner.idx)
+		if runner.idx != 5 {
+			t.Errorf("runner called %d times in dry-run, want 5", runner.idx)
 		}
 	})
 
@@ -412,9 +446,10 @@ func TestPrune(t *testing.T) {
 		var buf strings.Builder
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain},
-			{output: []byte("feat\n")},   // git branch --merged
-			{output: []byte("M f.go\n")}, // dirty: feat (dirty)
-			{},                           // git worktree prune (no candidates remain)
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // git for-each-ref --merged
+			{output: []byte("M f.go\n")},      // dirty: feat (dirty)
+			{},                                // git worktree prune (no candidates remain)
 		}}
 		deps := Deps{
 			Runner: runner,
@@ -432,8 +467,8 @@ func TestPrune(t *testing.T) {
 		if !strings.Contains(buf.String(), "skipping feat") || !strings.Contains(buf.String(), "uncommitted") {
 			t.Errorf("expected skip warning for dirty worktree; got:\n%s", buf.String())
 		}
-		if runner.idx != 4 {
-			t.Errorf("runner called %d times, want 4 (list, merged, dirty, prune)", runner.idx)
+		if runner.idx != 5 {
+			t.Errorf("runner called %d times, want 5 (list, rev-parse, for-each-ref, dirty, prune)", runner.idx)
 		}
 	})
 
@@ -441,7 +476,8 @@ func TestPrune(t *testing.T) {
 		var buf strings.Builder
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain},
-			{output: []byte("feat\n")},        // git branch --merged
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // git for-each-ref --merged
 			{output: []byte("")},              // dirty: feat (clean)
 			{output: []byte("origin/feat\n")}, // rev-parse @{upstream}: has upstream
 			{output: []byte("2\t0\n")},        // rev-list: 2 ahead, 0 behind
@@ -463,8 +499,8 @@ func TestPrune(t *testing.T) {
 		if !strings.Contains(buf.String(), "skipping feat") || !strings.Contains(buf.String(), "unpushed") {
 			t.Errorf("expected skip warning for unpushed commits; got:\n%s", buf.String())
 		}
-		if runner.idx != 6 {
-			t.Errorf("runner called %d times, want 6", runner.idx)
+		if runner.idx != 7 {
+			t.Errorf("runner called %d times, want 7", runner.idx)
 		}
 	})
 
@@ -472,9 +508,10 @@ func TestPrune(t *testing.T) {
 		var buf strings.Builder
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain},
-			{output: []byte("feat\n")},
-			{output: []byte("")},             // dirty: feat (clean)
-			{err: errors.New("no upstream")}, // rev-parse: feat (no upstream)
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // git for-each-ref --merged
+			{output: []byte("")},              // dirty: feat (clean)
+			{err: errors.New("no upstream")},  // rev-parse: feat (no upstream)
 		}}
 		deps := Deps{
 			Runner: runner,
@@ -493,8 +530,8 @@ func TestPrune(t *testing.T) {
 			t.Errorf("expected 'aborted' in output; got:\n%s", buf.String())
 		}
 		// Must not reach removal or prune step.
-		if runner.idx != 4 {
-			t.Errorf("runner called %d times after abort, want 4", runner.idx)
+		if runner.idx != 5 {
+			t.Errorf("runner called %d times after abort, want 5", runner.idx)
 		}
 	})
 
@@ -502,12 +539,13 @@ func TestPrune(t *testing.T) {
 		var buf strings.Builder
 		runner := &seqRunner{responses: []runResponse{
 			{output: twoPorcelain},
-			{output: []byte("feat\n")},
-			{output: []byte("")},             // dirty: feat (clean)
-			{err: errors.New("no upstream")}, // rev-parse
-			{},                               // git worktree remove
-			{},                               // git branch -d
-			{},                               // git worktree prune
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // git for-each-ref --merged
+			{output: []byte("")},              // dirty: feat (clean)
+			{err: errors.New("no upstream")},  // rev-parse
+			{},                                // git worktree remove
+			{},                                // git branch -d
+			{},                                // git worktree prune
 		}}
 		deps := Deps{
 			Runner: runner,
@@ -522,8 +560,8 @@ func TestPrune(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 7 {
-			t.Errorf("runner called %d times, want 7", runner.idx)
+		if runner.idx != 8 {
+			t.Errorf("runner called %d times, want 8", runner.idx)
 		}
 	})
 }
