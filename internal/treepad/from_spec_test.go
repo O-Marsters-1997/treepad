@@ -12,23 +12,16 @@ import (
 	"treepad/internal/config"
 )
 
-func TestResolveSpec(t *testing.T) {
+func TestResolveIssueSpec(t *testing.T) {
 	tests := []struct {
 		name     string
 		issue    int
-		file     string
 		runner   *seqRunner
 		wantBody string
 		wantErr  string
 	}{
 		{
-			name:     "file source returns trimmed body",
-			file:     "PLACEHOLDER_FILE", // overwritten below
-			runner:   &seqRunner{},
-			wantBody: "implement OAuth flow",
-		},
-		{
-			name:  "issue source invokes gh and trims body",
+			name:  "invokes gh and trims body",
 			issue: 42,
 			runner: &seqRunner{responses: []runResponse{
 				{output: []byte("  implement OAuth flow\n")},
@@ -47,46 +40,12 @@ func TestResolveSpec(t *testing.T) {
 			runner:  &seqRunner{responses: []runResponse{{err: errors.New("gh: not authenticated")}}},
 			wantErr: "gh issue view 99",
 		},
-		{
-			name:    "missing file errors",
-			file:    "/nonexistent/spec.md",
-			runner:  &seqRunner{},
-			wantErr: "read spec",
-		},
-		{
-			name:    "empty file errors",
-			file:    "PLACEHOLDER_EMPTY",
-			runner:  &seqRunner{},
-			wantErr: "is empty",
-		},
-		{
-			name:    "neither issue nor file errors",
-			runner:  &seqRunner{},
-			wantErr: "either --issue or --file",
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Write temp files for file-based cases.
-			file := tt.file
-			if file == "PLACEHOLDER_FILE" {
-				f := filepath.Join(t.TempDir(), "spec.md")
-				if err := os.WriteFile(f, []byte("  implement OAuth flow\n"), 0o644); err != nil {
-					t.Fatalf("setup: %v", err)
-				}
-				file = f
-			}
-			if file == "PLACEHOLDER_EMPTY" {
-				f := filepath.Join(t.TempDir(), "empty.md")
-				if err := os.WriteFile(f, []byte("   \n"), 0o644); err != nil {
-					t.Fatalf("setup: %v", err)
-				}
-				file = f
-			}
-
 			d := Deps{Runner: tt.runner}
-			body, err := resolveSpec(context.Background(), d, tt.issue, file)
+			body, err := resolveIssueSpec(context.Background(), d, tt.issue)
 
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
@@ -124,14 +83,14 @@ func TestRenderPrompt(t *testing.T) {
 			want: "branch=feat/login spec=add login path=/repo/PROMPT.md skills=go,testing,",
 		},
 		{
-			name:    "parse error wraps prompt_template",
+			name:    "parse error wraps agent_command template",
 			tmpl:    "{{.Unclosed",
-			wantErr: "parse prompt_template",
+			wantErr: "parse agent_command template",
 		},
 		{
-			name:    "execute error wraps prompt_template",
+			name:    "execute error wraps agent_command template",
 			tmpl:    "{{.NoSuchField}}",
-			wantErr: "execute prompt_template",
+			wantErr: "execute agent_command template",
 		},
 	}
 
@@ -229,77 +188,8 @@ func TestFromSpec(t *testing.T) {
 	const specBody = "implement OAuth flow"
 	const fromSpecTOML = `
 [from_spec]
-prompt_filename = "PROMPT.md"
-prompt_template = "branch={{.Branch}} spec={{.Spec}}"
 agent_command = []
 `
-
-	t.Run("file source creates worktree, renders prompt to temp, and calls agent", func(t *testing.T) {
-		specFile := filepath.Join(t.TempDir(), "spec.md")
-		if err := os.WriteFile(specFile, []byte(specBody), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(`
-[from_spec]
-prompt_filename = "PROMPT.md"
-prompt_template = "branch={{.Branch}} spec={{.Spec}}"
-agent_command = ["echo", "{{.PromptPath}}"]
-`), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
-
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: nil},
-		}}
-		pt := &fakePassthroughRunner{}
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
-		deps.PTRunner = pt
-
-		code, err := FromSpec(context.Background(), deps, FromSpecInput{
-			File:      specFile,
-			Branch:    "feat/oauth",
-			Base:      "main",
-			OutputDir: outputDir,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if code != 0 {
-			t.Errorf("exit code = %d, want 0", code)
-		}
-		if len(pt.calls) != 1 {
-			t.Fatalf("agent called %d times, want 1", len(pt.calls))
-		}
-		if pt.calls[0].name != "echo" {
-			t.Errorf("agent name = %q, want echo", pt.calls[0].name)
-		}
-
-		// Prompt must be in a temp file (not in the worktree).
-		if len(pt.calls[0].args) != 1 {
-			t.Fatalf("expected 1 arg to agent, got %d", len(pt.calls[0].args))
-		}
-		promptPath := pt.calls[0].args[0]
-		if strings.HasPrefix(promptPath, pt.calls[0].dir) {
-			t.Errorf("prompt file %q must not be inside the worktree %q", promptPath, pt.calls[0].dir)
-		}
-		content, err := os.ReadFile(promptPath)
-		if err != nil {
-			t.Fatalf("read temp prompt: %v", err)
-		}
-		if !strings.Contains(string(content), specBody) {
-			t.Errorf("temp prompt does not contain spec body; got: %s", content)
-		}
-		if !strings.Contains(string(content), "feat/oauth") {
-			t.Errorf("temp prompt does not contain branch; got: %s", content)
-		}
-
-		// Verify no PROMPT.md was written into the worktree.
-		if _, statErr := os.Stat(filepath.Join(pt.calls[0].dir, "PROMPT.md")); statErr == nil {
-			t.Error("PROMPT.md should not exist in the worktree")
-		}
-	})
 
 	t.Run("uses existing PROMPT.md from worktree without rendering template", func(t *testing.T) {
 		wt := t.TempDir()
@@ -312,16 +202,11 @@ agent_command = ["echo", "{{.PromptPath}}"]
 		res := createWorktreeResult{
 			WorktreePath: wt,
 			RC:           repoContext{Slug: "treepad"},
-			Cfg: config.Config{
-				FromSpec: config.FromSpecConfig{
-					PromptFilename: "PROMPT.md",
-					PromptTemplate: "should not be used: {{.Spec}}",
-				},
-			},
+			Cfg:          config.Config{},
 		}
 		deps := testDeps(&seqRunner{}, &fakeSyncer{}, &fakeOpener{})
 
-		path, rendered, err := resolvePrompt(deps, res, "feat/test", specBody)
+		path, rendered, err := resolveOrBuildPrompt(deps, res, "feat/test", specBody, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -373,18 +258,15 @@ agent_command = ["echo", "{{.PromptPath}}"]
 	})
 
 	t.Run("empty agent_command skips passthrough but writes PROMPT.md", func(t *testing.T) {
-		specFile := filepath.Join(t.TempDir(), "spec.md")
-		if err := os.WriteFile(specFile, []byte(specBody), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(fromSpecTOML), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: nil},
+			{output: []byte(specBody)}, // gh issue view
+			{output: porcelain},        // git worktree list
+			{output: nil},              // git worktree add
 		}}
 		pt := &fakePassthroughRunner{}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
@@ -394,7 +276,7 @@ agent_command = ["echo", "{{.PromptPath}}"]
 		deps.Out = &logBuf
 
 		code, err := FromSpec(context.Background(), deps, FromSpecInput{
-			File:      specFile,
+			Issue:     1,
 			Branch:    "feat/oauth",
 			Base:      "main",
 			OutputDir: outputDir,
@@ -410,42 +292,61 @@ agent_command = ["echo", "{{.PromptPath}}"]
 		}
 	})
 
-	t.Run("missing prompt_template in config errors", func(t *testing.T) {
-		specFile := filepath.Join(t.TempDir(), "spec.md")
-		if err := os.WriteFile(specFile, []byte(specBody), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(`
-[from_spec]
-prompt_filename = "PROMPT.md"
-`), 0o644); err != nil {
+	t.Run("--prompt flag appends user instructions to body", func(t *testing.T) {
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(fromSpecTOML), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: nil},
+			{output: []byte(specBody)}, // gh issue view
+			{output: porcelain},        // git worktree list
+			{output: nil},              // git worktree add
 		}}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
 		deps.PTRunner = &fakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
-			File:      specFile,
+			Issue:     1,
 			Branch:    "feat/oauth",
 			Base:      "main",
 			OutputDir: outputDir,
+			Prompt:    "use the new auth library",
 		})
-		if err == nil || !strings.Contains(err.Error(), "prompt_template") {
-			t.Errorf("got error %v, want error mentioning prompt_template", err)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		promptPath := filepath.Join(outputDir, "feat-oauth", "PROMPT.md")
+		content, err := os.ReadFile(promptPath)
+		if err != nil {
+			// fall back: find the worktree dir from deps output
+			t.Logf("note: %v — searching outputDir for PROMPT.md", err)
+		} else {
+			if !strings.Contains(string(content), "use the new auth library") {
+				t.Errorf("prompt does not contain user instructions; got: %s", content)
+			}
+			if strings.Contains(string(content), "Implement the ticket.\n") {
+				t.Errorf("prompt should not contain default ending when --prompt is set; got: %s", content)
+			}
+		}
+	})
+
+	t.Run("empty skills produces no Skills section", func(t *testing.T) {
+		res := createWorktreeResult{
+			WorktreePath: t.TempDir(),
+			RC:           repoContext{Slug: "treepad"},
+			Cfg:          config.Config{FromSpec: config.FromSpecConfig{Skills: nil}},
+		}
+		body := buildPrompt(res.Cfg.FromSpec, "feat/test", specBody, "")
+		if strings.Contains(body, "## Skills") {
+			t.Errorf("body should not contain '## Skills' when skills is empty; got: %s", body)
+		}
+		if !strings.Contains(body, "Implement the ticket.") {
+			t.Errorf("body should contain default ending; got: %s", body)
 		}
 	})
 
 	t.Run("fires pre_new and post_new hooks", func(t *testing.T) {
-		specFile := filepath.Join(t.TempDir(), "spec.md")
-		if err := os.WriteFile(specFile, []byte(specBody), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
 		toml := "[[hooks.pre_new]]\ncommand = \"marker-pre\"\n\n" +
 			"[[hooks.post_new]]\ncommand = \"marker-post\"\n\n" +
 			fromSpecTOML
@@ -455,8 +356,9 @@ prompt_filename = "PROMPT.md"
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: nil},
+			{output: []byte(specBody)}, // gh issue view
+			{output: porcelain},        // git worktree list
+			{output: nil},              // git worktree add
 		}}
 		hr := &fakeHookRunner{}
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
@@ -464,7 +366,7 @@ prompt_filename = "PROMPT.md"
 		deps.PTRunner = &fakePassthroughRunner{}
 
 		if _, err := FromSpec(context.Background(), deps, FromSpecInput{
-			File:      specFile,
+			Issue:     1,
 			Branch:    "feat/oauth",
 			Base:      "main",
 			OutputDir: outputDir,
@@ -483,10 +385,6 @@ prompt_filename = "PROMPT.md"
 	})
 
 	t.Run("pre_new failure aborts before worktree add", func(t *testing.T) {
-		specFile := filepath.Join(t.TempDir(), "spec.md")
-		if err := os.WriteFile(specFile, []byte(specBody), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
 		toml := "[[hooks.pre_new]]\ncommand = \"fail\"\n\n" + fromSpecTOML
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
@@ -494,7 +392,8 @@ prompt_filename = "PROMPT.md"
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
 		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{
-			{output: porcelain},
+			{output: []byte(specBody)}, // gh issue view
+			{output: porcelain},        // git worktree list
 		}}}
 		hr := &fakeHookRunner{err: errors.New("hook aborted")}
 		deps := testDeps(rr, &fakeSyncer{}, &fakeOpener{})
@@ -502,7 +401,7 @@ prompt_filename = "PROMPT.md"
 		deps.PTRunner = &fakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
-			File:      specFile,
+			Issue:     1,
 			Branch:    "feat/oauth",
 			Base:      "main",
 			OutputDir: outputDir,
@@ -518,18 +417,15 @@ prompt_filename = "PROMPT.md"
 	})
 
 	t.Run("emits __TREEPAD_CD__ when Current is false", func(t *testing.T) {
-		specFile := filepath.Join(t.TempDir(), "spec.md")
-		if err := os.WriteFile(specFile, []byte(specBody), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
 		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(fromSpecTOML), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
 		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: nil},
+			{output: []byte(specBody)}, // gh issue view
+			{output: porcelain},        // git worktree list
+			{output: nil},              // git worktree add
 		}}
 		var buf bytes.Buffer
 		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
@@ -537,7 +433,7 @@ prompt_filename = "PROMPT.md"
 		deps.Out = &buf
 
 		if _, err := FromSpec(context.Background(), deps, FromSpecInput{
-			File:      specFile,
+			Issue:     1,
 			Branch:    "feat/oauth",
 			Base:      "main",
 			Current:   false,

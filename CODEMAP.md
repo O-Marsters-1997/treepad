@@ -118,7 +118,7 @@ Handles TOML configuration file loading, initialization, and display.
   - `IsZero()` — reports whether diff configuration is present
 - `ExecConfig` struct — contains `Runner` (string; valid values: just, npm, pnpm, yarn, bun, make, pip, poetry, uv)
   - `IsZero()` — reports whether exec runner is explicitly configured
-- `FromSpecConfig` struct — contains `PromptTemplate`, `PromptFilename`, `Skills`, `AgentCommand`
+- `FromSpecConfig` struct — contains `Skills`, `AgentCommand`
   - `IsZero()` — reports whether from-spec configuration is present
 - `GlobalConfigPath()` — resolves global config path
   - Resolution order: `$TREEPAD_CONFIG` → `$XDG_CONFIG_HOME/treepad/config.toml` → `~/.config/treepad/config.toml`

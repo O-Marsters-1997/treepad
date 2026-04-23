@@ -13,18 +13,19 @@ By default, uses the main worktree (the one with a `.git` directory) as the conf
 **Hooks fired:** `pre_sync`/`post_sync` around each worktree's file sync. See [hooks.md](hooks.md).
 
 **Source resolution precedence:**
+
 1. Explicit `source-path` argument
 2. `--current` flag (current directory)
 3. Auto-detected main worktree
 
 ### Flags
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--current` | `-c` | Use current directory as config source instead of the main worktree |
-| `--sync-only` | | Sync configs only; skip artifact file generation |
-| `--output-dir` | `-o` | Directory for generated artifact files (default: `~/<repo-slug>-workspaces/`) |
-| `--include` | | Additional file patterns to sync (appended to `sync.include` in `.treepad.toml`) |
+| Flag           | Short | Description                                                                      |
+| -------------- | ----- | -------------------------------------------------------------------------------- |
+| `--current`    | `-c`  | Use current directory as config source instead of the main worktree              |
+| `--sync-only`  |       | Sync configs only; skip artifact file generation                                 |
+| `--output-dir` | `-o`  | Directory for generated artifact files (default: `~/<repo-slug>-workspaces/`)    |
+| `--include`    |       | Additional file patterns to sync (appended to `sync.include` in `.treepad.toml`) |
 
 **Note:** `--use-current` is accepted as a backwards-compatible alias for `--current`.
 
@@ -68,11 +69,11 @@ Creates a new worktree branched from a specified ref (default: `main`), syncs ed
 
 ### Flags
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--base` | `-b` | Ref to branch the new worktree from (default: `main`) |
-| `--open` | `-o` | Open the generated artifact file (using the command specified in `[open].command`) |
-| `--current` | `-c` | Stay in the current directory instead of cd-ing into the new worktree |
+| Flag        | Short | Description                                                                        |
+| ----------- | ----- | ---------------------------------------------------------------------------------- |
+| `--base`    | `-b`  | Ref to branch the new worktree from (default: `main`)                              |
+| `--open`    | `-o`  | Open the generated artifact file (using the command specified in `[open].command`) |
+| `--current` | `-c`  | Stay in the current directory instead of cd-ing into the new worktree              |
 
 ### Examples
 
@@ -92,30 +93,54 @@ tp new my-branch -c
 
 ## from-spec
 
-Create a worktree from a spec (GitHub issue or file), render a prompt, and hand off to an agent.
+Create a worktree from a spec (GitHub issue or file), write `PROMPT.md`, and hand off to an agent.
 
 ```
 tp from-spec [options] <branch>
 ```
 
-Creates a new worktree, loads a spec from either a GitHub issue or a local markdown file, generates a prompt for an agent to work on the spec, and hands off execution. The spec is parsed into a structured format that agents can use to understand the requirements. By default, cd's into the new worktree when invoked via the shell wrapper.
+Creates a new worktree, loads a spec from either a GitHub issue or a local markdown file, writes `PROMPT.md` into the worktree root, and hands off to the configured `agent_command`. By default, cd's into the new worktree when invoked via the shell wrapper.
+
+**Prompt body** — always structured as:
+
+```
+# <branch>
+
+## Spec
+<spec body>
+
+## Skills          ← only when skills are configured
+- /skill-name
+
+Implement the ticket.
+```
+
+Use `--prompt` to replace the closing line with your own instructions:
+
+```
+Implement the ticket according to the following instructions:
+
+<your --prompt text>
+```
+
+If `PROMPT.md` already exists in the worktree, it is used as-is and no new prompt is generated.
 
 **Spec source resolution:**
-- `--issue`: GitHub issue number (requires internet access and GitHub permissions)
-- `--file`: Local markdown file path
 
-One of `--issue` or `--file` is required; they are mutually exclusive.
+- `--issue`: GitHub issue number (requires internet access and GitHub permissions)
+
+`--issue` is required.
 
 **Hooks fired:** Same as `new` command: `pre_new` (before `git worktree add`), `pre_sync`/`post_sync` (around file sync), `post_new` (after artifact write). See [hooks.md](hooks.md).
 
 ### Flags
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--issue` | `-i` | GitHub issue `number` to use as the spec (mutually exclusive with `--file`) |
-| `--file` | `-f` | Path to a local markdown spec `file` (mutually exclusive with `--issue`) |
-| `--base` | `-b` | Ref to branch the new worktree from (default: `main`) |
-| `--current` | `-c` | Stay in the current directory instead of cd-ing into the new worktree |
+| Flag        | Short | Description                                                                             |
+| ----------- | ----- | --------------------------------------------------------------------------------------- |
+| `--issue`   | `-i`  | GitHub issue `number` to use as the spec (required)                                     |
+| `--base`    | `-b`  | Ref to branch the new worktree from (default: `main`)                                   |
+| `--current` | `-c`  | Stay in the current directory instead of cd-ing into the new worktree                   |
+| `--prompt`  | `-p`  | Instructions appended to the prompt body instead of the default "Implement the ticket." |
 
 ### Examples
 
@@ -123,31 +148,25 @@ One of `--issue` or `--file` is required; they are mutually exclusive.
 # Create a worktree from a GitHub issue spec
 tp from-spec feature-x --issue 42
 
-# Create a worktree from a local markdown spec file
-tp from-spec feature-y --file ./spec.md
+# Append custom instructions to the prompt
+tp from-spec feature-z --issue 42 --prompt "use redis for caching"
 
-# Create a worktree from a different base ref
+# Branch from a non-default base
 tp from-spec bugfix-z --issue 10 --base develop
 
 # Stay in current directory after creation
 tp from-spec feature-a --issue 99 --current
 ```
 
-### Spec Format
-
-Specs are expected to be in markdown format. When provided via `--issue`, the GitHub issue body is used directly. When using `--file`, the markdown file should contain the spec content.
-
-The spec is parsed and made available to agents as structured input, enabling them to understand and implement the requirements.
-
 ## from-spec-bulk
 
-Create worktrees from multiple GitHub issues, writing a rendered `PROMPT.md` into each. Does not launch agents — after the command completes, open each worktree in its own terminal and run `claude PROMPT.md` (or whatever your `agent_command` is) manually.
+Create worktrees from multiple GitHub issues, writing `PROMPT.md` into each. Does not launch agents — after the command completes, open each worktree in its own terminal and run `claude PROMPT.md` (or whatever your `agent_command` is) manually.
 
 ```
 tp from-spec-bulk [options]
 ```
 
-For each issue number: fetches the issue title and body from GitHub, derives a branch name (`--branch-prefix` + slugified title), creates a worktree via `createWorktreeWithSync` (same as `tp from-spec`), and writes `PROMPT.md` using the configured `from_spec.prompt_template`. On completion, prints a summary table showing the status, branch, and path for every issue.
+For each issue number: fetches the issue title and body from GitHub, derives a branch name (`--branch-prefix` + slugified title), creates a worktree via `createWorktreeWithSync` (same as `tp from-spec`), and writes `PROMPT.md` with the same prompt body structure as `from-spec`. On completion, prints a summary table showing the status, branch, and path for every issue.
 
 Partial failures are non-fatal: if one issue fails (bad number, empty body, worktree creation error), the rest of the batch continues. The command exits with status `1` if any issue failed.
 
@@ -155,11 +174,12 @@ Partial failures are non-fatal: if one issue fails (bad number, empty body, work
 
 ### Flags
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--issues` | `-i` | Comma-separated issue numbers, e.g. `"12,14,19"` (required) |
-| `--branch-prefix` | | Prefix prepended to the slugified issue title (default: empty) |
-| `--base` | `-b` | Ref to branch every worktree from (default: `main`) |
+| Flag              | Short | Description                                                                              |
+| ----------------- | ----- | ---------------------------------------------------------------------------------------- |
+| `--issues`        | `-i`  | Comma-separated issue numbers, e.g. `"12,14,19"` (required)                              |
+| `--branch-prefix` |       | Prefix prepended to the slugified issue title (default: empty)                           |
+| `--base`          | `-b`  | Ref to branch every worktree from (default: `main`)                                      |
+| `--prompt`        | `-p`  | Instructions appended to each prompt body instead of the default "Implement the ticket." |
 
 ### Examples
 
@@ -265,9 +285,9 @@ By default, writes `.treepad.toml` to the main worktree root (the directory cont
 
 #### Flags
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--global` | `-g` | Write to the global config path instead of `.treepad.toml` in the main worktree |
+| Flag       | Short | Description                                                                     |
+| ---------- | ----- | ------------------------------------------------------------------------------- |
+| `--global` | `-g`  | Write to the global config path instead of `.treepad.toml` in the main worktree |
 
 #### Examples
 
@@ -288,6 +308,7 @@ tp config show
 ```
 
 Displays the final configuration that would be used, along with information about which source(s) contributed to it. Resolution order is:
+
 1. Local `.treepad.toml` in the main worktree
 2. Global config file (from `$TREEPAD_CONFIG`, `$XDG_CONFIG_HOME/treepad/config.toml`, or `~/.config/treepad/config.toml`)
 3. Built-in defaults
@@ -365,21 +386,23 @@ Automatically identifies and removes worktrees whose branches have been merged i
 
 ### Flags
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--base` | `-b` | Ref to check merges against (default: `main`) |
-| `--dry-run` | `-n` | Preview removals without executing |
-| `--all` | `-a` | Force-remove all non-main worktrees regardless of merge status (must be run from main worktree, requires confirmation) |
-| `--yes` | `-y` | Skip confirmation prompt (use with caution) |
+| Flag        | Short | Description                                                                                                            |
+| ----------- | ----- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--base`    | `-b`  | Ref to check merges against (default: `main`)                                                                          |
+| `--dry-run` | `-n`  | Preview removals without executing                                                                                     |
+| `--all`     | `-a`  | Force-remove all non-main worktrees regardless of merge status (must be run from main worktree, requires confirmation) |
+| `--yes`     | `-y`  | Skip confirmation prompt (use with caution)                                                                            |
 
 ### Filtering
 
 When not using `--all`:
+
 - The main worktree is automatically skipped
 - Detached HEAD worktrees are skipped
 - The worktree you are currently in is skipped (continues to next rather than failing)
 
 When using `--all`:
+
 - Only the main worktree is preserved
 - Detached HEAD worktrees are still removed
 - Must be invoked from the main worktree (guards against removal by accident)
@@ -481,20 +504,20 @@ Provides a repo-wide snapshot of all active worktrees, showing which ones have u
 
 ### Flags
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--json` | `-j` | Emit JSON array instead of an aligned table |
+| Flag     | Short | Description                                 |
+| -------- | ----- | ------------------------------------------- |
+| `--json` | `-j`  | Emit JSON array instead of an aligned table |
 
 ### Output Columns (Table Format)
 
-| Column | Meaning |
-|--------|---------|
-| `BRANCH` | Branch name, with `*` suffix if main worktree |
-| `STATUS` | `clean` or `dirty` (has uncommitted changes) |
-| `AHEAD/BEHIND` | `↑N ↓M` vs upstream, or `—` if no upstream configured |
-| `LAST COMMIT` | Short SHA, subject, and relative time (e.g. `abc1234 fix thing · 3m`) |
-| `TOUCHED` | Relative time since artifact file was last modified, or `—` if no artifact |
-| `PATH` | Absolute path (collapsed to `~/...` when under home directory) |
+| Column         | Meaning                                                                    |
+| -------------- | -------------------------------------------------------------------------- |
+| `BRANCH`       | Branch name, with `*` suffix if main worktree                              |
+| `STATUS`       | `clean` or `dirty` (has uncommitted changes)                               |
+| `AHEAD/BEHIND` | `↑N ↓M` vs upstream, or `—` if no upstream configured                      |
+| `LAST COMMIT`  | Short SHA, subject, and relative time (e.g. `abc1234 fix thing · 3m`)      |
+| `TOUCHED`      | Relative time since artifact file was last modified, or `—` if no artifact |
+| `PATH`         | Absolute path (collapsed to `~/...` when under home directory)             |
 
 ### Examples
 
@@ -556,21 +579,21 @@ Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Sh
 
 ### Key Bindings
 
-| Key | Action |
-|-----|--------|
-| `↑` / `k` | Move cursor up |
-| `↓` / `j` | Move cursor down |
-| `Enter` | Exit and cd into selected worktree |
-| `s` | Sync selected worktree configs |
-| `S` | Sync all worktrees (fleet sync) |
-| `o` | Open artifact file for selected worktree |
-| `d` | Diff selected worktree against base (default from config or `origin/main`) |
-| `y` | Yank (copy) path to clipboard via OSC-52 |
-| `r` | Remove selected worktree (prompts for confirmation) |
-| `R` | Force-remove selected worktree — discards uncommitted changes and unmerged commits (prompts for confirmation) |
-| `p` | Prune merged worktrees (prompts for confirmation) |
-| `?` | Toggle key binding help overlay |
-| `q` / `Ctrl-C` | Quit without cd |
+| Key            | Action                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `↑` / `k`      | Move cursor up                                                                                                |
+| `↓` / `j`      | Move cursor down                                                                                              |
+| `Enter`        | Exit and cd into selected worktree                                                                            |
+| `s`            | Sync selected worktree configs                                                                                |
+| `S`            | Sync all worktrees (fleet sync)                                                                               |
+| `o`            | Open artifact file for selected worktree                                                                      |
+| `d`            | Diff selected worktree against base (default from config or `origin/main`)                                    |
+| `y`            | Yank (copy) path to clipboard via OSC-52                                                                      |
+| `r`            | Remove selected worktree (prompts for confirmation)                                                           |
+| `R`            | Force-remove selected worktree — discards uncommitted changes and unmerged commits (prompts for confirmation) |
+| `p`            | Prune merged worktrees (prompts for confirmation)                                                             |
+| `?`            | Toggle key binding help overlay                                                                               |
+| `q` / `Ctrl-C` | Quit without cd                                                                                               |
 
 ### Notes
 
@@ -591,10 +614,10 @@ Displays the diff between the target worktree's branch and a base ref (default: 
 
 ### Flags
 
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--base` | `-b` | Ref to diff against (default: from config `[diff] base` or `origin/main`; not set via CLI flag unless explicitly provided) |
-| `--output` | `-o` | Write uncolored patch to `file` instead of terminal; outputs `[OK]` to stderr on success |
+| Flag       | Short | Description                                                                                                                |
+| ---------- | ----- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--base`   | `-b`  | Ref to diff against (default: from config `[diff] base` or `origin/main`; not set via CLI flag unless explicitly provided) |
+| `--output` | `-o`  | Write uncolored patch to `file` instead of terminal; outputs `[OK]` to stderr on success                                   |
 
 ### Argument Forwarding
 
@@ -642,11 +665,13 @@ tp diff feature-x -- --word-diff
 ### Error Cases
 
 **Worktree not found:**
+
 ```
 no worktree found for branch 'unknown'; run `tp sync` to list worktrees
 ```
 
 **Prunable target:**
+
 ```
 worktree for 'feature-x' is prunable (branch is merged into main); run `tp prune`
 ```

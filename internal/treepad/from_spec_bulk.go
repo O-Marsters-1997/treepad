@@ -16,6 +16,8 @@ type FromSpecBulkInput struct {
 	BranchPrefix string
 	Base         string
 	OutputDir    string
+	// Prompt is optional user-supplied instructions appended to each prompt body.
+	Prompt string
 }
 
 // BulkResult records the outcome for one issue in a bulk run.
@@ -65,7 +67,8 @@ func FromSpecBulk(ctx context.Context, d Deps, in FromSpecBulkInput) ([]BulkResu
 		}
 		res.WorktreePath = wtRes.WorktreePath
 
-		promptPath, _, err := renderAndWritePrompt(d, wtRes, branch, body)
+		promptBody := buildPrompt(wtRes.Cfg.FromSpec, branch, body, in.Prompt)
+		promptPath, err := writePromptFile(d, wtRes.WorktreePath, promptBody)
 		if err != nil {
 			res.Err = fmt.Errorf("render prompt: %w", err)
 			results = append(results, res)

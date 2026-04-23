@@ -134,23 +134,44 @@ base = "develop"
 
 ### `[from_spec]` section
 
-Configuration for the `tp from-spec` command, which creates worktrees from specifications (GitHub issues or markdown files) and hands off to agents.
+Configuration for the `tp from-spec` command, which creates worktrees from GitHub issues and hands off to agents.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `prompt_template` | string | Go text/template string rendered into a prompt file. Available variables: `.Spec` (parsed spec), `.Skills` (configured skill names), `.Branch`, `.Slug`, `.WorktreePath`, `.PromptPath`, and `.Prompt` (in `agent_command` templates) |
-| `prompt_filename` | string | Filename for the generated prompt file (default: `PROMPT.md`), written to the worktree root |
-| `skills` | string[] | List of skill names to expose in the template context as `.Skills` |
-| `agent_command` | string[] | Command to invoke after the prompt is written. Each element is a text/template string. Empty or absent means write the prompt and exit (allowing manual agent invocation) |
+| `skills` | string[] | Skill names included in the generated `PROMPT.md` under a `## Skills` section. Omitted when empty |
+| `agent_command` | string[] | Command to invoke after the prompt is written. Each element is a Go text/template string. Available variables: `.Spec`, `.Skills`, `.Branch`, `.Slug`, `.WorktreePath`, `.PromptPath`, `.Prompt`. Empty or absent means write the prompt and exit |
+
+`tp from-spec` always writes `PROMPT.md` into the new worktree. The prompt body is:
+
+```
+# <branch>
+
+## Spec
+<spec body>
+
+## Skills          ← omitted when skills = []
+- /skill-name
+
+Implement the ticket.
+```
+
+Pass `--prompt "..."` on the CLI to replace the default closing line with custom instructions:
+
+```
+Implement the ticket according to the following instructions:
+
+<your --prompt text>
+```
 
 **Default** (when no `[from_spec]` section is present):
 
 ```toml
 [from_spec]
-prompt_filename = "PROMPT.md"
+skills = []
+agent_command = ["claude", "{{.PromptPath}}"]
 ```
 
-If `prompt_template` and `agent_command` are not configured, `tp from-spec` will create the worktree, parse the spec, and exit. You can then invoke your agent manually with the PROMPT.md file.
+If `agent_command` is not configured, `tp from-spec` creates the worktree, writes `PROMPT.md`, and exits so you can invoke an agent manually.
 
 ## Template Context
 

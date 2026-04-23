@@ -33,6 +33,11 @@ func fromSpecBulkCommand() *cli.Command {
 				Usage:   "ref to branch every new worktree from",
 				Value:   "main",
 			},
+			&cli.StringFlag{
+				Name:    "prompt",
+				Aliases: []string{"p"},
+				Usage:   "instructions appended to each prompt body (default body ends with \"Implement the ticket.\")",
+			},
 		},
 		Action: runFromSpecBulk,
 	}
@@ -49,6 +54,7 @@ func runFromSpecBulk(ctx context.Context, cmd *cli.Command) error {
 		Issues:       issues,
 		BranchPrefix: cmd.String("branch-prefix"),
 		Base:         cmd.String("base"),
+		Prompt:       cmd.String("prompt"),
 	})
 	if err != nil {
 		return err

@@ -11,8 +11,6 @@ import (
 
 const bulkTOML = `
 [from_spec]
-prompt_filename = "PROMPT.md"
-prompt_template = "branch={{.Branch}} spec={{.Spec}}"
 agent_command = []
 `
 
@@ -95,6 +93,9 @@ func TestFromSpecBulk(t *testing.T) {
 				}
 				if !strings.Contains(string(content), issues[i].body) {
 					t.Errorf("results[%d]: PROMPT.md does not contain spec body", i)
+				}
+				if !strings.Contains(string(content), "Implement the ticket") {
+					t.Errorf("results[%d]: PROMPT.md does not contain default ending", i)
 				}
 			}
 		}
