@@ -33,7 +33,7 @@ var ErrNotTTY = fmt.Errorf("tp ui requires an interactive terminal")
 type (
 	uiTickMsg         struct{}
 	uiToastExpiredMsg struct{}
-	uiRefreshMsg struct {
+	uiRefreshMsg      struct {
 		rows   []StatusRow
 		health map[string]healthFlags
 		err    error
