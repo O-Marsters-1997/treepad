@@ -1,0 +1,11 @@
+tp-init-repo
+exec tp new feature-x
+# Modify a tracked file to make the worktree dirty — git worktree remove would refuse without --force.
+exec sh -c 'echo modified >> ../repo-feature-x/README.md'
+# Normal CLI remove should fail on the dirty worktree.
+! exec tp remove feature-x
+exists ../repo-feature-x
+# Force-remove via TUI should succeed.
+exec tp ui --script=j,R,y,q
+stdout '✓ removed feature-x'
+! exists ../repo-feature-x

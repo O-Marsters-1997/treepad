@@ -188,6 +188,7 @@ tp ui
 | `o` | Open artifact file for selected worktree |
 | `y` | Yank (copy) path of selected worktree to clipboard |
 | `r` | Remove selected worktree (with confirmation) |
+| `R` | Force-remove selected worktree — discards uncommitted changes and unmerged commits (with confirmation) |
 | `p` | Prune merged worktrees (with confirmation) |
 | `?` | Toggle key binding help overlay |
 | `q` / `Ctrl-C` | Quit |

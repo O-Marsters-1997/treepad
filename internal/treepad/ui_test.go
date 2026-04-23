@@ -495,6 +495,59 @@ func TestUIDestructive(t *testing.T) {
 		}
 	})
 
+	t.Run("R enters confirmForceRemove mode with branch name", func(t *testing.T) {
+		m := uiModel{rows: rows2, cursor: 1}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeConfirmForceRemove {
+			t.Errorf("mode = %v, want uiModeConfirmForceRemove", m2.mode)
+		}
+		if m2.confirmBranch != "feat" {
+			t.Errorf("confirmBranch = %q, want %q", m2.confirmBranch, "feat")
+		}
+		if cmd != nil {
+			t.Error("R should not dispatch a command immediately")
+		}
+	})
+
+	t.Run("y in confirmForceRemove dispatches ForceRemove and returns to normal mode", func(t *testing.T) {
+		m := uiModel{
+			rows:          rows2,
+			cursor:        1,
+			mode:          uiModeConfirmForceRemove,
+			confirmBranch: "feat",
+		}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal after confirm", m2.mode)
+		}
+		if !m2.actionInFlight {
+			t.Error("actionInFlight should be true after y confirm")
+		}
+		if cmd == nil {
+			t.Error("expected dispatch command after y confirm")
+		}
+	})
+
+	t.Run("non-y key in confirmForceRemove cancels and returns to normal", func(t *testing.T) {
+		m := uiModel{
+			mode:          uiModeConfirmForceRemove,
+			confirmBranch: "feat",
+		}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal after cancel", m2.mode)
+		}
+		if m2.confirmBranch != "" {
+			t.Errorf("confirmBranch = %q, want empty after cancel", m2.confirmBranch)
+		}
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false after cancel")
+		}
+	})
+
 	t.Run("p enters confirmPrune mode", func(t *testing.T) {
 		m := uiModel{rows: rows2}
 		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
@@ -583,6 +636,16 @@ func TestUIDestructive(t *testing.T) {
 		for _, want := range []string{"feat/my-branch", "confirm", "cancel"} {
 			if !strings.Contains(view, want) {
 				t.Errorf("modal view missing %q", want)
+			}
+		}
+	})
+
+	t.Run("view renders force-remove modal with branch name and danger copy", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmForceRemove, confirmBranch: "feat/my-branch"}
+		view := m.View()
+		for _, want := range []string{"feat/my-branch", "Force-remove", "confirm", "cancel"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("force-remove modal view missing %q", want)
 			}
 		}
 	})
