@@ -128,9 +128,8 @@ If `PROMPT.md` already exists in the worktree, it is used as-is and no new promp
 **Spec source resolution:**
 
 - `--issue`: GitHub issue number (requires internet access and GitHub permissions)
-- `--file`: Local markdown file path
 
-One of `--issue` or `--file` is required; they are mutually exclusive.
+`--issue` is required.
 
 **Hooks fired:** Same as `new` command: `pre_new` (before `git worktree add`), `pre_sync`/`post_sync` (around file sync), `post_new` (after artifact write). See [hooks.md](hooks.md).
 
@@ -138,8 +137,7 @@ One of `--issue` or `--file` is required; they are mutually exclusive.
 
 | Flag        | Short | Description                                                                             |
 | ----------- | ----- | --------------------------------------------------------------------------------------- |
-| `--issue`   | `-i`  | GitHub issue `number` to use as the spec (mutually exclusive with `--file`)             |
-| `--file`    | `-f`  | Path to a local markdown spec `file` (mutually exclusive with `--issue`)                |
+| `--issue`   | `-i`  | GitHub issue `number` to use as the spec (required)                                     |
 | `--base`    | `-b`  | Ref to branch the new worktree from (default: `main`)                                   |
 | `--current` | `-c`  | Stay in the current directory instead of cd-ing into the new worktree                   |
 | `--prompt`  | `-p`  | Instructions appended to the prompt body instead of the default "Implement the ticket." |
@@ -149,9 +147,6 @@ One of `--issue` or `--file` is required; they are mutually exclusive.
 ```bash
 # Create a worktree from a GitHub issue spec
 tp from-spec feature-x --issue 42
-
-# Create a worktree from a local markdown spec file
-tp from-spec feature-y --file ./spec.md
 
 # Append custom instructions to the prompt
 tp from-spec feature-z --issue 42 --prompt "use redis for caching"

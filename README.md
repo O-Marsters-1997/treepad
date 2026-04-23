@@ -102,14 +102,11 @@ tp new feature-z -c
 > eval "$(tp shell-init)"
 > ```
 
-**`from-spec`** — Create a worktree from a GitHub issue or markdown spec, render a prompt, and hand off to an agent:
+**`from-spec`** — Create a worktree from a GitHub issue, render a prompt, and hand off to an agent:
 
 ```bash
 # Create a worktree from a GitHub issue spec
 tp from-spec feature-x --issue 42
-
-# Create a worktree from a local markdown spec file
-tp from-spec feature-y --file ./spec.md
 
 # Create a worktree from a different base ref
 tp from-spec bugfix-z --issue 10 --base develop

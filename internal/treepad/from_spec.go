@@ -15,10 +15,9 @@ import (
 )
 
 // FromSpecInput parameterises a tp from-spec invocation.
-// Exactly one of Issue or File must be set.
+// Issue must be set to a valid GitHub issue number.
 type FromSpecInput struct {
 	Issue     int
-	File      string
 	Branch    string
 	Base      string
 	Current   bool
@@ -40,11 +39,14 @@ type promptData struct {
 	Prompt string
 }
 
-// FromSpec creates a worktree seeded from a spec (GitHub issue or local file),
+// FromSpec creates a worktree seeded from a GitHub issue,
 // writes PROMPT.md into the worktree, and hands off to a configured agent.
 // Returns the agent's exit code (0 when no agent_command is configured).
 func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
-	spec, err := resolveSpec(ctx, d, in.Issue, in.File)
+	if in.Issue == 0 {
+		return 0, errors.New("issue is required")
+	}
+	spec, err := resolveIssueSpec(ctx, d, in.Issue)
 	if err != nil {
 		return 0, err
 	}
@@ -127,34 +129,6 @@ func writePromptFile(d Deps, worktreePath, body string) (string, error) {
 	}
 	d.Log.OK("wrote prompt to %s", promptPath)
 	return promptPath, nil
-}
-
-// resolveSpec returns the raw spec body from either a GitHub issue or a local file.
-func resolveSpec(ctx context.Context, d Deps, issue int, file string) (string, error) {
-	switch {
-	case issue > 0:
-		return resolveIssueSpec(ctx, d, issue)
-	case file != "":
-		path := file
-		if !filepath.IsAbs(path) {
-			abs, err := filepath.Abs(path)
-			if err != nil {
-				return "", fmt.Errorf("resolve spec path: %w", err)
-			}
-			path = abs
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("read spec %s: %w", path, err)
-		}
-		body := strings.TrimSpace(string(data))
-		if body == "" {
-			return "", fmt.Errorf("spec file %s is empty", path)
-		}
-		return body, nil
-	default:
-		return "", errors.New("either --issue or --file is required")
-	}
 }
 
 // resolveIssueSpec fetches the body of a single GitHub issue.

@@ -134,7 +134,7 @@ base = "develop"
 
 ### `[from_spec]` section
 
-Configuration for the `tp from-spec` command, which creates worktrees from specifications (GitHub issues or markdown files) and hands off to agents.
+Configuration for the `tp from-spec` command, which creates worktrees from GitHub issues and hands off to agents.
 
 | Field | Type | Description |
 |-------|------|-------------|
