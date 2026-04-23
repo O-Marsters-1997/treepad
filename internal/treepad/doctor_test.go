@@ -52,7 +52,8 @@ func TestDoctor(t *testing.T) {
 	t.Run("stale finding when last commit exceeds threshold", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},                                // git worktree list
-			{output: []byte("")},                               // git branch --merged (nothing)
+			{output: []byte("aaa111\n")},                       // git rev-parse main^{commit}
+			{output: []byte("")},                               // git for-each-ref --merged (nothing)
 			{output: recentCommitOutput("abc1234", "init")},    // log: main (recent)
 			{output: []byte("")},                               // dirty: main (clean)
 			{output: staleCommitOutput("def5678", "old work")}, // log: feat (stale)
@@ -77,7 +78,8 @@ func TestDoctor(t *testing.T) {
 	t.Run("dirty-old finding supersedes stale when worktree is also dirty", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("")},
+			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{output: []byte("")},         // git for-each-ref --merged
 			{output: recentCommitOutput("abc1234", "init")},
 			{output: []byte("")},                               // dirty: main clean
 			{output: staleCommitOutput("def5678", "old work")}, // feat: stale
@@ -103,7 +105,8 @@ func TestDoctor(t *testing.T) {
 	t.Run("merged-present finding when worktree branch is in merged set", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("feat\n")},                        // branch --merged: feat is merged
+			{output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")},                 // for-each-ref --merged: feat is merged
 			{output: recentCommitOutput("abc1234", "init")},   // log: main
 			{output: []byte("")},                              // dirty: main
 			{output: recentCommitOutput("def5678", "feat x")}, // log: feat
@@ -128,7 +131,8 @@ func TestDoctor(t *testing.T) {
 	t.Run("remote-gone finding when upstream configured but branch absent on remote", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("")},                              // branch --merged: none
+			{output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
+			{output: []byte("")},                              // for-each-ref --merged: none
 			{output: recentCommitOutput("abc1234", "init")},   // log: main
 			{output: []byte("")},                              // dirty: main
 			{err: errors.New("no upstream")},                  // rev-parse @{upstream}: main (none)
@@ -154,7 +158,8 @@ func TestDoctor(t *testing.T) {
 	t.Run("offline flag skips remote-gone check", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("")},
+			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{output: []byte("")},         // git for-each-ref --merged
 			{output: recentCommitOutput("abc1234", "init")},
 			{output: []byte("")},
 			{output: recentCommitOutput("def5678", "feat x")},
@@ -166,16 +171,17 @@ func TestDoctor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// All 6 calls consumed; any 7th would trip seqRunner's out-of-bounds guard.
-		if runner.idx != 6 {
-			t.Errorf("runner called %d times, want 6 (rev-parse/ls-remote must be skipped)", runner.idx)
+		// All 7 calls consumed; any 8th would trip seqRunner's out-of-bounds guard.
+		if runner.idx != 7 {
+			t.Errorf("runner called %d times, want 7 (rev-parse/ls-remote must be skipped)", runner.idx)
 		}
 	})
 
 	t.Run("artifact-missing finding when expected file is absent", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("")},
+			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{output: []byte("")},         // git for-each-ref --merged
 			{output: recentCommitOutput("abc1234", "init")},
 			{output: []byte("")},
 			{output: recentCommitOutput("def5678", "feat x")},
@@ -208,7 +214,8 @@ func TestDoctor(t *testing.T) {
 
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("")},
+			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{output: []byte("")},         // git for-each-ref --merged
 			{output: recentCommitOutput("abc1234", "init")},
 			{output: []byte("")},
 			{output: recentCommitOutput("def5678", "feat x")},
@@ -239,7 +246,8 @@ func TestDoctor(t *testing.T) {
 
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("")},
+			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{output: []byte("")},         // git for-each-ref --merged
 			{output: recentCommitOutput("abc1234", "init")},
 			{output: []byte("")},
 			{output: recentCommitOutput("def5678", "feat x")},
@@ -262,7 +270,8 @@ func TestDoctor(t *testing.T) {
 	t.Run("json flag emits JSON array", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("feat\n")}, // merged
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // for-each-ref --merged: feat merged
 			{output: recentCommitOutput("abc1234", "init")},
 			{output: []byte("")},
 			{output: recentCommitOutput("def5678", "feat x")},
@@ -291,7 +300,8 @@ func TestDoctor(t *testing.T) {
 	t.Run("strict returns error when findings exist", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("feat\n")}, // merged → finding
+			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{output: []byte("feat bbb222\n")}, // for-each-ref --merged: feat merged → finding
 			{output: recentCommitOutput("abc1234", "init")},
 			{output: []byte("")},
 			{output: recentCommitOutput("def5678", "feat x")},
@@ -318,7 +328,8 @@ func TestDoctor(t *testing.T) {
 
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
-			{output: []byte("")},
+			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{output: []byte("")},         // git for-each-ref --merged
 			{output: recentCommitOutput("abc1234", "init")},
 			{output: []byte("")},
 			{output: recentCommitOutput("def5678", "feat x")},
@@ -339,7 +350,8 @@ func TestDoctor(t *testing.T) {
 		detachedPorcelain := []byte("worktree " + mainPath + "\nHEAD abc123\ndetached\n\n")
 		runner := &seqRunner{responses: []runResponse{
 			{output: detachedPorcelain},
-			{output: []byte("")}, // branch --merged
+			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{output: []byte("")},         // git for-each-ref --merged
 			// no per-worktree calls because detached is skipped
 		}}
 		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
@@ -348,8 +360,8 @@ func TestDoctor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 2 {
-			t.Errorf("runner called %d times, want 2 (no per-wt calls for detached)", runner.idx)
+		if runner.idx != 3 {
+			t.Errorf("runner called %d times, want 3 (no per-wt calls for detached)", runner.idx)
 		}
 	})
 
@@ -366,12 +378,21 @@ func TestDoctor(t *testing.T) {
 			wantErr: "git not found",
 		},
 		{
-			name: "git branch --merged fails",
+			name: "git rev-parse base fails",
 			runner: &seqRunner{responses: []runResponse{
 				{output: porcelain},
 				{err: errors.New("unknown revision")},
 			}},
 			wantErr: "unknown revision",
+		},
+		{
+			name: "git for-each-ref --merged fails",
+			runner: &seqRunner{responses: []runResponse{
+				{output: porcelain},
+				{output: []byte("aaa111\n")},
+				{err: errors.New("for-each-ref failed")},
+			}},
+			wantErr: "for-each-ref failed",
 		},
 		{
 			name: "last commit probe fails",

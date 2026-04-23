@@ -114,19 +114,36 @@ func parsePorcelain(data []byte) ([]Worktree, error) {
 	return worktrees, nil
 }
 
-// MergedBranches returns local branches already merged into base, excluding base itself.
+// MergedBranches returns local branches already merged into base. It excludes
+// base itself and any branch whose tip points at exactly the same commit as
+// base — such branches have no unique history yet (freshly created, or fast-
+// forwarded with no subsequent activity) and are not safe to auto-prune, since
+// a fresh worktree's work-in-progress has no commits to mark it distinct.
 func MergedBranches(ctx context.Context, runner CommandRunner, base string) ([]string, error) {
-	out, err := runner.Run(ctx, "git", "branch", "--merged", base, "--format=%(refname:short)")
+	baseOut, err := runner.Run(ctx, "git", "rev-parse", base+"^{commit}")
 	if err != nil {
-		return nil, fmt.Errorf("git branch --merged: %w", err)
+		return nil, fmt.Errorf("git rev-parse %s: %w", base, err)
+	}
+	baseSHA := strings.TrimSpace(string(baseOut))
+
+	out, err := runner.Run(ctx, "git", "for-each-ref",
+		"--merged="+base,
+		"--format=%(refname:short) %(objectname)",
+		"refs/heads/")
+	if err != nil {
+		return nil, fmt.Errorf("git for-each-ref --merged: %w", err)
 	}
 	var branches []string
 	for line := range strings.SplitSeq(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || line == base {
+		if line == "" {
 			continue
 		}
-		branches = append(branches, line)
+		name, sha, ok := strings.Cut(line, " ")
+		if !ok || name == base || sha == baseSHA {
+			continue
+		}
+		branches = append(branches, name)
 	}
 	return branches, nil
 }
