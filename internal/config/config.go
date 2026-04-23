@@ -104,23 +104,17 @@ func (e ExecConfig) IsZero() bool {
 
 // FromSpecConfig configures `tp from-spec`.
 type FromSpecConfig struct {
-	// PromptTemplate is a text/template string rendered into the worktree.
-	// Data: .Spec, .Skills, .Branch, .Slug, .WorktreePath, .PromptPath.
-	// .Prompt is additionally available in AgentCommand templates.
-	PromptTemplate string `toml:"prompt_template"`
-	// PromptFilename is the file written inside the worktree root. Default "PROMPT.md".
-	PromptFilename string `toml:"prompt_filename"`
-	// Skills is a list of skill names exposed to the template as .Skills.
+	// Skills is a list of skill names included in the generated prompt.
 	Skills []string `toml:"skills"`
 	// AgentCommand is invoked after the prompt is written. Each element is a
 	// text/template string. Empty means write the prompt and exit 0.
+	// Available template data: .Spec, .Skills, .Branch, .Slug, .WorktreePath, .PromptPath, .Prompt.
 	AgentCommand []string `toml:"agent_command"`
 }
 
 // IsZero reports whether no from-spec configuration is present.
 func (f FromSpecConfig) IsZero() bool {
-	return f.PromptTemplate == "" && f.PromptFilename == "" &&
-		len(f.Skills) == 0 && len(f.AgentCommand) == 0
+	return len(f.Skills) == 0 && len(f.AgentCommand) == 0
 }
 
 // Config is the full resolved configuration for a repo.

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"treepad/internal/config"
 )
 
 // FromSpecInput parameterises a tp from-spec invocation.
@@ -21,10 +23,12 @@ type FromSpecInput struct {
 	Base      string
 	Current   bool
 	OutputDir string
+	// Prompt is optional user-supplied instructions appended to the prompt body.
+	// When empty, the body ends with "Implement the ticket."
+	Prompt string
 }
 
-// promptData is the template context for both the prompt body and each
-// agent_command element.
+// promptData is the template context for each agent_command element.
 type promptData struct {
 	Spec         string
 	Skills       []string
@@ -32,12 +36,12 @@ type promptData struct {
 	Slug         string
 	WorktreePath string
 	PromptPath   string
-	// Prompt holds the rendered prompt body; populated only for agent_command templates.
+	// Prompt holds the rendered prompt body.
 	Prompt string
 }
 
 // FromSpec creates a worktree seeded from a spec (GitHub issue or local file),
-// resolves a prompt (existing file or rendered template), and hands off to a configured agent.
+// writes PROMPT.md into the worktree, and hands off to a configured agent.
 // Returns the agent's exit code (0 when no agent_command is configured).
 func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 	spec, err := resolveSpec(ctx, d, in.Issue, in.File)
@@ -50,7 +54,7 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 		return 0, err
 	}
 
-	promptPath, rendered, err := resolvePrompt(d, res, in.Branch, spec)
+	promptPath, rendered, err := resolveOrBuildPrompt(d, res, in.Branch, spec, in.Prompt)
 	if err != nil {
 		return 0, err
 	}
@@ -75,87 +79,52 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 	return code, nil
 }
 
-// renderAndWritePrompt renders the configured prompt template and writes it into
-// the worktree. Used by bulk mode where the written file is the deliverable.
-func renderAndWritePrompt(d Deps, res createWorktreeResult, branch, spec string) (path, rendered string, err error) {
-	if res.Cfg.FromSpec.PromptTemplate == "" {
-		return "", "", errors.New(
-			"from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default",
-		)
+// resolveOrBuildPrompt returns the prompt path and body.
+// If PROMPT.md already exists in the worktree it is used as-is.
+// Otherwise the prompt is built from the spec, skills, and optional user prompt,
+// then written into the worktree as PROMPT.md.
+func resolveOrBuildPrompt(d Deps, res createWorktreeResult, branch, spec, userPrompt string) (path, rendered string, err error) {
+	promptPath := filepath.Join(res.WorktreePath, "PROMPT.md")
+
+	if existing, readErr := os.ReadFile(promptPath); readErr == nil {
+		d.Log.Info("using existing prompt at %s", promptPath)
+		return promptPath, string(existing), nil
 	}
-	filename := res.Cfg.FromSpec.PromptFilename
-	if filename == "" {
-		filename = "PROMPT.md"
-	}
-	promptPath := filepath.Join(res.WorktreePath, filename)
-	data := promptData{
-		Spec:         spec,
-		Skills:       res.Cfg.FromSpec.Skills,
-		Branch:       branch,
-		Slug:         res.RC.Slug,
-		WorktreePath: res.WorktreePath,
-		PromptPath:   promptPath,
-	}
-	body, err := renderPrompt(res.Cfg.FromSpec.PromptTemplate, data)
-	if err != nil {
-		return "", "", err
-	}
-	if err := os.MkdirAll(res.WorktreePath, 0o755); err != nil {
-		return "", "", fmt.Errorf("create worktree dir: %w", err)
-	}
-	if err := os.WriteFile(promptPath, []byte(body), 0o644); err != nil {
-		return "", "", fmt.Errorf("write prompt: %w", err)
-	}
-	d.Log.OK("wrote prompt to %s", promptPath)
-	return promptPath, body, nil
+
+	body := buildPrompt(res.Cfg.FromSpec, branch, spec, userPrompt)
+	path, err = writePromptFile(d, res.WorktreePath, body)
+	return path, body, err
 }
 
-// resolvePrompt returns the prompt path and body to pass to the agent.
-// If a prompt file already exists in the worktree it is used as-is (not overwritten).
-// Otherwise the configured template is rendered and written to a temp file outside
-// the worktree so the working tree stays clean.
-func resolvePrompt(d Deps, res createWorktreeResult, branch, spec string) (path, rendered string, err error) {
-	filename := res.Cfg.FromSpec.PromptFilename
-	if filename == "" {
-		filename = "PROMPT.md"
+// buildPrompt constructs the prompt body from fixed structure + config skills + optional user instructions.
+func buildPrompt(cfg config.FromSpecConfig, branch, spec, userPrompt string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n## Spec\n%s\n", branch, spec)
+	if len(cfg.Skills) > 0 {
+		b.WriteString("\n## Skills\n")
+		for _, s := range cfg.Skills {
+			fmt.Fprintf(&b, "- /%s\n", s)
+		}
 	}
-	worktreePromptPath := filepath.Join(res.WorktreePath, filename)
+	if userPrompt != "" {
+		fmt.Fprintf(&b, "\nImplement the ticket according to the following instructions:\n\n%s\n", userPrompt)
+	} else {
+		b.WriteString("\nImplement the ticket.\n")
+	}
+	return b.String()
+}
 
-	if existing, readErr := os.ReadFile(worktreePromptPath); readErr == nil {
-		d.Log.Info("using existing prompt at %s", worktreePromptPath)
-		return worktreePromptPath, string(existing), nil
+// writePromptFile writes body to PROMPT.md inside worktreePath and returns the absolute path.
+func writePromptFile(d Deps, worktreePath, body string) (string, error) {
+	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
+		return "", fmt.Errorf("create worktree dir: %w", err)
 	}
-
-	if res.Cfg.FromSpec.PromptTemplate == "" {
-		return "", "", errors.New(
-			"from_spec.prompt_template not set in .treepad.toml; run `tp config init` to scaffold a default",
-		)
+	promptPath := filepath.Join(worktreePath, "PROMPT.md")
+	if err := os.WriteFile(promptPath, []byte(body), 0o644); err != nil {
+		return "", fmt.Errorf("write prompt: %w", err)
 	}
-
-	data := promptData{
-		Spec:         spec,
-		Skills:       res.Cfg.FromSpec.Skills,
-		Branch:       branch,
-		Slug:         res.RC.Slug,
-		WorktreePath: res.WorktreePath,
-		PromptPath:   worktreePromptPath,
-	}
-	body, err := renderPrompt(res.Cfg.FromSpec.PromptTemplate, data)
-	if err != nil {
-		return "", "", err
-	}
-
-	f, err := os.CreateTemp("", "treepad-prompt-*.md")
-	if err != nil {
-		return "", "", fmt.Errorf("create temp prompt: %w", err)
-	}
-	if _, werr := f.WriteString(body); werr != nil {
-		_ = f.Close()
-		return "", "", fmt.Errorf("write temp prompt: %w", werr)
-	}
-	_ = f.Close()
-	d.Log.Info("rendered prompt to %s", f.Name())
-	return f.Name(), body, nil
+	d.Log.OK("wrote prompt to %s", promptPath)
+	return promptPath, nil
 }
 
 // resolveSpec returns the raw spec body from either a GitHub issue or a local file.
@@ -203,11 +172,11 @@ func resolveIssueSpec(ctx context.Context, d Deps, issue int) (string, error) {
 func renderPrompt(tmpl string, data promptData) (string, error) {
 	t, err := template.New("prompt").Parse(tmpl)
 	if err != nil {
-		return "", fmt.Errorf("parse prompt_template: %w", err)
+		return "", fmt.Errorf("parse agent_command template: %w", err)
 	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("execute prompt_template: %w", err)
+		return "", fmt.Errorf("execute agent_command template: %w", err)
 	}
 	return buf.String(), nil
 }

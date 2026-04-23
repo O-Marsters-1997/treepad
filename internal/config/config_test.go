@@ -133,23 +133,15 @@ include = ["a.txt"]
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
 [from_spec]
-prompt_filename = "AGENT.md"
 skills = ["go", "testing"]
 agent_command = ["claude", "{{.PromptPath}}"]
-prompt_template = "spec: {{.Spec}}"
 `)
 		cfg, err := Load(dir)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if cfg.FromSpec.PromptFilename != "AGENT.md" {
-			t.Errorf("PromptFilename = %q, want %q", cfg.FromSpec.PromptFilename, "AGENT.md")
-		}
 		if !reflect.DeepEqual(cfg.FromSpec.Skills, []string{"go", "testing"}) {
 			t.Errorf("Skills = %v, want [go testing]", cfg.FromSpec.Skills)
-		}
-		if cfg.FromSpec.PromptTemplate != "spec: {{.Spec}}" {
-			t.Errorf("PromptTemplate = %q", cfg.FromSpec.PromptTemplate)
 		}
 		if !reflect.DeepEqual(cfg.FromSpec.AgentCommand, []string{"claude", "{{.PromptPath}}"}) {
 			t.Errorf("AgentCommand = %v", cfg.FromSpec.AgentCommand)

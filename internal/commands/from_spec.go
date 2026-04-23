@@ -37,6 +37,11 @@ func fromSpecCommand() *cli.Command {
 				Aliases: []string{"c"},
 				Usage:   "stay in the current directory instead of cd-ing into the new worktree",
 			},
+			&cli.StringFlag{
+				Name:    "prompt",
+				Aliases: []string{"p"},
+				Usage:   "instructions appended to the prompt body (default body ends with \"Implement the ticket.\")",
+			},
 		},
 		Action: runFromSpec,
 	}
@@ -64,6 +69,7 @@ func runFromSpec(ctx context.Context, cmd *cli.Command) error {
 		Branch:  branch,
 		Base:    cmd.String("base"),
 		Current: cmd.Bool("current"),
+		Prompt:  cmd.String("prompt"),
 	})
 	if err != nil {
 		return err
