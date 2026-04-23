@@ -79,11 +79,13 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 	return code, nil
 }
 
-// resolveOrBuildPrompt returns the prompt path and body.
-// If PROMPT.md already exists in the worktree it is used as-is.
-// Otherwise the prompt is built from the spec, skills, and optional user prompt,
+// resolveOrBuildPrompt builds the prompt from the spec, skills, and optional user prompt,
 // then written into the worktree as PROMPT.md.
-func resolveOrBuildPrompt(d Deps, res createWorktreeResult, branch, spec, userPrompt string) (path, rendered string, err error) {
+func resolveOrBuildPrompt(
+	d Deps,
+	res createWorktreeResult,
+	branch, spec, userPrompt string,
+) (path, rendered string, err error) {
 	promptPath := filepath.Join(res.WorktreePath, "PROMPT.md")
 
 	if existing, readErr := os.ReadFile(promptPath); readErr == nil {
