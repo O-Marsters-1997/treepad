@@ -59,11 +59,12 @@ type (
 type uiMode int
 
 const (
-	uiModeNormal        uiMode = iota
-	uiModeConfirmRemove        // r pressed — awaiting y/cancel
-	uiModeConfirmPrune         // p pressed — awaiting y/cancel
-	uiModeHelp                 // ? pressed — any key dismisses
-	uiModeFilter               // / pressed — typing filter query
+	uiModeNormal             uiMode = iota
+	uiModeConfirmRemove             // r pressed — awaiting y/cancel
+	uiModeConfirmForceRemove        // R pressed — awaiting y/cancel
+	uiModeConfirmPrune              // p pressed — awaiting y/cancel
+	uiModeHelp                      // ? pressed — any key dismisses
+	uiModeFilter                    // / pressed — typing filter query
 )
 
 // uiToast holds a transient message shown below the table.
@@ -306,6 +307,14 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+		case "R":
+			if !m.actionInFlight {
+				if row, ok := m.visibleCursorRow(); ok {
+					m.mode = uiModeConfirmForceRemove
+					m.confirmBranch = row.Branch
+					return m, nil
+				}
+			}
 		case "p":
 			if !m.actionInFlight {
 				m.mode = uiModeConfirmPrune
@@ -388,6 +397,12 @@ func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
 		m.confirmBranch = ""
 		m.actionInFlight = true
 		return m, tea.Batch(m.doRemove(branch), m.spinner.Tick)
+	case uiModeConfirmForceRemove:
+		branch := m.confirmBranch
+		m.mode = uiModeNormal
+		m.confirmBranch = ""
+		m.actionInFlight = true
+		return m, tea.Batch(m.doForceRemove(branch), m.spinner.Tick)
 	case uiModeConfirmPrune:
 		m.mode = uiModeNormal
 		m.actionInFlight = true
@@ -401,6 +416,13 @@ func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
 func (m uiModel) doRemove(branch string) tea.Cmd {
 	return func() tea.Msg {
 		err := Remove(m.ctx, m.d, RemoveInput{Branch: branch, OutputDir: m.in.OutputDir})
+		return uiRemoveDoneMsg{branch: branch, err: err}
+	}
+}
+
+func (m uiModel) doForceRemove(branch string) tea.Cmd {
+	return func() tea.Msg {
+		err := Remove(m.ctx, m.d, RemoveInput{Branch: branch, OutputDir: m.in.OutputDir, Force: true})
 		return uiRemoveDoneMsg{branch: branch, err: err}
 	}
 }
@@ -589,6 +611,7 @@ func uiRenderHelp() string {
 		"d           Diff selected worktree against base (default origin/main)\n" +
 		"y           Yank path of selected worktree (OSC-52)\n" +
 		"r           Remove selected worktree (with confirmation)\n" +
+		"R           Force-remove selected worktree (discards unmerged work, with confirmation)\n" +
 		"p           Prune merged worktrees (with confirmation)\n" +
 		"/           Filter / search worktrees\n" +
 		"?           Show this help\n" +
@@ -605,6 +628,9 @@ func uiRenderModal(m uiModel) string {
 	case uiModeConfirmRemove:
 		title = fmt.Sprintf("Remove worktree: %s", m.confirmBranch)
 		detail = "This will permanently delete the worktree and its branch."
+	case uiModeConfirmForceRemove:
+		title = fmt.Sprintf("Force-remove worktree: %s", m.confirmBranch)
+		detail = "This will force-delete the worktree and its branch, discarding uncommitted changes and unmerged commits."
 	case uiModeConfirmPrune:
 		title = "Prune merged worktrees"
 		detail = "All worktrees whose branches are merged into main will be removed."

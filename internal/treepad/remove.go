@@ -13,6 +13,7 @@ import (
 type RemoveInput struct {
 	Branch    string
 	OutputDir string
+	Force     bool
 	// Cwd overrides os.Getwd for testing the cwd-inside guard.
 	Cwd string
 }
@@ -43,5 +44,5 @@ func Remove(ctx context.Context, d Deps, in RemoveInput) error {
 		return fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
 	}
 
-	return removeWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, false)
+	return removeWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, in.Force)
 }

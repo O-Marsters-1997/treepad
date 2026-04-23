@@ -1,0 +1,5 @@
+tp-init-repo
+exec tp new feature-x
+exec tp ui --script=j,r,y,q
+stdout '✓ removed feature-x'
+! exists ../repo-feature-x

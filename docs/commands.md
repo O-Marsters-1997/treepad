@@ -558,6 +558,7 @@ Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Sh
 | `d` | Diff selected worktree against base (default from config or `origin/main`) |
 | `y` | Yank (copy) path to clipboard via OSC-52 |
 | `r` | Remove selected worktree (prompts for confirmation) |
+| `R` | Force-remove selected worktree — discards uncommitted changes and unmerged commits (prompts for confirmation) |
 | `p` | Prune merged worktrees (prompts for confirmation) |
 | `?` | Toggle key binding help overlay |
 | `q` / `Ctrl-C` | Quit without cd |
@@ -565,7 +566,7 @@ Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Sh
 ### Notes
 
 - Requires `eval "$(tp shell-init)"` for `Enter`→cd to take effect in the shell
-- `r` and `p` show an inline confirmation prompt; any key other than `y` cancels
+- `r`, `R`, and `p` show an inline confirmation prompt; any key other than `y` cancels; `R` uses `git worktree remove --force` and `git branch -D` so it succeeds even on dirty or unmerged worktrees
 - While a sync, remove, or prune action is in flight the cursor is locked and a spinner is shown; auto-refresh is paused until the action completes
 - `y` writes the path to the system clipboard via the OSC-52 terminal escape sequence; supported by most modern terminal emulators
 

@@ -1,0 +1,6 @@
+tp-init-repo
+tp-add-worktree feature-x
+# R opens confirm modal; esc cancels without removing; q exits.
+exec tp ui --script=j,R,esc,q
+! stdout 'removed'
+exists ../repo-feature-x

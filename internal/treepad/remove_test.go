@@ -201,6 +201,35 @@ func TestRemove(t *testing.T) {
 		})
 	}
 
+	t.Run("force remove passes --force and -D to git", func(t *testing.T) {
+		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{
+			{output: porcelain}, // git worktree list
+			{},                  // git worktree remove --force
+			{},                  // git branch -D
+		}}}
+		deps := testDeps(rr, &fakeSyncer{}, &fakeOpener{})
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir, Force: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var foundForce, foundD bool
+		for _, call := range rr.calls {
+			if len(call) >= 4 && call[1] == "worktree" && call[2] == "remove" && call[3] == "--force" {
+				foundForce = true
+			}
+			if len(call) >= 4 && call[1] == "branch" && call[2] == "-D" {
+				foundD = true
+			}
+		}
+		if !foundForce {
+			t.Error("expected git worktree remove --force")
+		}
+		if !foundD {
+			t.Error("expected git branch -D")
+		}
+	})
+
 	t.Run("refuses to remove worktree user is currently in", func(t *testing.T) {
 		runner := &seqRunner{responses: []runResponse{
 			{output: porcelain},
