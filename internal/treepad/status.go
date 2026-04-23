@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -204,4 +205,207 @@ func collapsePath(path string) string {
 		return path
 	}
 	return "~" + path[len(home):]
+}
+
+// healthFlags carries per-worktree diagnostic signals beyond the base StatusRow
+// fields. Used only by the TUI's richer status column.
+type healthFlags struct {
+	Merged  bool
+	Drifted bool
+}
+
+const uiStaleThreshold = 14 * 24 * time.Hour
+
+// computeHealth derives health flags for each non-main, non-prunable worktree.
+// Runs only local git/file-IO checks; no network calls are made.
+func computeHealth(ctx context.Context, d Deps, rows []StatusRow) (map[string]healthFlags, error) {
+	var mainPath string
+	for _, r := range rows {
+		if r.IsMain {
+			mainPath = r.Path
+			break
+		}
+	}
+
+	base := "main"
+	var mainCfg config.Config
+	if mainPath != "" {
+		if cfg, err := config.Load(mainPath); err == nil {
+			mainCfg = cfg
+			if cfg.Diff.Base != "" {
+				base = cfg.Diff.Base
+			}
+		}
+	}
+
+	mergedBranches, err := worktree.MergedBranches(ctx, d.Runner, base)
+	if err != nil {
+		return nil, err
+	}
+	mergedSet := make(map[string]bool, len(mergedBranches))
+	for _, b := range mergedBranches {
+		mergedSet[b] = true
+	}
+
+	health := make(map[string]healthFlags, len(rows))
+	for _, r := range rows {
+		if r.Prunable || r.IsMain {
+			continue
+		}
+		flags := healthFlags{Merged: mergedSet[r.Branch]}
+		if mainPath != "" {
+			if wtCfg, cfgErr := config.Load(r.Path); cfgErr == nil {
+				flags.Drifted = !reflect.DeepEqual(wtCfg, mainCfg)
+			}
+		}
+		health[r.Branch] = flags
+	}
+	return health, nil
+}
+
+// deriveStatus returns a human-readable label and a category key for r,
+// incorporating health flags. Priority: broken → detached → merged → dirty →
+// diverged → ahead → behind → stale → local → clean.
+func deriveStatus(r StatusRow, h healthFlags) (label, key string) {
+	switch {
+	case r.Prunable:
+		return "broken", "broken"
+	case r.Branch == "(detached)":
+		return "detached", "detached"
+	case h.Merged && !r.IsMain:
+		label = "merged (safe rm)"
+		if h.Drifted {
+			label += " · drift"
+		}
+		return label, "merged"
+	case r.Dirty:
+		label = "dirty"
+		switch {
+		case r.Ahead > 0 && r.Behind > 0:
+			label += fmt.Sprintf(" · ↑%d ↓%d", r.Ahead, r.Behind)
+		case r.Ahead > 0:
+			label += fmt.Sprintf(" · ↑%d", r.Ahead)
+		case r.Behind > 0:
+			label += fmt.Sprintf(" · ↓%d", r.Behind)
+		}
+		if h.Drifted {
+			label += " · drift"
+		}
+		return label, "dirty"
+	case r.HasUpstream && r.Ahead > 0 && r.Behind > 0:
+		label = fmt.Sprintf("diverged · ↑%d ↓%d", r.Ahead, r.Behind)
+		if h.Drifted {
+			label += " · drift"
+		}
+		return label, "diverged"
+	case r.HasUpstream && r.Ahead > 0:
+		label = fmt.Sprintf("ahead · ↑%d", r.Ahead)
+		if h.Drifted {
+			label += " · drift"
+		}
+		return label, "ahead"
+	case r.HasUpstream && r.Behind > 0:
+		label = fmt.Sprintf("behind · ↓%d", r.Behind)
+		if h.Drifted {
+			label += " · drift"
+		}
+		return label, "behind"
+	case !r.LastCommit.Committed.IsZero() && time.Since(r.LastCommit.Committed) > uiStaleThreshold:
+		label = "stale"
+		if h.Drifted {
+			label += " · drift"
+		}
+		return label, "stale"
+	case !r.HasUpstream:
+		label = "local"
+		if h.Drifted {
+			label += " · drift"
+		}
+		return label, "local"
+	default:
+		label = "clean"
+		if h.Drifted {
+			label += " · drift"
+		}
+		return label, "clean"
+	}
+}
+
+// formatUIRows formats rows for the TUI with the richer STATUS column
+// (AHEAD/BEHIND folded in) using precomputed health flags.
+func formatUIRows(rows []StatusRow, health map[string]healthFlags) []string {
+	if len(rows) == 0 {
+		return nil
+	}
+	var buf bytes.Buffer
+	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tLAST COMMIT\tTOUCHED\tPATH")
+
+	for _, r := range rows {
+		branch := r.Branch
+		if r.IsMain {
+			branch += " *"
+		}
+
+		label, _ := deriveStatus(r, health[r.Branch])
+
+		if r.Prunable {
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				branch, label, r.PrunableReason, "—", collapsePath(r.Path))
+			continue
+		}
+
+		lastCommit := "—"
+		if r.LastCommit.ShortSHA != "" {
+			subject := r.LastCommit.Subject
+			if len(subject) > 35 {
+				subject = subject[:35] + "…"
+			}
+			lastCommit = fmt.Sprintf("%s %s · %s", r.LastCommit.ShortSHA, subject, since(r.LastCommit.Committed))
+		}
+
+		touched := "—"
+		if !r.LastTouched.IsZero() {
+			touched = since(r.LastTouched)
+		}
+
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			branch, label, lastCommit, touched, collapsePath(r.Path))
+	}
+
+	_ = w.Flush()
+	raw := strings.TrimRight(buf.String(), "\n")
+	if raw == "" {
+		return nil
+	}
+	return strings.Split(raw, "\n")
+}
+
+// uiBuildSummary builds the fleet-count summary line shown at the TUI footer.
+func uiBuildSummary(rows []StatusRow, health map[string]healthFlags) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	counts := make(map[string]int, 10)
+	driftCount := 0
+	for _, r := range rows {
+		h := health[r.Branch]
+		_, key := deriveStatus(r, h)
+		counts[key]++
+		if h.Drifted {
+			driftCount++
+		}
+	}
+	order := []string{"clean", "dirty", "ahead", "behind", "diverged", "merged", "stale", "local", "detached", "broken"}
+	parts := make([]string, 0, 12)
+	parts = append(parts, fmt.Sprintf("%d worktrees", len(rows)))
+	for _, k := range order {
+		if n := counts[k]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", k, n))
+		}
+	}
+	if driftCount > 0 {
+		parts = append(parts, fmt.Sprintf("drift %d", driftCount))
+	}
+	return strings.Join(parts, " · ")
 }

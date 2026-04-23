@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +21,8 @@ import (
 var (
 	uiCursorStyle   = lipgloss.NewStyle().Background(lipgloss.Color("62")).Foreground(lipgloss.Color("230"))
 	uiHeaderStyle   = lipgloss.NewStyle().Bold(true)
+	uiActiveStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
+	uiSummaryStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	uiToastOKStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	uiToastErrStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
@@ -30,8 +34,9 @@ type (
 	uiTickMsg         struct{}
 	uiToastExpiredMsg struct{}
 	uiRefreshMsg      struct {
-		rows []StatusRow
-		err  error
+		rows   []StatusRow
+		health map[string]healthFlags
+		err    error
 	}
 	uiSyncDoneMsg struct {
 		branch string // empty = fleet sync
@@ -78,6 +83,8 @@ type uiModel struct {
 	d              Deps
 	in             StatusInput
 	rows           []StatusRow
+	health         map[string]healthFlags // keyed by branch; nil until first refresh
+	activePath     string                 // filepath.Clean(cwd) at UI launch; "" if unavailable
 	cursor         int
 	width          int
 	height         int
@@ -108,7 +115,11 @@ func (m uiModel) Init() tea.Cmd {
 func (m uiModel) doRefresh() tea.Cmd {
 	return func() tea.Msg {
 		rows, err := refreshStatus(m.ctx, m.d, m.in)
-		return uiRefreshMsg{rows: rows, err: err}
+		if err != nil {
+			return uiRefreshMsg{err: err}
+		}
+		health, _ := computeHealth(m.ctx, m.d, rows)
+		return uiRefreshMsg{rows: rows, health: health}
 	}
 }
 
@@ -146,6 +157,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.err = nil
 			m.rows = msg.rows
+			if msg.health != nil {
+				m.health = msg.health
+			}
 			if vr := m.visibleRows(); len(vr) > 0 && m.cursor >= len(vr) {
 				m.cursor = len(vr) - 1
 			} else if len(vr) == 0 {
@@ -527,7 +541,7 @@ func (m uiModel) View() string {
 	if len(vr) == 0 && m.filterStr != "" {
 		fmt.Fprintf(&sb, "  no matches for %q\n", m.filterStr)
 	} else {
-		lines := uiBuildTableLines(vr)
+		lines := uiBuildTableLines(vr, m.health)
 		for i, line := range lines {
 			if i == 0 {
 				sb.WriteString("  ")
@@ -547,9 +561,14 @@ func (m uiModel) View() string {
 					prefix = "  "
 				}
 
-				if rowIdx == m.cursor {
+				isActive := m.activePath != "" && rowIdx < len(vr) &&
+					isActiveWorktree(m.activePath, vr[rowIdx].Path)
+				switch {
+				case rowIdx == m.cursor:
 					sb.WriteString(uiCursorStyle.Render(prefix + line))
-				} else {
+				case isActive:
+					sb.WriteString(uiActiveStyle.Render(prefix + line))
+				default:
 					sb.WriteString(prefix + line)
 				}
 			}
@@ -589,11 +608,17 @@ func (m uiModel) View() string {
 		sb.WriteString("\nnote: stale worktree metadata detected — run 'tp prune' or 'git worktree prune' to clean up\n")
 	}
 
+	if summary := uiBuildSummary(vr, m.health); summary != "" {
+		sb.WriteString("\n")
+		sb.WriteString(uiSummaryStyle.Render(summary))
+		sb.WriteString("\n")
+	}
+
 	return sb.String()
 }
 
-func uiBuildTableLines(rows []StatusRow) []string {
-	return formatStatusRows(rows)
+func uiBuildTableLines(rows []StatusRow, health map[string]healthFlags) []string {
+	return formatUIRows(rows, health)
 }
 
 var uiModalStyle = lipgloss.NewStyle().
@@ -639,16 +664,25 @@ func uiRenderModal(m uiModel) string {
 	return uiModalStyle.Render(body)
 }
 
+// isActiveWorktree reports whether activePath (the cwd at TUI launch) is inside
+// wtPath. Mirrors the convention used in remove.go and prune.go.
+func isActiveWorktree(activePath, wtPath string) bool {
+	rel, err := filepath.Rel(filepath.Clean(wtPath), activePath)
+	return err == nil && !strings.HasPrefix(rel, "..")
+}
+
 // UI opens a full-screen fleet view. It returns ErrNotTTY when d.Out is not
 // an interactive terminal.
 func UI(ctx context.Context, d Deps, in StatusInput) error {
 	if !d.IsTerminal(d.Out) {
 		return ErrNotTTY
 	}
+	cwd, _ := os.Getwd()
 	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	m := uiModel{
 		ctx: ctx, d: d, in: in, loading: true, spinner: sp,
-		tickCmd: func() tea.Cmd { return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiTickMsg{} }) },
+		activePath: filepath.Clean(cwd),
+		tickCmd:    func() tea.Cmd { return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiTickMsg{} }) },
 		toastTimerCmd: func() tea.Cmd {
 			return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiToastExpiredMsg{} })
 		},

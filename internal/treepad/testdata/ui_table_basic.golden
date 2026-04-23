@@ -1,0 +1,5 @@
+BRANCH  STATUS         LAST COMMIT  TOUCHED  PATH
+main *  behind · ↓1    —            —        /repo/main
+feat-a  local          —            —        /repo/feat-a
+feat-b  dirty · ↑1 ↓2  —            —        /repo/feat-b
+stale   broken         no gitdir    —        /repo/stale
