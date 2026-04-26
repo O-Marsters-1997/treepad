@@ -580,6 +580,7 @@ func (m uiModel) View() string {
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderModal(m))
 		sb.WriteString("\n")
+	case uiModeNormal, uiModeFilter:
 	}
 
 	if m.toast != nil {

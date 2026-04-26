@@ -21,7 +21,8 @@ func New(ctx context.Context, d Deps, in NewInput) error {
 
 	if in.Open {
 		d.Log.Step("opening...")
-		if err := openWorktree(ctx, d, res.Cfg.Open.Command, in.Branch, res.WorktreePath, res.ArtifactPath, res.RC.OutputDir); err != nil {
+		if err := openWorktree(ctx, d, res.Cfg.Open.Command,
+			in.Branch, res.WorktreePath, res.ArtifactPath, res.RC.OutputDir); err != nil {
 			return fmt.Errorf("open: %w", err)
 		}
 	}

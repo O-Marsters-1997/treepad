@@ -44,7 +44,8 @@ func createWorktreeWithSync(ctx context.Context, d Deps, branch, base, outputDir
 		d.Log.OK("created worktree at %s", worktreePath)
 
 		var syncErr error
-		cfg, syncErr = loadAndSync(ctx, d, rc.Main.Path, nil, []syncTarget{{path: worktreePath, branch: branch}}, rc.Slug, rc.OutputDir)
+		cfg, syncErr = loadAndSync(ctx, d, rc.Main.Path, nil,
+			[]syncTarget{{path: worktreePath, branch: branch}}, rc.Slug, rc.OutputDir)
 		if syncErr != nil {
 			return syncErr
 		}

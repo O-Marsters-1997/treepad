@@ -45,7 +45,8 @@ func removeWorktreeAndArtifact(
 		}
 		d.Log.OK("removed worktree: %s", target.Path)
 
-		artifactPath, ok, err := resolveArtifactPath(artifactSpec(cfg.Artifact), repoSlug, target.Branch, target.Path, outputDir)
+		artifactPath, ok, err := resolveArtifactPath(
+			artifactSpec(cfg.Artifact), repoSlug, target.Branch, target.Path, outputDir)
 		if err != nil {
 			return err
 		}

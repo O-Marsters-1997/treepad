@@ -27,7 +27,9 @@ func runHook(ctx context.Context, d Deps, cfg hook.Config, event hook.Event, dat
 
 // runHookSandwich runs pre → do → post, aborting on pre failure and
 // warning-only on post failure.
-func runHookSandwich(ctx context.Context, d Deps, cfg hook.Config, pre, post hook.Event, data hook.Data, do func() error) error {
+func runHookSandwich(
+	ctx context.Context, d Deps, cfg hook.Config, pre, post hook.Event, data hook.Data, do func() error,
+) error {
 	if err := runHook(ctx, d, cfg, pre, data); err != nil {
 		return fmt.Errorf("%s hook: %w", pre, err)
 	}

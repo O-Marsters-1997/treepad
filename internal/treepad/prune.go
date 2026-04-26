@@ -122,7 +122,8 @@ func gatherMerged(ctx context.Context, d Deps, rc RepoContext, cwd, base string)
 }
 
 func gatherAll(rc RepoContext, cwd string) (pruneSelection, error) {
-	if err := requireCwdInside(cwd, rc.Main.Path, fmt.Sprintf("--all must be run from the main worktree (%s)", rc.Main.Path)); err != nil {
+	if err := requireCwdInside(cwd, rc.Main.Path,
+		fmt.Sprintf("--all must be run from the main worktree (%s)", rc.Main.Path)); err != nil {
 		return pruneSelection{}, err
 	}
 
