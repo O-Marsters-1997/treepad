@@ -1,7 +1,9 @@
 package treepad
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -107,6 +109,16 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.toast = &uiToast{msg: fmt.Sprintf("✓ diffed %s", msg.branch)}
 		return m, m.doToastTimer()
+
+	case uiShellDoneMsg:
+		m.actionInFlight = false
+		var exitErr *exec.ExitError
+		if msg.err != nil && !errors.As(msg.err, &exitErr) {
+			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
+			return m, tea.Batch(m.doRefresh(), m.doTick())
+		}
+		m.toast = &uiToast{msg: fmt.Sprintf("✓ shell exited (%s)", msg.branch)}
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
 
 	case uiYankClearMsg:
 		m.yankPath = ""
@@ -254,6 +266,15 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.doDiff(row)
 				}
 			}
+		case "e":
+			if !m.actionInFlight {
+				if row, ok := m.visibleCursorRow(); ok {
+					m.mode = uiModeConfirmShell
+					m.confirmBranch = row.Branch
+					m.confirmShellPath = row.Path
+					return m, nil
+				}
+			}
 		case "y":
 			if row, ok := m.visibleCursorRow(); ok {
 				m.yankPath = row.Path
@@ -321,6 +342,14 @@ func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
 		m.mode = uiModeNormal
 		m.actionInFlight = true
 		return m, tea.Batch(m.doPrune(), m.spinner.Tick)
+	case uiModeConfirmShell:
+		path := m.confirmShellPath
+		branch := m.confirmBranch
+		m.mode = uiModeNormal
+		m.confirmBranch = ""
+		m.confirmShellPath = ""
+		m.actionInFlight = true
+		return m, m.doShell(StatusRow{Branch: branch, Path: path})
 	case uiModeFilter:
 		return m, nil
 	}
@@ -365,6 +394,18 @@ func (m uiModel) doOpen(row StatusRow) tea.Cmd {
 		err = lifecycle.OpenWorktree(m.ctx, m.d, cfg.Open.Command, row.Branch, row.Path, row.ArtifactPath, m.in.OutputDir)
 		return uiOpenDoneMsg{path: openPath, err: err}
 	}
+}
+
+func (m uiModel) doShell(row StatusRow) tea.Cmd {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	cmd := exec.Command(shell)
+	cmd.Dir = row.Path
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return uiShellDoneMsg{branch: row.Branch, err: err}
+	})
 }
 
 func (m uiModel) doDiff(row StatusRow) tea.Cmd {

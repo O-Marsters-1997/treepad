@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -862,6 +863,149 @@ func TestUIFilter(t *testing.T) {
 		m3 := updated2.(uiModel)
 		if m3.mode != uiModeFilter {
 			t.Errorf("mode = %v, want uiModeFilter on second /", m3.mode)
+		}
+	})
+}
+
+func TestUIShell(t *testing.T) {
+	rows2 := []StatusRow{
+		{Branch: "main", IsMain: true, Path: "/repo/main"},
+		{Branch: "feat", Path: "/repo/feat"},
+	}
+
+	t.Run("e enters confirmShell mode with branch and path", func(t *testing.T) {
+		m := uiModel{rows: rows2, cursor: 1}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeConfirmShell {
+			t.Errorf("mode = %v, want uiModeConfirmShell", m2.mode)
+		}
+		if m2.confirmBranch != "feat" {
+			t.Errorf("confirmBranch = %q, want feat", m2.confirmBranch)
+		}
+		if m2.confirmShellPath != "/repo/feat" {
+			t.Errorf("confirmShellPath = %q, want /repo/feat", m2.confirmShellPath)
+		}
+		if cmd != nil {
+			t.Error("e should not dispatch a command immediately")
+		}
+	})
+
+	t.Run("e is no-op when action in flight", func(t *testing.T) {
+		m := uiModel{rows: rows2, cursor: 1, actionInFlight: true}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal while action in flight", m2.mode)
+		}
+		if cmd != nil {
+			t.Error("expected nil command when action already in flight")
+		}
+	})
+
+	t.Run("y in confirmShell dispatches shell and returns to normal mode", func(t *testing.T) {
+		m := uiModel{
+			rows:             rows2,
+			cursor:           1,
+			mode:             uiModeConfirmShell,
+			confirmBranch:    "feat",
+			confirmShellPath: "/repo/feat",
+		}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal after confirm", m2.mode)
+		}
+		if !m2.actionInFlight {
+			t.Error("actionInFlight should be true after y confirm")
+		}
+		if m2.confirmBranch != "" {
+			t.Errorf("confirmBranch = %q, want empty after confirm", m2.confirmBranch)
+		}
+		if m2.confirmShellPath != "" {
+			t.Errorf("confirmShellPath = %q, want empty after confirm", m2.confirmShellPath)
+		}
+		if cmd == nil {
+			t.Error("expected dispatch command after y confirm")
+		}
+	})
+
+	t.Run("non-y key in confirmShell cancels and returns to normal", func(t *testing.T) {
+		m := uiModel{
+			mode:             uiModeConfirmShell,
+			confirmBranch:    "feat",
+			confirmShellPath: "/repo/feat",
+		}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want uiModeNormal after cancel", m2.mode)
+		}
+		if m2.confirmBranch != "" {
+			t.Errorf("confirmBranch = %q, want empty after cancel", m2.confirmBranch)
+		}
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false after cancel")
+		}
+	})
+
+	t.Run("shell done success shows toast and triggers refresh", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, cmd := m.Update(uiShellDoneMsg{branch: "feat", err: nil})
+		m2 := updated.(uiModel)
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false after shell done")
+		}
+		if m2.toast == nil {
+			t.Fatal("expected toast after shell exits")
+		}
+		if m2.toast.isErr {
+			t.Error("success toast should not be error")
+		}
+		if !strings.Contains(m2.toast.msg, "feat") {
+			t.Errorf("toast = %q, want containing branch name", m2.toast.msg)
+		}
+		if cmd == nil {
+			t.Error("expected refresh command after shell exits")
+		}
+	})
+
+	t.Run("shell done with ExitError shows success toast and refreshes", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, cmd := m.Update(uiShellDoneMsg{branch: "feat", err: &exec.ExitError{}})
+		m2 := updated.(uiModel)
+		if m2.toast == nil || m2.toast.isErr {
+			t.Error("ExitError from shell should show success toast, not error toast")
+		}
+		if cmd == nil {
+			t.Error("expected refresh command")
+		}
+	})
+
+	t.Run("shell done with launch error shows error toast", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, _ := m.Update(uiShellDoneMsg{branch: "feat", err: errors.New("exec: not found")})
+		m2 := updated.(uiModel)
+		if m2.toast == nil || !m2.toast.isErr {
+			t.Error("launch failure should show error toast")
+		}
+	})
+
+	t.Run("view renders shell modal with branch and path", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmShell, confirmBranch: "feat/my-branch", confirmShellPath: "/repo/feat"}
+		view := m.View()
+		for _, want := range []string{"feat/my-branch", "/repo/feat", "confirm", "cancel"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("shell modal view missing %q", want)
+			}
+		}
+	})
+
+	t.Run("help view lists e binding", func(t *testing.T) {
+		m := uiModel{mode: uiModeHelp}
+		view := m.View()
+		if !strings.Contains(view, "e") || !strings.Contains(view, "shell") {
+			t.Errorf("help view missing shell binding, got:\n%s", view)
 		}
 	})
 }
