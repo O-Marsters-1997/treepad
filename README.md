@@ -56,7 +56,21 @@ Run `tp config show` to confirm which config is active.
 ## Usage
 
 ```
-tp [--verbose | -v] <command> [options]
+tp [--verbose | -v] [--profile] <command> [options]
+```
+
+Use `--profile` to print a per-stage timing breakdown to stderr after the command completes:
+
+```bash
+tp --profile new feature-x
+# => profile: new feature-x (total 0.842s)
+#      stage              duration    pct
+#    ─────────────────────────────────────
+#      git.worktree_add   0.501s    59.5%  ◀
+#      sync               0.201s    23.9%
+#      artifact.write     0.140s    16.6%
+#    ─────────────────────────────────────
+#      total              0.842s   100.0%
 ```
 
 ### Main commands
@@ -196,6 +210,7 @@ tp ui
 | `S`            | Sync all worktrees (fleet sync)                                                                        |
 | `o`            | Open artifact file for selected worktree                                                               |
 | `d`            | Diff selected worktree against base branch                                                             |
+| `e`            | Open an interactive shell (`$SHELL`) in selected worktree (with confirmation)                          |
 | `y`            | Yank (copy) path of selected worktree to clipboard                                                     |
 | `r`            | Remove selected worktree (with confirmation)                                                           |
 | `R`            | Force-remove selected worktree — discards uncommitted changes and unmerged commits (with confirmation) |

@@ -6,9 +6,12 @@ This document describes the architecture and module organization.
 
 **`cmd/tp/main.go`** — CLI bootstrap
 
-- Initializes the `urfave/cli` v3 application with the verbose flag
+- Initializes the `urfave/cli` v3 application with two global flags:
+  - `--verbose` / `-v` — sets `slog` to `DEBUG` level on stderr
+  - `--profile` — attaches a `profile.Recorder` to `cmd.Metadata["profiler"]`; `After` hook calls `rec.Summary()` to print a per-stage timing table to stderr
+- `commandDeps()` (in `commands/base.go`) extracts the recorder from metadata and sets `d.Profiler`
 - Calls `commands.Router()` to get all available CLI commands
-- Runs the CLI with context and os.Args
+- Runs the CLI with a signal-notified context (SIGINT/SIGTERM)
 
 ## Commands Package (`internal/commands/`)
 
@@ -20,7 +23,7 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 
 ### `base.go`
 
-- `commandDeps(cmd)` — builds production `deps.Deps` from the CLI command's writers and os.Stdin
+- `commandDeps(cmd)` — builds production `deps.Deps`; if a `profile.Recorder` is stored in `cmd.Root().Metadata["profiler"]`, wires it into `d.Profiler` so lifecycle operations emit timed stages
 - `requireBranch(cmd)` — extracts the first positional argument as a branch name or returns an error
 - `baseCommand()` — `tp base` command: calls `cd.Base()` to emit a cd directive for the main worktree
 
@@ -223,10 +226,11 @@ Business logic entry points. Each public function is a standalone top-level func
 
 - `UI(ctx, deps.Deps, StatusInput) error` — BubbleTea TUI fleet monitor
   - Returns `ErrNotTTY` (exit code 2) if stdout is not a terminal
-  - Enters alt-screen; auto-refreshes every 5 seconds
-  - Key events: `s`/`S` sync, `r`/`R` remove, `p` prune, `o` open, `d` diff, `y` yank (OSC-52), `/` enter filter mode (fuzzy match on branch or path basename), `Esc` clear filter, `?` help overlay, `Enter` cd+quit
-  - Filter mode intercepts keystrokes; Enter commits, Esc cancels
-  - `selectedPath` set on Enter → after `p.Run()`, emits `__TREEPAD_CD__` sentinel
+  - Enters alt-screen; auto-refreshes every 2 seconds
+  - `uiMode` constants: `uiModeNormal`, `uiModeConfirmRemove`, `uiModeConfirmForceRemove`, `uiModeConfirmPrune`, `uiModeConfirmShell`, `uiModeHelp`, `uiModeFilter`
+  - Key events: `s`/`S` sync, `r`/`R` remove (confirm → `y`), `p` prune (confirm → `y`), `o` open, `d` diff, `e` shell (confirm → `y` → `doShell()`: spawns `$SHELL` or `/bin/sh` in worktree dir via `tea.ExecProcess`; TUI suspends, resumes on shell exit), `y` yank (OSC-52), `/` enter filter mode (fuzzy match on branch or path basename), `Esc` clear filter, `?` help overlay, `Enter` cd+quit
+  - Filter mode (`uiModeFilter`) intercepts all keystrokes; Enter commits filter, Esc cancels
+  - `selectedPath` set on Enter → after `p.Run()`, calls `uiEmitCD()` → `cd.EmitCD()` sentinel
 
 ### `filter.go`
 
@@ -247,12 +251,13 @@ Business logic entry points. Each public function is a standalone top-level func
 
 - `Deps` struct — all injectable dependencies shared by every treepad operation
   - `Runner worktree.CommandRunner`, `Syncer sync.Syncer`, `Opener artifact.Opener`, `HookRunner hook.Runner`, `PTRunner passthrough.Runner`
+  - `Profiler profile.Profiler` — records per-stage wall-time durations; `DefaultDeps` sets `profile.Disabled()` (no-op); `commandDeps()` replaces it with the `profile.Recorder` when `--profile` is passed
   - `Out io.Writer` — stdout: machine payloads (`__TREEPAD_CD__`, JSON, tables)
   - `Log *ui.Printer` — stderr: tagged user-facing narrative
   - `In io.Reader`
   - `IsTerminal func(w io.Writer) bool` — injectable TTY check
   - `CDSentinel func() io.Writer` — test override for the fd-3 cd sentinel writer
-- `DefaultDeps(out, errw io.Writer, in io.Reader) Deps` — wires production implementations
+- `DefaultDeps(out, errw io.Writer, in io.Reader) Deps` — wires production implementations; `Profiler` defaults to `profile.Disabled()`
 
 ### `internal/treepad/lifecycle/`
 
@@ -392,7 +397,7 @@ Lifecycle hooks defined in `.treepad.toml` and run at specific points in `tp` op
 - `Runner` interface — `Run(ctx, []HookEntry, Data) error`
 - `PostErr` struct — non-fatal post-hook error; callers log as warning
 - `Run(ctx, Runner, Config, Event, Data) error` — executes hooks for a single event
-- `RunSandwich(ctx, Runner, Config, pre, post Event, Data, do func() error) (*PostErr, error)` — runs pre → do → post; pre failure aborts; post failure returns `*PostErr` with nil main error
+- `RunSandwich(ctx, profile.Profiler, Runner, Config, pre, post Event, Data, do func() error) (*PostErr, error)` — runs pre → do → post; times each hook phase as `"<event>_hooks"` stages on the profiler; pre failure aborts; post failure returns `*PostErr` with nil main error
 
 ### `runner.go`
 
@@ -412,6 +417,33 @@ Stdio-passthrough runner for child processes where `tp` must inherit the termina
 
 - `Runner` interface — `Run(ctx, workdir, name string, args ...string) (exitCode int, error)`
 - `OSRunner` struct — production implementation; sets `Stdin`/`Stdout`/`Stderr` to `os.Stdin`/`os.Stdout`/`os.Stderr` and `Dir` to workdir; returns child process exit code (non-zero is not an error)
+
+## Profile Package (`internal/profile/`)
+
+Lightweight wall-time stage profiler. Activated by the `--profile` global flag; no-op otherwise.
+
+### `profile.go`
+
+- `Profiler` interface — `Stage(name string) func()`, `Summary(w io.Writer, totalLabel string)`
+- `Recorder` struct — production implementation; accumulates per-stage durations with a mutex; repeated `Stage()` calls with the same name add to the existing total
+  - `Stage(name) func()` — records wall-time elapsed; call as `defer p.Stage("foo")()`
+  - `Summary(w, totalLabel)` — prints a table of stages sorted by duration descending; longest stage marked with `◀`; format: `stage | duration | pct`
+- `NewRecorder() *Recorder` — creates a production recorder using `time.Now`
+- `Disabled() Profiler` — returns a shared no-op profiler (no allocations)
+- `OrDisabled(p Profiler) Profiler` — returns `p` if non-nil, else `Disabled()`; use at package boundaries where `Deps.Profiler` may be unset
+
+**Stage names used in production:**
+
+| Stage | Where timed |
+|---|---|
+| `repo.load` | `lifecycle.CreateWorktreeWithSync` |
+| `config.load` | `lifecycle.CreateWorktreeWithSync`, `lifecycle.LoadAndSync` |
+| `git.worktree_add` | `lifecycle.CreateWorktreeWithSync` |
+| `artifact.write` | `lifecycle.CreateWorktreeWithSync` |
+| `git.worktree_prune` | `lifecycle.pruneGitWorktreeMetadata` |
+| `pre_new_hooks` / `post_new_hooks` | `hook.RunSandwich` via lifecycle |
+| `pre_sync_hooks` / `post_sync_hooks` | `hook.RunSandwich` via lifecycle |
+| `pre_remove_hooks` / `post_remove_hooks` | `hook.RunSandwich` via lifecycle |
 
 ## TTY Package (`internal/tty/`)
 
@@ -560,14 +592,15 @@ tp [--verbose] <command>
 3. `UI()` checks TTY via `d.IsTerminal(d.Out)`; returns `ErrNotTTY` (exit code 2) if not a terminal
 4. Constructs `uiModel`, enters alt-screen via `tea.NewProgram(..., tea.WithAltScreen(), ...)`
 5. BubbleTea event loop:
-   - `Init()` dispatches `doRefresh()` and `doTick()`
+   - `Init()` dispatches `doRefresh()` and `doTick()` (2-second tick)
    - `doRefresh()` calls `refreshStatus()` asynchronously; result arrives as `uiRefreshMsg`
-   - Tick fires every 5s; skipped if an action is in flight
+   - Tick fires every 2s; skipped if an action is in flight
    - `/` key enters `uiModeFilter`; keystrokes update `filterStr`; Enter commits, Esc cancels; committed filter applied via `filterRows()` (fuzzy match)
-   - Key events dispatch sync, remove, prune, open, diff as async `tea.Cmd`s
+   - `e` key enters `uiModeConfirmShell`; `y` confirms → `doShell()`: `tea.ExecProcess($SHELL)` in worktree dir; TUI suspends, resumes on shell exit
+   - Key events dispatch sync, remove, prune, open, diff, shell as async `tea.Cmd`s
    - `y` key stores path in `yankPath`; `View()` emits OSC-52 escape; cleared next tick via `uiYankClearMsg`
    - Enter sets `selectedPath` and returns `tea.Quit`
-6. After `p.Run()` returns, if `selectedPath` is non-empty: calls `cd.EmitCD()` → shell wrapper cd's
+6. After `p.Run()` returns, if `selectedPath` is non-empty: calls `uiEmitCD()` → `cd.EmitCD()` → shell wrapper cd's
 
 ## Data Flow Example: `tp diff <branch> [--base ref] [-o file] [-- <git-diff-args>...]`
 
@@ -604,3 +637,7 @@ tp [--verbose] <command>
 - Shell bridge upgraded to fd-3 protocol (`TREEPAD_CD_FD`): binary writes cd path to fd 3 (captured by wrapper), stdout flows live to terminal
 - TUI `/` key enters fuzzy filter mode (branch + path basename) via `filterRows()` using `sahilm/fuzzy`
 - `tp prune` safety enhanced: skips dirty and ahead-of-upstream worktrees in merge-based mode
+- Added `--profile` global flag: attaches `profile.Recorder` to `Deps.Profiler`; prints per-stage timing table to stderr after command finishes
+- Added `internal/profile/` package: `Profiler` interface, `Recorder` (production), `Disabled()` (no-op)
+- TUI `e` key: enters `uiModeConfirmShell`; confirmed → `tea.ExecProcess($SHELL)` in selected worktree; TUI suspends then resumes
+- TUI auto-refresh interval is 2 seconds (not 5)

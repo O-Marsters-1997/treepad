@@ -676,6 +676,7 @@ Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Sh
 | `S`            | Sync all worktrees (fleet sync)                                                                               |
 | `o`            | Open artifact file for selected worktree                                                                      |
 | `d`            | Diff selected worktree against base (default from config or `origin/main`)                                    |
+| `e`            | Open an interactive shell (`$SHELL`, falling back to `/bin/sh`) in selected worktree — TUI suspends, shell runs full-screen, TUI resumes on exit (prompts for confirmation) |
 | `y`            | Yank (copy) path to clipboard via OSC-52                                                                      |
 | `r`            | Remove selected worktree (prompts for confirmation)                                                           |
 | `R`            | Force-remove selected worktree — discards uncommitted changes and unmerged commits (prompts for confirmation) |
