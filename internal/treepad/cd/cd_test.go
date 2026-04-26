@@ -1,10 +1,13 @@
-package treepad
+package cd
 
 import (
 	"bytes"
 	"context"
 	"strings"
 	"testing"
+
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 )
 
 func TestCD(t *testing.T) {
@@ -18,7 +21,7 @@ func TestCD(t *testing.T) {
 		{
 			name:   "cds into existing worktree",
 			branch: "feat",
-			wantCD: "__TREEPAD_CD__\t/repo/feat\n",
+			wantCD: "__TREEPAD_CD__\t/repo/feat\n→ cd: /repo/feat\n",
 		},
 		{
 			name:        "branch not found",
@@ -31,9 +34,9 @@ func TestCD(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
-			deps := Deps{
-				Runner: fakeRunner{Output: twoWorktreePorcelain},
-				Syncer: &fakeSyncer{},
+			deps := deps.Deps{
+				Runner: treepadtest.StaticRunner{Output: treepadtest.TwoWorktreePorcelain},
+				Syncer: &treepadtest.FakeSyncer{},
 				Out:    &out,
 				In:     strings.NewReader(""),
 			}

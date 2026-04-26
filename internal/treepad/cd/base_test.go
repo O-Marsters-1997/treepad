@@ -1,4 +1,4 @@
-package treepad
+package cd
 
 import (
 	"bytes"
@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 )
 
 func TestBase(t *testing.T) {
@@ -16,7 +19,7 @@ func TestBase(t *testing.T) {
 	}
 	featPath := mainPath + "-feat"
 
-	porcelain := twoWorktreePorcelainWithMain(mainPath, featPath)
+	porcelain := treepadtest.TwoWorktreePorcelainWithMain(mainPath, featPath)
 
 	tests := []struct {
 		name        string
@@ -30,7 +33,7 @@ func TestBase(t *testing.T) {
 			name:      "emits cd to main when cwd is a linked worktree",
 			cwd:       featPath,
 			porcelain: porcelain,
-			wantCD:    "__TREEPAD_CD__\t" + mainPath + "\n",
+			wantCD:    "__TREEPAD_CD__\t" + mainPath + "\n→ cd: " + mainPath + "\n",
 		},
 		{
 			name:        "errors when already on the default worktree",
@@ -43,7 +46,7 @@ func TestBase(t *testing.T) {
 			// twoWorktreePorcelain paths don't exist on disk so neither is main
 			name:        "errors when no main worktree can be found",
 			cwd:         featPath,
-			porcelain:   twoWorktreePorcelain,
+			porcelain:   treepadtest.TwoWorktreePorcelain,
 			wantErr:     true,
 			wantErrText: "could not find main worktree",
 		},
@@ -52,9 +55,9 @@ func TestBase(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
-			deps := Deps{
-				Runner: fakeRunner{Output: tt.porcelain},
-				Syncer: &fakeSyncer{},
+			deps := deps.Deps{
+				Runner: treepadtest.StaticRunner{Output: tt.porcelain},
+				Syncer: &treepadtest.FakeSyncer{},
 				Out:    &out,
 				In:     strings.NewReader(""),
 			}

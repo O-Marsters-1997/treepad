@@ -11,8 +11,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"treepad/internal/artifact"
 	"treepad/internal/config"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
 )
 
@@ -32,8 +33,8 @@ type DoctorFinding struct {
 	Detail string `json:"detail"`
 }
 
-func Doctor(ctx context.Context, d Deps, in DoctorInput) error {
-	rc, err := loadRepoContext(ctx, d, in.OutputDir)
+func Doctor(ctx context.Context, d deps.Deps, in DoctorInput) error {
+	rc, err := repo.Load(ctx, d.Runner, in.OutputDir)
 	if err != nil {
 		return err
 	}
@@ -43,7 +44,7 @@ func Doctor(ctx context.Context, d Deps, in DoctorInput) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	spec := artifactSpec(mainCfg.Artifact)
+	spec := mainCfg.Artifact
 
 	mergedBranches, err := worktree.MergedBranches(ctx, d.Runner, in.Base)
 	if err != nil {
@@ -115,7 +116,7 @@ func doctorCheckPrunable(wt worktree.Worktree) []DoctorFinding {
 }
 
 func doctorCheckAge(
-	ctx context.Context, d Deps, wt worktree.Worktree, threshold time.Duration,
+	ctx context.Context, d deps.Deps, wt worktree.Worktree, threshold time.Duration,
 ) ([]DoctorFinding, error) {
 	commit, err := worktree.LastCommit(ctx, d.Runner, wt.Path)
 	if err != nil {
@@ -160,7 +161,7 @@ func doctorCheckMerged(wt worktree.Worktree, mergedSet map[string]bool, base str
 	return nil
 }
 
-func doctorCheckRemoteGone(ctx context.Context, d Deps, wt worktree.Worktree) ([]DoctorFinding, error) {
+func doctorCheckRemoteGone(ctx context.Context, d deps.Deps, wt worktree.Worktree) ([]DoctorFinding, error) {
 	exists, hasUpstream, err := worktree.RemoteBranchExists(ctx, d.Runner, wt.Path, wt.Branch)
 	if err != nil {
 		return nil, err
@@ -177,9 +178,9 @@ func doctorCheckRemoteGone(ctx context.Context, d Deps, wt worktree.Worktree) ([
 }
 
 func doctorCheckArtifact(
-	spec artifact.Spec, repoSlug string, wt worktree.Worktree, outputDir string,
+	spec config.ArtifactConfig, repoSlug string, wt worktree.Worktree, outputDir string,
 ) ([]DoctorFinding, error) {
-	artifactPath, ok, err := resolveArtifactPath(spec, repoSlug, wt.Branch, wt.Path, outputDir)
+	artifactPath, ok, err := config.ResolveArtifactPath(spec, repoSlug, wt.Branch, wt.Path, outputDir)
 	if err != nil {
 		return nil, err
 	}

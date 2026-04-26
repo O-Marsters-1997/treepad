@@ -3,14 +3,15 @@ package treepad
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"treepad/internal/artifact"
-	internalsync "treepad/internal/sync"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 )
 
 // recentCommitOutput returns a git log line for a commit made 1 minute ago.
@@ -26,13 +27,10 @@ func staleCommitOutput(sha, subject string) []byte {
 }
 
 func TestDoctor(t *testing.T) {
-	mainPath := t.TempDir()
-	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	mainPath := makeMainWorktree(t)
 	featPath := t.TempDir()
 	outputDir := t.TempDir()
-	porcelain := twoWorktreePorcelainWithMain(mainPath, featPath)
+	porcelain := treepadtest.TwoWorktreePorcelainWithMain(mainPath, featPath)
 
 	// offlineInput returns a DoctorInput with Offline=true so tests don't need
 	// to stub rev-parse / ls-remote calls unless specifically testing remote-gone.
@@ -50,17 +48,22 @@ func TestDoctor(t *testing.T) {
 	}
 
 	t.Run("stale finding when last commit exceeds threshold", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},                                // git worktree list
-			{output: []byte("aaa111\n")},                       // git rev-parse main^{commit}
-			{output: []byte("")},                               // git for-each-ref --merged (nothing)
-			{output: recentCommitOutput("abc1234", "init")},    // log: main (recent)
-			{output: []byte("")},                               // dirty: main (clean)
-			{output: staleCommitOutput("def5678", "old work")}, // log: feat (stale)
-			{output: []byte("")},                               // dirty: feat (clean)
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},                                // git worktree list
+			{Output: []byte("aaa111\n")},                       // git rev-parse main^{commit}
+			{Output: []byte("")},                               // git for-each-ref --merged (nothing)
+			{Output: recentCommitOutput("abc1234", "init")},    // log: main (recent)
+			{Output: []byte("")},                               // dirty: main (clean)
+			{Output: staleCommitOutput("def5678", "old work")}, // log: feat (stale)
+			{Output: []byte("")},                               // dirty: feat (clean)
 		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -76,17 +79,22 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("dirty-old finding supersedes stale when worktree is also dirty", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
-			{output: []byte("")},         // git for-each-ref --merged
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},                               // dirty: main clean
-			{output: staleCommitOutput("def5678", "old work")}, // feat: stale
-			{output: []byte("M file.go\n")},                    // dirty: feat dirty
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{Output: []byte("")},         // git for-each-ref --merged
+			{Output: recentCommitOutput("abc1234", "init")},
+			{Output: []byte("")},                               // dirty: main clean
+			{Output: staleCommitOutput("def5678", "old work")}, // feat: stale
+			{Output: []byte("M file.go\n")},                    // dirty: feat dirty
 		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -103,17 +111,22 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("merged-present finding when worktree branch is in merged set", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
-			{output: []byte("feat bbb222\n")},                 // for-each-ref --merged: feat is merged
-			{output: recentCommitOutput("abc1234", "init")},   // log: main
-			{output: []byte("")},                              // dirty: main
-			{output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{output: []byte("")},                              // dirty: feat
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
+			{Output: []byte("feat bbb222\n")},                 // for-each-ref --merged: feat is merged
+			{Output: recentCommitOutput("abc1234", "init")},   // log: main
+			{Output: []byte("")},                              // dirty: main
+			{Output: recentCommitOutput("def5678", "feat x")}, // log: feat
+			{Output: []byte("")},                              // dirty: feat
 		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -129,20 +142,25 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("remote-gone finding when upstream configured but branch absent on remote", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
-			{output: []byte("")},                              // for-each-ref --merged: none
-			{output: recentCommitOutput("abc1234", "init")},   // log: main
-			{output: []byte("")},                              // dirty: main
-			{err: errors.New("no upstream")},                  // rev-parse @{upstream}: main (none)
-			{output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{output: []byte("")},                              // dirty: feat
-			{output: []byte("origin/feat\n")},                 // rev-parse @{upstream}: feat has upstream
-			{output: []byte("")},                              // ls-remote: empty → branch gone
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
+			{Output: []byte("")},                              // for-each-ref --merged: none
+			{Output: recentCommitOutput("abc1234", "init")},   // log: main
+			{Output: []byte("")},                              // dirty: main
+			{Err: errors.New("no upstream")},                  // rev-parrse @{upstream}: main (none)
+			{Output: recentCommitOutput("def5678", "feat x")}, // log: feat
+			{Output: []byte("")},                              // dirty: feat
+			{Output: []byte("origin/feat\n")},                 // rev-parse @{upstream}: feat has upstream
+			{Output: []byte("")},                              // ls-remote: empty → branch gone
 		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
 
 		in := DoctorInput{StaleDays: 30, Base: "main", Offline: false, OutputDir: outputDir}
 		err := Doctor(context.Background(), d, in)
@@ -156,41 +174,52 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("offline flag skips remote-gone check", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
-			{output: []byte("")},         // git for-each-ref --merged
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{Output: []byte("")},         // git for-each-ref --merged
+			{Output: recentCommitOutput("abc1234", "init")},
+			{Output: []byte("")},
+			{Output: recentCommitOutput("def5678", "feat x")},
+			{Output: []byte("")},
 		}}
-		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    io.Discard,
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		// All 7 calls consumed; any 8th would trip seqRunner's out-of-bounds guard.
-		if runner.idx != 7 {
-			t.Errorf("runner called %d times, want 7 (rev-parse/ls-remote must be skipped)", runner.idx)
+		if runner.Idx != 7 {
+			t.Errorf("runner called %d times, want 7 (rev-parse/ls-remote must be skipped)", runner.Idx)
 		}
 	})
 
 	t.Run("artifact-missing finding when expected file is absent", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
-			{output: []byte("")},         // git for-each-ref --merged
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{Output: []byte("")},         // git for-each-ref --merged
+			{Output: recentCommitOutput("abc1234", "init")},
+			{Output: []byte("")},
+			{Output: recentCommitOutput("def5678", "feat x")},
+			{Output: []byte("")},
 		}}
 		// outputDir has no artifact files on disk → both worktrees flagged missing.
 		emptyOutputDir := t.TempDir()
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.OutputDir = emptyOutputDir
@@ -212,17 +241,23 @@ func TestDoctor(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(featPath, ".treepad.toml")) })
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
-			{output: []byte("")},         // git for-each-ref --merged
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{Output: []byte("")},         // git for-each-ref --merged
+			{Output: recentCommitOutput("abc1234", "init")},
+			{Output: []byte("")},
+			{Output: recentCommitOutput("def5678", "feat x")},
+			{Output: []byte("")},
 		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -244,17 +279,23 @@ func TestDoctor(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(artifactDir, repoSlug+"-main.code-workspace"), []byte("{}"), 0o644)
 		_ = os.WriteFile(filepath.Join(artifactDir, repoSlug+"-feat.code-workspace"), []byte("{}"), 0o644)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
-			{output: []byte("")},         // git for-each-ref --merged
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{Output: []byte("")},         // git for-each-ref --merged
+			{Output: recentCommitOutput("abc1234", "init")},
+			{Output: []byte("")},
+			{Output: recentCommitOutput("def5678", "feat x")},
+			{Output: []byte("")},
 		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.OutputDir = artifactDir
@@ -268,17 +309,23 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("json flag emits JSON array", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
-			{output: []byte("feat bbb222\n")}, // for-each-ref --merged: feat merged
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{Output: []byte("feat bbb222\n")}, // for-each-ref --merged: feat merged
+			{Output: recentCommitOutput("abc1234", "init")},
+			{Output: []byte("")},
+			{Output: recentCommitOutput("def5678", "feat x")},
+			{Output: []byte("")},
 		}}
 		var buf strings.Builder
-		d := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.JSON = true
@@ -298,16 +345,23 @@ func TestDoctor(t *testing.T) {
 	})
 
 	t.Run("strict returns error when findings exist", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")},      // git rev-parse main^{commit}
-			{output: []byte("feat bbb222\n")}, // for-each-ref --merged: feat merged → finding
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")},      // git rev-parse main^{commit}
+			{Output: []byte("feat bbb222\n")}, // for-each-ref --merged: feat merged → finding
+			{Output: recentCommitOutput("abc1234", "init")},
+			{Output: []byte("")},
+			{Output: recentCommitOutput("def5678", "feat x")},
+			{Output: []byte("")},
 		}}
-		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		var buf strings.Builder
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.Strict = true
@@ -326,16 +380,23 @@ func TestDoctor(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(artifactDir, repoSlug+"-main.code-workspace"), []byte("{}"), 0o644)
 		_ = os.WriteFile(filepath.Join(artifactDir, repoSlug+"-feat.code-workspace"), []byte("{}"), 0o644)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
-			{output: []byte("")},         // git for-each-ref --merged
-			{output: recentCommitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{output: recentCommitOutput("def5678", "feat x")},
-			{output: []byte("")},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{Output: []byte("")},         // git for-each-ref --merged
+			{Output: recentCommitOutput("abc1234", "init")},
+			{Output: []byte("")},
+			{Output: recentCommitOutput("def5678", "feat x")},
+			{Output: []byte("")},
 		}}
-		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		var buf strings.Builder
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.Strict = true
@@ -348,75 +409,86 @@ func TestDoctor(t *testing.T) {
 
 	t.Run("skips detached-head worktrees", func(t *testing.T) {
 		detachedPorcelain := []byte("worktree " + mainPath + "\nHEAD abc123\ndetached\n\n")
-		runner := &seqRunner{responses: []runResponse{
-			{output: detachedPorcelain},
-			{output: []byte("aaa111\n")}, // git rev-parse main^{commit}
-			{output: []byte("")},         // git for-each-ref --merged
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: detachedPorcelain},
+			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
+			{Output: []byte("")},         // git for-each-ref --merged
 			// no per-worktree calls because detached is skipped
 		}}
-		d := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		var buf strings.Builder
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 3 {
-			t.Errorf("runner called %d times, want 3 (no per-wt calls for detached)", runner.idx)
+		if runner.Idx != 3 {
+			t.Errorf("runner called %d times, want 3 (no per-wt calls for detached)", runner.Idx)
 		}
 	})
 
 	errorTests := []struct {
 		name    string
-		runner  *seqRunner
+		runner  *treepadtest.SeqRunner
 		wantErr string
 	}{
 		{
 			name: "git worktree list fails",
-			runner: &seqRunner{responses: []runResponse{
-				{err: errors.New("git not found")},
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Err: errors.New("git not found")},
 			}},
 			wantErr: "git not found",
 		},
 		{
 			name: "git rev-parse base fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{err: errors.New("unknown revision")},
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+				{Err: errors.New("unknown revision")},
 			}},
 			wantErr: "unknown revision",
 		},
 		{
 			name: "git for-each-ref --merged fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{output: []byte("aaa111\n")},
-				{err: errors.New("for-each-ref failed")},
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+				{Output: []byte("aaa111\n")},
+				{Err: errors.New("for-each-ref failed")},
 			}},
 			wantErr: "for-each-ref failed",
 		},
 		{
 			name: "last commit probe fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{output: []byte("")},
-				{err: errors.New("git log failed")},
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+				{Output: []byte("")},
+				{Err: errors.New("git log failed")},
 			}},
 			wantErr: "git log failed",
 		},
 		{
 			name: "dirty probe fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{output: []byte("")},
-				{output: recentCommitOutput("abc1234", "init")},
-				{err: errors.New("git status failed")},
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+				{Output: []byte("")},
+				{Output: recentCommitOutput("abc1234", "init")},
+				{Err: errors.New("git status failed")},
 			}},
 			wantErr: "git status failed",
 		},
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := testDeps(tt.runner, &fakeSyncer{}, &fakeOpener{})
+			var buf strings.Builder
+			d := deps.Deps{
+				Runner: tt.runner, Syncer: &treepadtest.FakeSyncer{},
+				Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader(""),
+			}
 			err := Doctor(context.Background(), d, offlineInput())
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
@@ -424,10 +496,3 @@ func TestDoctor(t *testing.T) {
 		})
 	}
 }
-
-// Ensure DoctorInput and DoctorFinding are usable in tests without importing
-// extra packages — smoke-test the types compile correctly.
-var _ = DoctorInput{}
-var _ = DoctorFinding{}
-var _ internalsync.Config
-var _ artifact.Spec

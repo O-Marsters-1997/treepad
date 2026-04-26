@@ -1,4 +1,4 @@
-package treepad
+package fromspec
 
 import (
 	"bytes"
@@ -12,6 +12,9 @@ import (
 	"text/template"
 
 	"treepad/internal/config"
+	"treepad/internal/treepad/cd"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/lifecycle"
 )
 
 // FromSpecInput parameterises a tp from-spec invocation.
@@ -42,7 +45,7 @@ type promptData struct {
 // FromSpec creates a worktree seeded from a GitHub issue,
 // writes PROMPT.md into the worktree, and hands off to a configured agent.
 // Returns the agent's exit code (0 when no agent_command is configured).
-func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
+func FromSpec(ctx context.Context, d deps.Deps, in FromSpecInput) (int, error) {
 	if in.Issue == 0 {
 		return 0, errors.New("issue is required")
 	}
@@ -51,7 +54,7 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 		return 0, err
 	}
 
-	res, err := createWorktreeWithSync(ctx, d, in.Branch, in.Base, in.OutputDir)
+	res, err := lifecycle.CreateWorktreeWithSync(ctx, d, in.Branch, in.Base, in.OutputDir)
 	if err != nil {
 		return 0, err
 	}
@@ -70,20 +73,20 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 		PromptPath:   promptPath,
 		Prompt:       rendered,
 	}
-	maybeWarnStaleWrapper(d, len(res.Cfg.FromSpec.AgentCommand) > 0)
+	cd.MaybeWarnStaleWrapper(d, len(res.Cfg.FromSpec.AgentCommand) > 0)
 	code, err := runAgent(ctx, d, res.Cfg.FromSpec.AgentCommand, data)
 	if err != nil {
 		return code, err
 	}
 	if !in.Current {
-		emitCD(d, res.WorktreePath)
+		cd.EmitCD(d, res.WorktreePath)
 	}
 	return code, nil
 }
 
 func resolveOrBuildPrompt(
-	d Deps,
-	res createWorktreeResult,
+	d deps.Deps,
+	res lifecycle.CreateResult,
 	branch, spec, userPrompt string,
 ) (path, rendered string, err error) {
 	promptPath := filepath.Join(res.WorktreePath, "PROMPT.md")
@@ -115,7 +118,7 @@ func buildPrompt(cfg config.FromSpecConfig, branch, spec, userPrompt string) str
 	return b.String()
 }
 
-func writePromptFile(d Deps, worktreePath, body string) (string, error) {
+func writePromptFile(d deps.Deps, worktreePath, body string) (string, error) {
 	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
 		return "", fmt.Errorf("create worktree dir: %w", err)
 	}
@@ -127,7 +130,7 @@ func writePromptFile(d Deps, worktreePath, body string) (string, error) {
 	return promptPath, nil
 }
 
-func resolveIssueSpec(ctx context.Context, d Deps, issue int) (string, error) {
+func resolveIssueSpec(ctx context.Context, d deps.Deps, issue int) (string, error) {
 	out, err := d.Runner.Run(ctx, "gh", "issue", "view", strconv.Itoa(issue), "--json", "body", "-q", ".body")
 	if err != nil {
 		return "", fmt.Errorf("gh issue view %d: %w", issue, err)
@@ -152,7 +155,7 @@ func renderPrompt(tmpl string, data promptData) (string, error) {
 }
 
 // runAgent returns 0 with no error when agent_command is empty.
-func runAgent(ctx context.Context, d Deps, cmdTmpls []string, data promptData) (int, error) {
+func runAgent(ctx context.Context, d deps.Deps, cmdTmpls []string, data promptData) (int, error) {
 	if len(cmdTmpls) == 0 {
 		d.Log.Info("no agent_command configured; prompt written to %s", data.PromptPath)
 		return 0, nil

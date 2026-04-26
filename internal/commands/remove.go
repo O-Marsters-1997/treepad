@@ -5,7 +5,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/treepad"
+	"treepad/internal/treepad/lifecycle"
 )
 
 func removeCommand() *cli.Command {
@@ -23,5 +23,5 @@ func runRemove(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	return treepad.Remove(ctx, commandDeps(cmd), treepad.RemoveInput{Branch: branch})
+	return lifecycle.Remove(ctx, commandDeps(cmd), lifecycle.RemoveInput{Branch: branch})
 }

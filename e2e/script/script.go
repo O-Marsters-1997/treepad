@@ -8,12 +8,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"treepad/internal/treepad"
+	"treepad/internal/treepad/deps"
 )
 
 // Run drives the tp ui model headlessly by replaying a comma-separated key
 // script through Update, draining produced commands synchronously, and
 // writing a deterministic frame to d.Out.
-func Run(ctx context.Context, d treepad.Deps, in treepad.StatusInput, keys string) error {
+func Run(ctx context.Context, d deps.Deps, in treepad.StatusInput, keys string) error {
 	h := treepad.NewHeadlessUI(ctx, d, in)
 	if quit := drainInto(h, h.Init()); !quit {
 		for _, ev := range parseKeyScript(keys) {

@@ -1,8 +1,7 @@
 package treepad
 
 import (
-	"path/filepath"
-
+	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
 )
 
@@ -14,16 +13,5 @@ func ResolveSourceDir(
 	cwd string,
 	worktrees []worktree.Worktree,
 ) (string, error) {
-	switch {
-	case useCurrentFlag:
-		return cwd, nil
-	case sourcePath != "":
-		return filepath.Abs(sourcePath)
-	default:
-		main, err := worktree.MainWorktree(worktrees)
-		if err != nil {
-			return "", err
-		}
-		return main.Path, nil
-	}
+	return repo.ResolveSourceDir(useCurrentFlag, sourcePath, cwd, worktrees)
 }

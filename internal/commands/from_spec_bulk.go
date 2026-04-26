@@ -8,7 +8,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/treepad"
+	"treepad/internal/treepad/fromspec"
 )
 
 func fromSpecBulkCommand() *cli.Command {
@@ -49,7 +49,7 @@ func runFromSpecBulk(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	d := commandDeps(cmd)
-	_, failed, err := treepad.FromSpecBulk(ctx, d, treepad.FromSpecBulkInput{
+	_, failed, err := fromspec.FromSpecBulk(ctx, d, fromspec.FromSpecBulkInput{
 		Issues:       issues,
 		BranchPrefix: cmd.String("branch-prefix"),
 		Base:         cmd.String("base"),

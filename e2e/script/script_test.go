@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"treepad/internal/treepad"
+	"treepad/internal/treepad/deps"
 )
 
 func TestParseKeyScript(t *testing.T) {
@@ -53,7 +54,7 @@ func TestParseKeyScript(t *testing.T) {
 
 func TestDrainInto(t *testing.T) {
 	newH := func() *treepad.HeadlessUI {
-		return treepad.NewHeadlessUI(context.Background(), treepad.Deps{}, treepad.StatusInput{})
+		return treepad.NewHeadlessUI(context.Background(), deps.Deps{}, treepad.StatusInput{})
 	}
 
 	t.Run("nil cmd is a no-op", func(t *testing.T) {

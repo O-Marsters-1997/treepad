@@ -1,7 +1,10 @@
 // Package hook runs lifecycle hooks defined in .treepad.toml.
 package hook
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Event identifies a lifecycle point in a treepad operation.
 type Event string
@@ -73,4 +76,44 @@ func (c Config) For(e Event) []HookEntry {
 	default:
 		return nil
 	}
+}
+
+// PostErr holds a post-hook failure. The caller should log it as a warning —
+// post failures are non-blocking; the main operation is already complete.
+type PostErr struct {
+	Event Event
+	Err   error
+}
+
+func (p *PostErr) Error() string {
+	return fmt.Sprintf("%s hook failed: %v", p.Event, p.Err)
+}
+
+// Run executes the hooks for event e, returning an error on any hook failure.
+func Run(ctx context.Context, r Runner, cfg Config, e Event, data Data) error {
+	entries := cfg.For(e)
+	if len(entries) == 0 {
+		return nil
+	}
+	data.HookType = string(e)
+	return r.Run(ctx, entries, data)
+}
+
+// RunSandwich runs pre → do → post. Pre failure aborts and returns an error.
+// Post failure returns a non-nil *PostErr with a nil main error — the caller
+// should log it as a warning.
+func RunSandwich(
+	ctx context.Context, r Runner, cfg Config,
+	pre, post Event, data Data, do func() error,
+) (*PostErr, error) {
+	if err := Run(ctx, r, cfg, pre, data); err != nil {
+		return nil, fmt.Errorf("%s hook: %w", pre, err)
+	}
+	if err := do(); err != nil {
+		return nil, err
+	}
+	if err := Run(ctx, r, cfg, post, data); err != nil {
+		return &PostErr{Event: post, Err: err}, nil
+	}
+	return nil, nil
 }

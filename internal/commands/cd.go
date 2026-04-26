@@ -5,7 +5,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/treepad"
+	"treepad/internal/treepad/cd"
 )
 
 func cdCommand() *cli.Command {
@@ -23,5 +23,5 @@ func runCD(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	return treepad.CD(ctx, commandDeps(cmd), treepad.CDInput{Branch: branch})
+	return cd.CD(ctx, commandDeps(cmd), cd.CDInput{Branch: branch})
 }

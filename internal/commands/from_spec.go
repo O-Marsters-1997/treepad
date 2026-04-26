@@ -6,7 +6,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/treepad"
+	"treepad/internal/treepad/fromspec"
 )
 
 func fromSpecCommand() *cli.Command {
@@ -53,7 +53,7 @@ func runFromSpec(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	d := commandDeps(cmd)
-	code, err := treepad.FromSpec(ctx, d, treepad.FromSpecInput{
+	code, err := fromspec.FromSpec(ctx, d, fromspec.FromSpecInput{
 		Issue:   issue,
 		Branch:  branch,
 		Base:    cmd.String("base"),

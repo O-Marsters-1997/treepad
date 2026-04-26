@@ -1,14 +1,16 @@
-package treepad
+package lifecycle
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
 )
 
+// RemoveInput parameterises a tp remove invocation.
 type RemoveInput struct {
 	Branch    string
 	OutputDir string
@@ -17,14 +19,15 @@ type RemoveInput struct {
 	Cwd string
 }
 
-func Remove(ctx context.Context, d Deps, in RemoveInput) error {
-	rc, err := loadRepoContext(ctx, d, in.OutputDir)
+// Remove removes a worktree and its artifact.
+func Remove(ctx context.Context, d deps.Deps, in RemoveInput) error {
+	rc, err := repo.Load(ctx, d.Runner, in.OutputDir)
 	if err != nil {
 		return err
 	}
 
 	if in.Branch == rc.Main.Branch {
-		return errors.New("cannot remove the main worktree")
+		return fmt.Errorf("cannot remove the main worktree")
 	}
 
 	found, ok := worktree.FindByBranch(rc.Worktrees, in.Branch)
@@ -39,9 +42,9 @@ func Remove(ctx context.Context, d Deps, in RemoveInput) error {
 			return fmt.Errorf("get current directory: %w", err)
 		}
 	}
-	if cwdInside(cwd, found.Path) {
-		return errors.New("cannot remove the worktree you are currently in; cd elsewhere first")
+	if repo.CwdInside(cwd, found.Path) {
+		return fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
 	}
 
-	return removeWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, in.Force)
+	return RemoveWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, in.Force)
 }

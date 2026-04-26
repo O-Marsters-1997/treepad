@@ -8,7 +8,11 @@ import (
 	"path/filepath"
 
 	"treepad/internal/artifact"
+	"treepad/internal/config"
 	"treepad/internal/slug"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/lifecycle"
+	"treepad/internal/treepad/repo"
 )
 
 type GenerateInput struct {
@@ -22,13 +26,13 @@ type GenerateInput struct {
 	Branch string
 }
 
-func Generate(ctx context.Context, d Deps, in GenerateInput) error {
+func Generate(ctx context.Context, d deps.Deps, in GenerateInput) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get current directory: %w", err)
 	}
 
-	worktrees, err := listWorktrees(ctx, d)
+	worktrees, err := repo.ListWorktrees(ctx, d.Runner)
 	if err != nil {
 		return err
 	}
@@ -47,24 +51,24 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 	// Generate uses sourceDir (not main.Path) as the slug base because --current
 	// may point to a non-main worktree.
 	repoSlug := slug.Slug(filepath.Base(sourceDir))
-	outputDir, err := resolveOutputDir(in.OutputDir, repoSlug)
+	outputDir, err := repo.ResolveOutputDir(in.OutputDir, repoSlug)
 	if err != nil {
 		return err
 	}
 	slog.Debug("output directory", "dir", outputDir, "explicit", in.OutputDir != "")
 
-	var targets []syncTarget
+	var targets []lifecycle.SyncTarget
 	for _, wt := range worktrees {
 		if wt.Path == sourceDir {
 			continue
 		}
-		targets = append(targets, syncTarget{path: wt.Path, branch: wt.Branch})
+		targets = append(targets, lifecycle.SyncTarget{Path: wt.Path, Branch: wt.Branch})
 	}
 
 	if in.Branch != "" {
-		var matched []syncTarget
+		var matched []lifecycle.SyncTarget
 		for _, t := range targets {
-			if t.branch == in.Branch {
+			if t.Branch == in.Branch {
 				matched = append(matched, t)
 				break
 			}
@@ -75,7 +79,16 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 		targets = matched
 	}
 
-	cfg, err := loadAndSync(ctx, d, sourceDir, in.ExtraPatterns, targets, repoSlug, outputDir)
+	cfg, err := lifecycle.LoadAndSync(
+		ctx,
+		deps.Deps{
+			Runner:     d.Runner,
+			Syncer:     d.Syncer,
+			Opener:     d.Opener,
+			HookRunner: d.HookRunner,
+			Log:        d.Log,
+			In:         d.In,
+		}, sourceDir, in.ExtraPatterns, targets, repoSlug, outputDir)
 	if err != nil {
 		return err
 	}
@@ -86,8 +99,8 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 			if in.Branch != "" && wt.Branch != in.Branch {
 				continue
 			}
-			data := templateData(repoSlug, wt.Branch, wt.Path, outputDir)
-			path, err := artifact.Write(artifactSpec(cfg.Artifact), outputDir, data)
+			data := config.MakeTemplateData(repoSlug, wt.Branch, wt.Path, outputDir)
+			path, err := artifact.Write(cfg.Artifact.Spec(), outputDir, data)
 			if err != nil {
 				return fmt.Errorf("write artifact for %s: %w", wt.Branch, err)
 			}

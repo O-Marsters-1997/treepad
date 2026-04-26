@@ -1,4 +1,4 @@
-package treepad
+package fromspec
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"treepad/internal/slug"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/lifecycle"
 )
 
 // FromSpecBulkInput parameterises a tp from-spec-bulk invocation.
@@ -38,7 +40,7 @@ type issueJSON struct {
 // It never launches an agent and never emits __TREEPAD_CD__. On partial
 // failure it continues to the next issue and records the error in the result.
 // Returns the per-issue results, a count of failures, and any fatal setup error.
-func FromSpecBulk(ctx context.Context, d Deps, in FromSpecBulkInput) ([]BulkResult, int, error) {
+func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]BulkResult, int, error) {
 	results := make([]BulkResult, 0, len(in.Issues))
 	usedBranches := make(map[string]bool)
 	failed := 0
@@ -58,7 +60,7 @@ func FromSpecBulk(ctx context.Context, d Deps, in FromSpecBulkInput) ([]BulkResu
 		usedBranches[branch] = true
 		res.Branch = branch
 
-		wtRes, err := createWorktreeWithSync(ctx, d, branch, in.Base, in.OutputDir)
+		wtRes, err := lifecycle.CreateWorktreeWithSync(ctx, d, branch, in.Base, in.OutputDir)
 		if err != nil {
 			res.Err = fmt.Errorf("create worktree: %w", err)
 			results = append(results, res)
@@ -84,7 +86,7 @@ func FromSpecBulk(ctx context.Context, d Deps, in FromSpecBulkInput) ([]BulkResu
 	return results, failed, nil
 }
 
-func fetchIssue(ctx context.Context, d Deps, issue int) (title, body string, err error) {
+func fetchIssue(ctx context.Context, d deps.Deps, issue int) (title, body string, err error) {
 	out, err := d.Runner.Run(ctx, "gh", "issue", "view", strconv.Itoa(issue), "--json", "title,body")
 	if err != nil {
 		return "", "", fmt.Errorf("gh issue view %d: %w", issue, err)
@@ -111,7 +113,7 @@ func deriveBranch(prefix, title string, issueNum int, used map[string]bool) stri
 	return base + "-" + strconv.Itoa(issueNum)
 }
 
-func printBulkSummary(d Deps, results []BulkResult) {
+func printBulkSummary(d deps.Deps, results []BulkResult) {
 	succeeded := 0
 	for _, r := range results {
 		if r.Err == nil {

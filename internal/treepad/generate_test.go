@@ -7,29 +7,33 @@ import (
 	"testing"
 
 	internalsync "treepad/internal/sync"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 	"treepad/internal/worktree"
 )
 
 func TestGenerate(t *testing.T) {
 	t.Run("syncs non-source worktrees", func(t *testing.T) {
-		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{Output: twoWorktreePorcelain}, syn, nil)
+		syn := &treepadtest.FakeSyncer{}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.TwoWorktreePorcelain}}}
+		deps := deps.Deps{Runner: runner, Syncer: syn}
 
 		err := Generate(context.Background(), deps, GenerateInput{SourcePath: "/repo/main", SyncOnly: true})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(syn.calls) != 1 {
-			t.Fatalf("syncer called %d times, want 1", len(syn.calls))
+		if len(syn.Calls) != 1 {
+			t.Fatalf("syncer called %d times, want 1", len(syn.Calls))
 		}
-		if syn.calls[0].TargetDir != "/repo/feat" {
-			t.Errorf("TargetDir = %q, want /repo/feat", syn.calls[0].TargetDir)
+		if syn.Calls[0].TargetDir != "/repo/feat" {
+			t.Errorf("TargetDir = %q, want /repo/feat", syn.Calls[0].TargetDir)
 		}
 	})
 
 	t.Run("Branch filters to one target", func(t *testing.T) {
-		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{Output: threeWorktreePorcelain}, syn, nil)
+		syn := &treepadtest.FakeSyncer{}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}
+		deps := deps.Deps{Runner: runner, Syncer: syn}
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -39,17 +43,18 @@ func TestGenerate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(syn.calls) != 1 {
-			t.Fatalf("syncer called %d times, want 1 for branch filter", len(syn.calls))
+		if len(syn.Calls) != 1 {
+			t.Fatalf("syncer called %d times, want 1 for branch filter", len(syn.Calls))
 		}
-		if syn.calls[0].TargetDir != "/repo/feat" {
-			t.Errorf("TargetDir = %q, want /repo/feat", syn.calls[0].TargetDir)
+		if syn.Calls[0].TargetDir != "/repo/feat" {
+			t.Errorf("TargetDir = %q, want /repo/feat", syn.Calls[0].TargetDir)
 		}
 	})
 
 	t.Run("unknown Branch returns clear error", func(t *testing.T) {
-		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{Output: threeWorktreePorcelain}, syn, nil)
+		syn := &treepadtest.FakeSyncer{}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}
+		deps := deps.Deps{Runner: runner, Syncer: syn}
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -62,8 +67,9 @@ func TestGenerate(t *testing.T) {
 	})
 
 	t.Run("empty Branch syncs all targets", func(t *testing.T) {
-		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{Output: threeWorktreePorcelain}, syn, nil)
+		syn := &treepadtest.FakeSyncer{}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}
+		deps := deps.Deps{Runner: runner, Syncer: syn}
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -72,8 +78,8 @@ func TestGenerate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(syn.calls) != 2 {
-			t.Errorf("syncer called %d times, want 2 for fleet sync", len(syn.calls))
+		if len(syn.Calls) != 2 {
+			t.Errorf("syncer called %d times, want 2 for fleet sync", len(syn.Calls))
 		}
 	})
 
@@ -86,29 +92,29 @@ func TestGenerate(t *testing.T) {
 	}{
 		{
 			name:    "propagates syncer error",
-			runner:  fakeRunner{Output: twoWorktreePorcelain},
-			syncer:  &fakeSyncer{err: errors.New("sync failed")},
+			runner:  &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.TwoWorktreePorcelain}}},
+			syncer:  &treepadtest.FakeSyncer{Err: errors.New("sync failed")},
 			input:   GenerateInput{SourcePath: "/repo/main", SyncOnly: true},
 			wantErr: "sync failed",
 		},
 		{
 			name:    "no worktrees",
-			runner:  fakeRunner{Output: []byte{}},
-			syncer:  &fakeSyncer{},
+			runner:  &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: []byte{}}}},
+			syncer:  &treepadtest.FakeSyncer{},
 			input:   GenerateInput{SourcePath: "/repo/main"},
 			wantErr: "no git worktrees found",
 		},
 		{
 			name:    "runner error",
-			runner:  fakeRunner{Err: errors.New("git not found")},
-			syncer:  &fakeSyncer{},
+			runner:  &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Err: errors.New("git not found")}}},
+			syncer:  &treepadtest.FakeSyncer{},
 			input:   GenerateInput{},
 			wantErr: "git not found",
 		},
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			deps := testDeps(tt.runner, tt.syncer, nil)
+			deps := deps.Deps{Runner: tt.runner, Syncer: tt.syncer}
 			err := Generate(context.Background(), deps, tt.input)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)

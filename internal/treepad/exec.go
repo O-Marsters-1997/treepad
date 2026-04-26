@@ -2,66 +2,21 @@ package treepad
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	osexec "os/exec"
 	"path/filepath"
-
-	"golang.org/x/term"
 
 	"treepad/internal/config"
 	tpexec "treepad/internal/exec"
-	"treepad/internal/tty"
+	"treepad/internal/passthrough"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
 )
 
-// PassthroughRunner executes a command in dir with stdio inherited from the
-// calling process. Returns the child's exit code (non-zero does not produce an
-// error; a non-nil error indicates a launch failure such as binary not found).
-type PassthroughRunner interface {
-	Run(ctx context.Context, dir, name string, args ...string) (int, error)
-}
-
-// openTTY is the function used to acquire a controlling terminal for
-// interactive subprocesses. Overridable in tests.
-var openTTY = tty.Open
-
-// stdioIsTTY reports whether all three standard streams are interactive
-// terminals. When true, the child inherits them directly — required for
-// Bun-compiled agents (e.g. Claude Code) which reject /dev/tty-opened fds
-// when constructing node:tty WriteStreams on macOS (kqueue EINVAL), but work
-// fine with directly-inherited terminal fds. Overridable in tests.
-var stdioIsTTY = func() bool {
-	return term.IsTerminal(0) && term.IsTerminal(1) && term.IsTerminal(2)
-}
-
-type osPassthroughRunner struct{}
-
-func (osPassthroughRunner) Run(ctx context.Context, dir, name string, args ...string) (int, error) {
-	cmd := osexec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-	switch {
-	case stdioIsTTY():
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	default:
-		if tty := openTTY(); tty != nil {
-			defer tty.Close() //nolint:errcheck
-			cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
-		} else {
-			cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-		}
-	}
-	if err := cmd.Run(); err != nil {
-		var exitErr *osexec.ExitError
-		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode(), nil
-		}
-		return 1, err
-	}
-	return 0, nil
-}
+// PassthroughRunner is an alias for passthrough.Runner kept for existing callers.
+type PassthroughRunner = passthrough.Runner
 
 // ExecInput parameterises a tp exec invocation.
 type ExecInput struct {
@@ -70,15 +25,15 @@ type ExecInput struct {
 	Args    []string
 	// Cwd overrides os.Getwd for the same-worktree warning. Empty means use os.Getwd.
 	Cwd string
-	// Runner overrides OSPassthroughRunner for testing.
+	// Runner overrides the default passthrough.OSRunner for testing.
 	Runner PassthroughRunner
 }
 
 // Exec runs a command in the named worktree, routing through the detected task
 // runner when the command matches a known script. Returns the child process exit
 // code (non-zero does not produce an error).
-func Exec(ctx context.Context, d Deps, in ExecInput) (int, error) {
-	worktrees, err := listWorktrees(ctx, d)
+func Exec(ctx context.Context, d deps.Deps, in ExecInput) (int, error) {
+	worktrees, err := repo.ListWorktrees(ctx, d.Runner)
 	if err != nil {
 		return 0, err
 	}
@@ -118,7 +73,7 @@ func Exec(ctx context.Context, d Deps, in ExecInput) (int, error) {
 
 	pt := in.Runner
 	if pt == nil {
-		pt = osPassthroughRunner{}
+		pt = passthrough.OSRunner{}
 	}
 	return pt.Run(ctx, wt.Path, name, args...)
 }

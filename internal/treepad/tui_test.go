@@ -4,15 +4,21 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"treepad/internal/artifact"
+	"treepad/internal/treepad/cd"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 )
 
 func TestUI(t *testing.T) {
 	t.Run("non-TTY returns ErrNotTTY", func(t *testing.T) {
-		deps := testDeps(&fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps := deps.Deps{Out: io.Discard}
 		err := UI(context.Background(), deps, StatusInput{})
 		if !errors.Is(err, ErrNotTTY) {
 			t.Errorf("got error %v, want ErrNotTTY", err)
@@ -29,7 +35,7 @@ func TestUIModel(t *testing.T) {
 	t.Run("init starts in loading state", func(t *testing.T) {
 		m := uiModel{
 			ctx:     context.Background(),
-			d:       testDeps(&fakeRunner{}, &fakeSyncer{}, &fakeOpener{}),
+			d:       deps.Deps{Out: io.Discard},
 			loading: true,
 		}
 		if !m.loading {
@@ -334,8 +340,8 @@ func TestUIPolish(t *testing.T) {
 	}
 
 	t.Run("o dispatches open with artifact path", func(t *testing.T) {
-		opener := &fakeOpener{}
-		deps := testDeps(&fakeRunner{}, &fakeSyncer{}, opener)
+		opener := artifact.ExecOpener{Runner: &treepadtest.Runner{}}
+		deps := deps.Deps{Out: io.Discard, Opener: opener}
 		m := uiModel{
 			ctx:    context.Background(),
 			d:      deps,
@@ -758,7 +764,7 @@ func TestUIFilter(t *testing.T) {
 	})
 
 	t.Run("action targets filtered row not original index", func(t *testing.T) {
-		deps := testDeps(&fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps := deps.Deps{Out: io.Discard}
 		m := uiModel{
 			ctx:          context.Background(),
 			d:            deps,
@@ -863,10 +869,8 @@ func TestUIFilter(t *testing.T) {
 func TestUIEmitCD(t *testing.T) {
 	t.Run("emits sentinel and human line", func(t *testing.T) {
 		var buf strings.Builder
-		deps := testDeps(&fakeRunner{}, &fakeSyncer{}, &fakeOpener{})
-		deps.Out = &buf
-
-		uiEmitCD(deps, "/some/path")
+		deps := deps.Deps{Out: &buf}
+		cd.EmitCD(deps, "/some/path")
 
 		out := buf.String()
 		if !strings.Contains(out, "__TREEPAD_CD__\t/some/path") {
