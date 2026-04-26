@@ -29,10 +29,7 @@ type pruneSelection struct {
 
 // Prune removes merged (or all non-main) worktrees.
 func Prune(ctx context.Context, d deps.Deps, in PruneInput) error {
-	p := d.Profiler
-	if p == nil {
-		p = profile.Disabled()
-	}
+	p := profile.OrDisabled(d.Profiler)
 
 	repoLoadDone := p.Stage("repo.load")
 	rc, err := repo.Load(ctx, d.Runner, in.OutputDir)

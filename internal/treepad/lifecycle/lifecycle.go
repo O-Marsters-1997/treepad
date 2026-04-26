@@ -32,10 +32,7 @@ type CreateResult struct {
 
 // CreateWorktreeWithSync creates a worktree, syncs configs, and writes the artifact.
 func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outputDir string) (CreateResult, error) {
-	p := d.Profiler
-	if p == nil {
-		p = profile.Disabled()
-	}
+	p := profile.OrDisabled(d.Profiler)
 
 	repoLoadDone := p.Stage("repo.load")
 	rc, err := repo.Load(ctx, d.Runner, outputDir)
@@ -132,10 +129,7 @@ func LoadAndSync(
 	extraPatterns []string, targets []SyncTarget,
 	repoSlug, outputDir string,
 ) (config.Config, error) {
-	p := d.Profiler
-	if p == nil {
-		p = profile.Disabled()
-	}
+	p := profile.OrDisabled(d.Profiler)
 
 	cfg, err := config.Load(sourceDir)
 	if err != nil {
@@ -187,10 +181,7 @@ func RemoveWorktreeAndArtifact(
 	target, main worktree.Worktree,
 	outputDir string, force bool,
 ) error {
-	p := d.Profiler
-	if p == nil {
-		p = profile.Disabled()
-	}
+	p := profile.OrDisabled(d.Profiler)
 
 	removeArgs := []string{"worktree", "remove", target.Path}
 	removeVerb := "git worktree remove"
@@ -228,20 +219,25 @@ func RemoveWorktreeAndArtifact(
 		d.Log.OK("removed worktree: %s", target.Path)
 
 		artRemoveDone := p.Stage("artifact.remove")
-		artifactPath, ok, artErr := config.ResolveArtifactPath(
-			cfg.Artifact, repoSlug, target.Branch, target.Path, outputDir)
-		if artErr != nil {
-			artRemoveDone()
-			return artErr
-		}
-		if ok {
+		artErr := func() error {
+			defer artRemoveDone()
+			artifactPath, ok, err := config.ResolveArtifactPath(
+				cfg.Artifact, repoSlug, target.Branch, target.Path, outputDir)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
 			if rmErr := os.Remove(artifactPath); rmErr != nil && !os.IsNotExist(rmErr) {
-				artRemoveDone()
 				return fmt.Errorf("remove artifact: %w", rmErr)
 			}
 			d.Log.OK("removed artifact: %s", artifactPath)
+			return nil
+		}()
+		if artErr != nil {
+			return artErr
 		}
-		artRemoveDone()
 
 		branchDeleteDone := p.Stage("git.branch_delete")
 		_, branchErr := d.Runner.Run(ctx, "git", "branch", branchFlag, target.Branch)
@@ -394,11 +390,7 @@ func executePrune(ctx context.Context, d deps.Deps, rc repo.Context, sel pruneSe
 }
 
 func pruneGitWorktreeMetadata(ctx context.Context, d deps.Deps) {
-	p := d.Profiler
-	if p == nil {
-		p = profile.Disabled()
-	}
-	done := p.Stage("git.worktree_prune")
+	done := profile.OrDisabled(d.Profiler).Stage("git.worktree_prune")
 	_, err := d.Runner.Run(ctx, "git", "worktree", "prune")
 	done()
 	if err != nil {

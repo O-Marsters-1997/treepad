@@ -47,10 +47,7 @@ type promptData struct {
 // writes PROMPT.md into the worktree, and hands off to a configured agent.
 // Returns the agent's exit code (0 when no agent_command is configured).
 func FromSpec(ctx context.Context, d deps.Deps, in FromSpecInput) (int, error) {
-	p := d.Profiler
-	if p == nil {
-		p = profile.Disabled()
-	}
+	p := profile.OrDisabled(d.Profiler)
 
 	if in.Issue == 0 {
 		return 0, errors.New("issue is required")

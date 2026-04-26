@@ -21,10 +21,7 @@ type NewInput struct {
 // New creates a new worktree, emits the __TREEPAD_CD__ directive to d.Out, and
 // returns the main worktree path (for callers that need it without an Out writer).
 func New(ctx context.Context, d deps.Deps, in NewInput) (string, error) {
-	p := d.Profiler
-	if p == nil {
-		p = profile.Disabled()
-	}
+	p := profile.OrDisabled(d.Profiler)
 
 	res, err := CreateWorktreeWithSync(ctx, d, in.Branch, in.Base, in.OutputDir)
 	if err != nil {

@@ -29,13 +29,22 @@ func NewRecorder() *Recorder {
 // Disabled returns a no-op Profiler that records and emits nothing.
 func Disabled() Profiler { return sharedDisabled }
 
+// OrDisabled returns p if non-nil, otherwise Disabled().
+// Use at package boundaries where p may come from an unset Deps field.
+func OrDisabled(p Profiler) Profiler {
+	if p == nil {
+		return sharedDisabled
+	}
+	return p
+}
+
 type entry struct {
 	dur   time.Duration
 	order int
 }
 
-// Recorder is a Profiler that records stage durations.
-// Calling Stage with the same name multiple times accumulates the durations.
+// Recorder is a Profiler that accumulates wall-time durations per named stage.
+// Repeated calls to Stage with the same name add to the existing total.
 type Recorder struct {
 	mu      sync.Mutex
 	entries map[string]*entry

@@ -42,10 +42,7 @@ type issueJSON struct {
 // failure it continues to the next issue and records the error in the result.
 // Returns the per-issue results, a count of failures, and any fatal setup error.
 func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]BulkResult, int, error) {
-	p := d.Profiler
-	if p == nil {
-		p = profile.Disabled()
-	}
+	p := profile.OrDisabled(d.Profiler)
 
 	results := make([]BulkResult, 0, len(in.Issues))
 	usedBranches := make(map[string]bool)
