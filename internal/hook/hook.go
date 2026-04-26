@@ -50,14 +50,12 @@ type Config struct {
 	PostSync   []HookEntry `toml:"post_sync"`
 }
 
-// IsZero reports whether no hooks are configured.
 func (c Config) IsZero() bool {
 	return len(c.PreNew) == 0 && len(c.PostNew) == 0 &&
 		len(c.PreRemove) == 0 && len(c.PostRemove) == 0 &&
 		len(c.PreSync) == 0 && len(c.PostSync) == 0
 }
 
-// For returns the hook entries for the given event.
 func (c Config) For(e Event) []HookEntry {
 	switch e {
 	case PreNew:

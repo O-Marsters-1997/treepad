@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"treepad/internal/worktree"
@@ -55,7 +54,7 @@ func Prune(ctx context.Context, d Deps, in PruneInput) error {
 	return executePrune(ctx, d, rc, sel, in.DryRun, in.Yes)
 }
 
-func gatherMerged(ctx context.Context, d Deps, rc repoContext, cwd, base string) (pruneSelection, error) {
+func gatherMerged(ctx context.Context, d Deps, rc RepoContext, cwd, base string) (pruneSelection, error) {
 	merged, err := worktree.MergedBranches(ctx, d.Runner, base)
 	if err != nil {
 		return pruneSelection{}, err
@@ -79,7 +78,7 @@ func gatherMerged(ctx context.Context, d Deps, rc repoContext, cwd, base string)
 			d.Log.Debug("  skip: not merged into %s", base)
 			continue
 		}
-		if rel, relErr := filepath.Rel(wt.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
+		if cwdInside(cwd, wt.Path) {
 			d.Log.Warn("skipping %s: currently in this worktree", wt.Branch)
 			continue
 		}
@@ -122,9 +121,10 @@ func gatherMerged(ctx context.Context, d Deps, rc repoContext, cwd, base string)
 	}, nil
 }
 
-func gatherAll(rc repoContext, cwd string) (pruneSelection, error) {
-	if rel, relErr := filepath.Rel(rc.Main.Path, cwd); relErr != nil || strings.HasPrefix(rel, "..") {
-		return pruneSelection{}, fmt.Errorf("--all must be run from the main worktree (%s)", rc.Main.Path)
+func gatherAll(rc RepoContext, cwd string) (pruneSelection, error) {
+	if err := requireCwdInside(cwd, rc.Main.Path,
+		fmt.Sprintf("--all must be run from the main worktree (%s)", rc.Main.Path)); err != nil {
+		return pruneSelection{}, err
 	}
 
 	var candidates []worktree.Worktree
@@ -143,7 +143,7 @@ func gatherAll(rc repoContext, cwd string) (pruneSelection, error) {
 	}, nil
 }
 
-func executePrune(ctx context.Context, d Deps, rc repoContext, sel pruneSelection, dryRun, yes bool) error {
+func executePrune(ctx context.Context, d Deps, rc RepoContext, sel pruneSelection, dryRun, yes bool) error {
 	if len(sel.candidates) == 0 {
 		d.Log.Info(sel.emptyMsg)
 		if !dryRun {

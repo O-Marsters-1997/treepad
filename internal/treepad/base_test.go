@@ -53,7 +53,7 @@ func TestBase(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
 			deps := Deps{
-				Runner: fakeRunner{output: tt.porcelain},
+				Runner: fakeRunner{Output: tt.porcelain},
 				Syncer: &fakeSyncer{},
 				Out:    &out,
 				In:     strings.NewReader(""),

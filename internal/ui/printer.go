@@ -28,22 +28,12 @@ func New(w io.Writer) *Printer {
 	return &Printer{w: w, debug: os.Getenv("TREEPAD_DEBUG") != ""}
 }
 
-// Step emits a [STEP] line for an action in progress.
 func (p *Printer) Step(format string, a ...any) { p.write("[STEP] ", format, a...) }
-
-// Info emits an [INFO] line for supplementary context.
 func (p *Printer) Info(format string, a ...any) { p.write("[INFO] ", format, a...) }
-
-// OK emits an [OK]   line for a successfully completed action.
-func (p *Printer) OK(format string, a ...any) { p.write("[OK]   ", format, a...) }
-
-// Warn emits a [WARN] line for non-fatal issues.
+func (p *Printer) OK(format string, a ...any)   { p.write("[OK]   ", format, a...) }
 func (p *Printer) Warn(format string, a ...any) { p.write("[WARN] ", format, a...) }
+func (p *Printer) Err(format string, a ...any)  { p.write("[ERR]  ", format, a...) }
 
-// Err emits an [ERR]  line for fatal errors presented to the user.
-func (p *Printer) Err(format string, a ...any) { p.write("[ERR]  ", format, a...) }
-
-// Debug emits a [DEBG] line, but only when TREEPAD_DEBUG is set.
 func (p *Printer) Debug(format string, a ...any) {
 	if p == nil || !p.debug {
 		return

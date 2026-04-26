@@ -3,8 +3,6 @@ package treepad
 import (
 	"context"
 	"fmt"
-
-	"treepad/internal/artifact"
 )
 
 type NewInput struct {
@@ -22,17 +20,9 @@ func New(ctx context.Context, d Deps, in NewInput) error {
 	}
 
 	if in.Open {
-		openPath := res.WorktreePath
-		if res.ArtifactPath != "" {
-			openPath = res.ArtifactPath
-		}
 		d.Log.Step("opening...")
-		openSpec := artifact.OpenSpec{Command: res.Cfg.Open.Command}
-		openData := artifact.OpenData{
-			ArtifactPath: openPath,
-			Worktree:     artifact.ToWorktree(in.Branch, res.WorktreePath, res.RC.OutputDir),
-		}
-		if err := d.Opener.Open(ctx, openSpec, openData); err != nil {
+		if err := openWorktree(ctx, d, res.Cfg.Open.Command,
+			in.Branch, res.WorktreePath, res.ArtifactPath, res.RC.OutputDir); err != nil {
 			return fmt.Errorf("open: %w", err)
 		}
 	}

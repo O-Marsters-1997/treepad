@@ -201,7 +201,7 @@ agent_command = []
 
 		res := createWorktreeResult{
 			WorktreePath: wt,
-			RC:           repoContext{Slug: "treepad"},
+			RC:           RepoContext{Slug: "treepad"},
 			Cfg:          config.Config{},
 		}
 		deps := testDeps(&seqRunner{}, &fakeSyncer{}, &fakeOpener{})
@@ -334,7 +334,7 @@ agent_command = []
 	t.Run("empty skills produces no Skills section", func(t *testing.T) {
 		res := createWorktreeResult{
 			WorktreePath: t.TempDir(),
-			RC:           repoContext{Slug: "treepad"},
+			RC:           RepoContext{Slug: "treepad"},
 			Cfg:          config.Config{FromSpec: config.FromSpecConfig{Skills: nil}},
 		}
 		body := buildPrompt(res.Cfg.FromSpec, "feat/test", specBody, "")

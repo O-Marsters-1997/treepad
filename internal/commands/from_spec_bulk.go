@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -49,7 +48,7 @@ func runFromSpecBulk(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	d := commandDeps(cmd)
 	_, failed, err := treepad.FromSpecBulk(ctx, d, treepad.FromSpecBulkInput{
 		Issues:       issues,
 		BranchPrefix: cmd.String("branch-prefix"),
@@ -60,12 +59,11 @@ func runFromSpecBulk(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	if failed > 0 {
-		os.Exit(1)
+		return cli.Exit("", 1)
 	}
 	return nil
 }
 
-// parseIssues parses a comma-separated string of issue numbers into []int.
 func parseIssues(raw string) ([]int, error) {
 	parts := strings.Split(raw, ",")
 	issues := make([]int, 0, len(parts))

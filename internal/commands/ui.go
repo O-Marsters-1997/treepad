@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"errors"
-	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -36,7 +35,7 @@ func uiCommand() *cli.Command {
 }
 
 func runUI(ctx context.Context, cmd *cli.Command) error {
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	d := commandDeps(cmd)
 	if uiScriptHandler != nil {
 		if keys := cmd.String("script"); keys != "" {
 			return uiScriptHandler(ctx, d, treepad.StatusInput{}, keys)

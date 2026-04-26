@@ -13,7 +13,6 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// Config holds the source and target directories for a single sync operation.
 type Config struct {
 	SourceDir string
 	TargetDir string

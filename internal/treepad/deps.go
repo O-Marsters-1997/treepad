@@ -3,7 +3,6 @@ package treepad
 import (
 	"io"
 	"os"
-	"time"
 
 	"golang.org/x/term"
 
@@ -28,8 +27,6 @@ type Deps struct {
 
 	// IsTerminal reports whether w is an interactive terminal.
 	IsTerminal func(w io.Writer) bool
-	// Sleep returns a channel that receives after d elapses (injectable for tests).
-	Sleep func(d time.Duration) <-chan time.Time
 	// CDSentinel, when non-nil, returns the writer emitCD uses for the
 	// __TREEPAD_CD__ payload instead of the fd-3 probe. Tests set this to a
 	// bytes.Buffer to avoid touching real file descriptors.
@@ -56,6 +53,5 @@ func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
 			}
 			return term.IsTerminal(int(f.Fd()))
 		},
-		Sleep: time.After,
 	}
 }

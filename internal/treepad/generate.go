@@ -23,14 +23,14 @@ type GenerateInput struct {
 }
 
 func Generate(ctx context.Context, d Deps, in GenerateInput) error {
-	worktrees, err := listWorktrees(ctx, d)
-	if err != nil {
-		return err
-	}
-
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get current directory: %w", err)
+	}
+
+	worktrees, err := listWorktrees(ctx, d)
+	if err != nil {
+		return err
 	}
 
 	sourceDir, err := ResolveSourceDir(in.UseCurrentDir, in.SourcePath, cwd, worktrees)
@@ -44,8 +44,9 @@ func Generate(ctx context.Context, d Deps, in GenerateInput) error {
 	)
 	d.Log.Info("using config source: %s", sourceDir)
 
+	// Generate uses sourceDir (not main.Path) as the slug base because --current
+	// may point to a non-main worktree.
 	repoSlug := slug.Slug(filepath.Base(sourceDir))
-
 	outputDir, err := resolveOutputDir(in.OutputDir, repoSlug)
 	if err != nil {
 		return err

@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -43,9 +42,9 @@ func fromSpecCommand() *cli.Command {
 }
 
 func runFromSpec(ctx context.Context, cmd *cli.Command) error {
-	branch := cmd.Args().First()
-	if branch == "" {
-		return fmt.Errorf("branch name is required")
+	branch, err := requireBranch(cmd)
+	if err != nil {
+		return err
 	}
 
 	issue := int(cmd.Int("issue"))
@@ -53,7 +52,7 @@ func runFromSpec(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("--issue is required")
 	}
 
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	d := commandDeps(cmd)
 	code, err := treepad.FromSpec(ctx, d, treepad.FromSpecInput{
 		Issue:   issue,
 		Branch:  branch,
@@ -65,7 +64,7 @@ func runFromSpec(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	if code != 0 {
-		os.Exit(code)
+		return cli.Exit("", code)
 	}
 	return nil
 }

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -25,7 +24,7 @@ func doctorCommand() *cli.Command {
 }
 
 func runDoctor(ctx context.Context, cmd *cli.Command) error {
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	d := commandDeps(cmd)
 	return treepad.Doctor(ctx, d, treepad.DoctorInput{
 		JSON:      cmd.Bool("json"),
 		StaleDays: int(cmd.Int("stale-days")),

@@ -2,8 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -21,11 +19,9 @@ func cdCommand() *cli.Command {
 }
 
 func runCD(ctx context.Context, cmd *cli.Command) error {
-	branch := cmd.Args().First()
-	if branch == "" {
-		return fmt.Errorf("branch name is required")
+	branch, err := requireBranch(cmd)
+	if err != nil {
+		return err
 	}
-
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
-	return treepad.CD(ctx, d, treepad.CDInput{Branch: branch})
+	return treepad.CD(ctx, commandDeps(cmd), treepad.CDInput{Branch: branch})
 }

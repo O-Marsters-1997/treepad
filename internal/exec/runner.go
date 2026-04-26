@@ -13,16 +13,12 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Runner describes a detected task runner with its script-invocation prefix
-// and the set of known script names.
 type Runner struct {
 	Name      string   // e.g. "just", "pnpm"
 	ScriptCmd []string // prefix before script name, e.g. ["pnpm", "run"]
 	Scripts   []string // enumerated script names (sorted)
 }
 
-// Resolve detects the task runner in dir (or forces override if non-empty),
-// enumerates its scripts, and returns a fully-populated Runner.
 func Resolve(dir, override string) (Runner, error) {
 	fsys := os.DirFS(dir)
 	name, err := pickRunner(fsys, override)

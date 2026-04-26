@@ -59,7 +59,7 @@ func Status(ctx context.Context, d Deps, in StatusInput) error {
 	return writeStatusTable(d, rows)
 }
 
-func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifact.Spec) ([]StatusRow, error) {
+func collectStatusRows(ctx context.Context, d Deps, rc RepoContext, spec artifact.Spec) ([]StatusRow, error) {
 	rows := make([]StatusRow, 0, len(rc.Worktrees))
 	for _, wt := range rc.Worktrees {
 		row := StatusRow{
@@ -91,10 +91,9 @@ func collectStatusRows(ctx context.Context, d Deps, rc repoContext, spec artifac
 			return nil, err
 		}
 
-		data := templateData(rc.Slug, wt.Branch, wt.Path, rc.OutputDir)
-		artifactPath, ok, err := artifact.Path(spec, rc.OutputDir, data)
+		artifactPath, ok, err := resolveArtifactPath(spec, rc.Slug, wt.Branch, wt.Path, rc.OutputDir)
 		if err != nil {
-			return nil, fmt.Errorf("resolve artifact path: %w", err)
+			return nil, err
 		}
 		if ok {
 			row.ArtifactPath = artifactPath
@@ -227,14 +226,11 @@ func computeHealth(ctx context.Context, d Deps, rows []StatusRow) (map[string]he
 		}
 	}
 
-	base := "main"
+	base := resolveDiffBaseFromMainPath(mainPath)
 	var mainCfg config.Config
 	if mainPath != "" {
 		if cfg, err := config.Load(mainPath); err == nil {
 			mainCfg = cfg
-			if cfg.Diff.Base != "" {
-				base = cfg.Diff.Base
-			}
 		}
 	}
 
@@ -273,11 +269,7 @@ func deriveStatus(r StatusRow, h healthFlags) (label, key string) {
 	case r.Branch == "(detached)":
 		return "detached", "detached"
 	case h.Merged && !r.IsMain:
-		label = "merged (safe rm)"
-		if h.Drifted {
-			label += " · drift"
-		}
-		return label, "merged"
+		label, key = "merged (safe rm)", "merged"
 	case r.Dirty:
 		label = "dirty"
 		switch {
@@ -288,51 +280,26 @@ func deriveStatus(r StatusRow, h healthFlags) (label, key string) {
 		case r.Behind > 0:
 			label += fmt.Sprintf(" · ↓%d", r.Behind)
 		}
-		if h.Drifted {
-			label += " · drift"
-		}
-		return label, "dirty"
+		key = "dirty"
 	case r.HasUpstream && r.Ahead > 0 && r.Behind > 0:
-		label = fmt.Sprintf("diverged · ↑%d ↓%d", r.Ahead, r.Behind)
-		if h.Drifted {
-			label += " · drift"
-		}
-		return label, "diverged"
+		label, key = fmt.Sprintf("diverged · ↑%d ↓%d", r.Ahead, r.Behind), "diverged"
 	case r.HasUpstream && r.Ahead > 0:
-		label = fmt.Sprintf("ahead · ↑%d", r.Ahead)
-		if h.Drifted {
-			label += " · drift"
-		}
-		return label, "ahead"
+		label, key = fmt.Sprintf("ahead · ↑%d", r.Ahead), "ahead"
 	case r.HasUpstream && r.Behind > 0:
-		label = fmt.Sprintf("behind · ↓%d", r.Behind)
-		if h.Drifted {
-			label += " · drift"
-		}
-		return label, "behind"
+		label, key = fmt.Sprintf("behind · ↓%d", r.Behind), "behind"
 	case !r.LastCommit.Committed.IsZero() && time.Since(r.LastCommit.Committed) > uiStaleThreshold:
-		label = "stale"
-		if h.Drifted {
-			label += " · drift"
-		}
-		return label, "stale"
+		label, key = "stale", "stale"
 	case !r.HasUpstream:
-		label = "local"
-		if h.Drifted {
-			label += " · drift"
-		}
-		return label, "local"
+		label, key = "local", "local"
 	default:
-		label = "clean"
-		if h.Drifted {
-			label += " · drift"
-		}
-		return label, "clean"
+		label, key = "clean", "clean"
 	}
+	if h.Drifted {
+		label += " · drift"
+	}
+	return label, key
 }
 
-// formatUIRows formats rows for the TUI with the richer STATUS column
-// (AHEAD/BEHIND folded in) using precomputed health flags.
 func formatUIRows(rows []StatusRow, health map[string]healthFlags) []string {
 	if len(rows) == 0 {
 		return nil
@@ -381,7 +348,6 @@ func formatUIRows(rows []StatusRow, health map[string]healthFlags) []string {
 	return strings.Split(raw, "\n")
 }
 
-// uiBuildSummary builds the fleet-count summary line shown at the TUI footer.
 func uiBuildSummary(rows []StatusRow, health map[string]healthFlags) string {
 	if len(rows) == 0 {
 		return ""

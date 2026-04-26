@@ -56,53 +56,42 @@ type SyncConfig struct {
 	Include []string `toml:"include"`
 }
 
-// ArtifactConfig describes the per-worktree file to generate.
-// Both fields are text/template strings. Leave FilenameTemplate empty to skip
-// artifact generation.
+// ArtifactConfig holds per-worktree artifact settings; leave FilenameTemplate empty to skip generation.
 type ArtifactConfig struct {
 	FilenameTemplate string `toml:"filename"`
 	ContentTemplate  string `toml:"content"`
 }
 
-// IsZero reports whether no artifact is configured.
 func (a ArtifactConfig) IsZero() bool {
 	return a.FilenameTemplate == ""
 }
 
-// OpenConfig describes the command used by --open.
-// Each element of Command is a text/template string.
 type OpenConfig struct {
 	Command []string `toml:"command"`
 }
 
-// IsZero reports whether no open command is configured.
 func (o OpenConfig) IsZero() bool {
 	return len(o.Command) == 0
 }
 
-// DiffConfig controls the base ref used by `tp diff` and the `d` TUI binding.
 type DiffConfig struct {
 	Base string `toml:"base"` // default "origin/main"
 }
 
-// IsZero reports whether no diff configuration is present.
 func (d DiffConfig) IsZero() bool {
 	return d.Base == ""
 }
 
-// ExecConfig controls the task runner used by `tp exec`.
 type ExecConfig struct {
 	// Runner overrides auto-detection. Valid values: just, npm, pnpm, yarn, bun,
 	// make, pip, poetry, uv.
 	Runner string `toml:"runner"`
 }
 
-// IsZero reports whether no exec runner is explicitly configured.
 func (e ExecConfig) IsZero() bool {
 	return e.Runner == ""
 }
 
-// FromSpecConfig configures `tp from-spec`.
 type FromSpecConfig struct {
 	// Skills is a list of skill names included in the generated prompt.
 	Skills []string `toml:"skills"`
@@ -112,12 +101,10 @@ type FromSpecConfig struct {
 	AgentCommand []string `toml:"agent_command"`
 }
 
-// IsZero reports whether no from-spec configuration is present.
 func (f FromSpecConfig) IsZero() bool {
 	return len(f.Skills) == 0 && len(f.AgentCommand) == 0
 }
 
-// Config is the full resolved configuration for a repo.
 type Config struct {
 	Sync     SyncConfig     `toml:"sync"`
 	Artifact ArtifactConfig `toml:"artifact"`

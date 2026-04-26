@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"treepad/internal/artifact"
 	"treepad/internal/config"
 	"treepad/internal/hook"
 	"treepad/internal/slug"
@@ -39,35 +38,29 @@ func removeWorktreeAndArtifact(
 
 	repoSlug := slug.Slug(filepath.Base(main.Path))
 	hData := hookData(repoSlug, target.Branch, target.Path, outputDir)
-	if err := runHook(ctx, d, cfg.Hooks, hook.PreRemove, hData); err != nil {
-		return fmt.Errorf("pre_remove hook: %w", err)
-	}
 
-	if _, err := d.Runner.Run(ctx, "git", removeArgs...); err != nil {
-		return fmt.Errorf("%s: %w", removeVerb, err)
-	}
-	d.Log.OK("removed worktree: %s", target.Path)
-
-	artData := templateData(repoSlug, target.Branch, target.Path, outputDir)
-	artifactPath, ok, err := artifact.Path(artifactSpec(cfg.Artifact), outputDir, artData)
-	if err != nil {
-		return fmt.Errorf("resolve artifact path: %w", err)
-	}
-	if ok {
-		if err := os.Remove(artifactPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("remove artifact: %w", err)
+	return runHookSandwich(ctx, d, cfg.Hooks, hook.PreRemove, hook.PostRemove, hData, func() error {
+		if _, err := d.Runner.Run(ctx, "git", removeArgs...); err != nil {
+			return fmt.Errorf("%s: %w", removeVerb, err)
 		}
-		d.Log.OK("removed artifact: %s", artifactPath)
-	}
+		d.Log.OK("removed worktree: %s", target.Path)
 
-	if _, err := d.Runner.Run(ctx, "git", "branch", branchFlag, target.Branch); err != nil {
-		return fmt.Errorf("%s: %w", branchVerb, err)
-	}
-	d.Log.OK("deleted branch: %s", target.Branch)
+		artifactPath, ok, err := resolveArtifactPath(
+			artifactSpec(cfg.Artifact), repoSlug, target.Branch, target.Path, outputDir)
+		if err != nil {
+			return err
+		}
+		if ok {
+			if err := os.Remove(artifactPath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove artifact: %w", err)
+			}
+			d.Log.OK("removed artifact: %s", artifactPath)
+		}
 
-	if err := runHook(ctx, d, cfg.Hooks, hook.PostRemove, hData); err != nil {
-		d.Log.Warn("post_remove hook failed: %v", err)
-	}
-
-	return nil
+		if _, err := d.Runner.Run(ctx, "git", "branch", branchFlag, target.Branch); err != nil {
+			return fmt.Errorf("%s: %w", branchVerb, err)
+		}
+		d.Log.OK("deleted branch: %s", target.Branch)
+		return nil
+	})
 }

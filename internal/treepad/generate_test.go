@@ -13,7 +13,7 @@ import (
 func TestGenerate(t *testing.T) {
 	t.Run("syncs non-source worktrees", func(t *testing.T) {
 		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{output: twoWorktreePorcelain}, syn, nil)
+		deps := testDeps(fakeRunner{Output: twoWorktreePorcelain}, syn, nil)
 
 		err := Generate(context.Background(), deps, GenerateInput{SourcePath: "/repo/main", SyncOnly: true})
 		if err != nil {
@@ -29,7 +29,7 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("Branch filters to one target", func(t *testing.T) {
 		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+		deps := testDeps(fakeRunner{Output: threeWorktreePorcelain}, syn, nil)
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -49,7 +49,7 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("unknown Branch returns clear error", func(t *testing.T) {
 		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+		deps := testDeps(fakeRunner{Output: threeWorktreePorcelain}, syn, nil)
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -63,7 +63,7 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("empty Branch syncs all targets", func(t *testing.T) {
 		syn := &fakeSyncer{}
-		deps := testDeps(fakeRunner{output: threeWorktreePorcelain}, syn, nil)
+		deps := testDeps(fakeRunner{Output: threeWorktreePorcelain}, syn, nil)
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -86,21 +86,21 @@ func TestGenerate(t *testing.T) {
 	}{
 		{
 			name:    "propagates syncer error",
-			runner:  fakeRunner{output: twoWorktreePorcelain},
+			runner:  fakeRunner{Output: twoWorktreePorcelain},
 			syncer:  &fakeSyncer{err: errors.New("sync failed")},
 			input:   GenerateInput{SourcePath: "/repo/main", SyncOnly: true},
 			wantErr: "sync failed",
 		},
 		{
 			name:    "no worktrees",
-			runner:  fakeRunner{output: []byte{}},
+			runner:  fakeRunner{Output: []byte{}},
 			syncer:  &fakeSyncer{},
 			input:   GenerateInput{SourcePath: "/repo/main"},
 			wantErr: "no git worktrees found",
 		},
 		{
 			name:    "runner error",
-			runner:  fakeRunner{err: errors.New("git not found")},
+			runner:  fakeRunner{Err: errors.New("git not found")},
 			syncer:  &fakeSyncer{},
 			input:   GenerateInput{},
 			wantErr: "git not found",

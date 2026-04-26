@@ -2,8 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -21,11 +19,9 @@ func removeCommand() *cli.Command {
 }
 
 func runRemove(ctx context.Context, cmd *cli.Command) error {
-	branch := cmd.Args().First()
-	if branch == "" {
-		return fmt.Errorf("branch name is required")
+	branch, err := requireBranch(cmd)
+	if err != nil {
+		return err
 	}
-
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
-	return treepad.Remove(ctx, d, treepad.RemoveInput{Branch: branch})
+	return treepad.Remove(ctx, commandDeps(cmd), treepad.RemoveInput{Branch: branch})
 }

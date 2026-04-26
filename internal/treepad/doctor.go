@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"text/tabwriter"
@@ -14,7 +13,6 @@ import (
 
 	"treepad/internal/artifact"
 	"treepad/internal/config"
-	"treepad/internal/slug"
 	"treepad/internal/worktree"
 )
 
@@ -35,24 +33,12 @@ type DoctorFinding struct {
 }
 
 func Doctor(ctx context.Context, d Deps, in DoctorInput) error {
-	worktrees, err := listWorktrees(ctx, d)
+	rc, err := loadRepoContext(ctx, d, in.OutputDir)
 	if err != nil {
 		return err
 	}
 
-	mainWT, err := worktree.MainWorktree(worktrees)
-	if err != nil {
-		return err
-	}
-
-	repoSlug := slug.Slug(filepath.Base(mainWT.Path))
-
-	outputDir, err := resolveOutputDir(in.OutputDir, repoSlug)
-	if err != nil {
-		return err
-	}
-
-	mainCfg, err := config.Load(mainWT.Path)
+	mainCfg, err := config.Load(rc.Main.Path)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -72,107 +58,39 @@ func Doctor(ctx context.Context, d Deps, in DoctorInput) error {
 
 	var findings []DoctorFinding
 
-	for _, wt := range worktrees {
+	for _, wt := range rc.Worktrees {
 		if wt.Prunable {
-			findings = append(findings, DoctorFinding{
-				Branch: wt.Branch,
-				Path:   wt.Path,
-				Kind:   "prunable",
-				Detail: wt.PrunableReason + " — run 'tp prune' or 'git worktree prune' to clean up",
-			})
+			findings = append(findings, doctorCheckPrunable(wt)...)
 			continue
 		}
-
 		if wt.Branch == "(detached)" {
 			continue
 		}
 
-		commit, err := worktree.LastCommit(ctx, d.Runner, wt.Path)
+		ageFindings, err := doctorCheckAge(ctx, d, wt, staleThreshold)
 		if err != nil {
 			return err
 		}
+		findings = append(findings, ageFindings...)
 
-		dirty, err := worktree.Dirty(ctx, d.Runner, wt.Path)
-		if err != nil {
-			return err
-		}
-
-		if commit.ShortSHA != "" {
-			age := time.Since(commit.Committed)
-			if dirty && age > staleThreshold {
-				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
-					Kind:   "dirty-old",
-					Detail: fmt.Sprintf("uncommitted changes, last commit %s ago", since(commit.Committed)),
-				})
-			} else if age > staleThreshold {
-				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
-					Kind:   "stale",
-					Detail: fmt.Sprintf("last commit %s ago", since(commit.Committed)),
-				})
-			}
-		}
-
-		if !wt.IsMain && mergedSet[wt.Branch] {
-			findings = append(findings, DoctorFinding{
-				Branch: wt.Branch,
-				Path:   wt.Path,
-				Kind:   "merged-present",
-				Detail: fmt.Sprintf("branch already merged into %s", in.Base),
-			})
-		}
+		findings = append(findings, doctorCheckMerged(wt, mergedSet, in.Base)...)
 
 		if !in.Offline {
-			exists, hasUpstream, err := worktree.RemoteBranchExists(ctx, d.Runner, wt.Path, wt.Branch)
+			remoteFindings, err := doctorCheckRemoteGone(ctx, d, wt)
 			if err != nil {
 				return err
 			}
-			if hasUpstream && !exists {
-				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
-					Kind:   "remote-gone",
-					Detail: "branch no longer exists on remote",
-				})
-			}
+			findings = append(findings, remoteFindings...)
 		}
 
-		data := templateData(repoSlug, wt.Branch, wt.Path, outputDir)
-		artifactPath, ok, err := artifact.Path(spec, outputDir, data)
+		artifactFindings, err := doctorCheckArtifact(spec, rc.Slug, wt, rc.OutputDir)
 		if err != nil {
-			return fmt.Errorf("resolve artifact path: %w", err)
+			return err
 		}
-		if ok {
-			if _, statErr := os.Stat(artifactPath); os.IsNotExist(statErr) {
-				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
-					Kind:   "artifact-missing",
-					Detail: fmt.Sprintf("expected artifact at %s", collapsePath(artifactPath)),
-				})
-			}
-		}
+		findings = append(findings, artifactFindings...)
 
 		if !wt.IsMain {
-			wtCfg, cfgErr := config.Load(wt.Path)
-			if cfgErr != nil {
-				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
-					Kind:   "config-drift",
-					Detail: fmt.Sprintf("could not load .treepad.toml: %s", cfgErr),
-				})
-			} else if !reflect.DeepEqual(wtCfg, mainCfg) {
-				findings = append(findings, DoctorFinding{
-					Branch: wt.Branch,
-					Path:   wt.Path,
-					Kind:   "config-drift",
-					Detail: configDriftDetail(mainCfg, wtCfg),
-				})
-			}
+			findings = append(findings, doctorCheckConfigDrift(wt, mainCfg)...)
 		}
 	}
 
@@ -183,6 +101,118 @@ func Doctor(ctx context.Context, d Deps, in DoctorInput) error {
 
 	if in.Strict && len(findings) > 0 {
 		return fmt.Errorf("%d finding(s) reported", len(findings))
+	}
+	return nil
+}
+
+func doctorCheckPrunable(wt worktree.Worktree) []DoctorFinding {
+	return []DoctorFinding{{
+		Branch: wt.Branch,
+		Path:   wt.Path,
+		Kind:   "prunable",
+		Detail: wt.PrunableReason + " — run 'tp prune' or 'git worktree prune' to clean up",
+	}}
+}
+
+func doctorCheckAge(
+	ctx context.Context, d Deps, wt worktree.Worktree, threshold time.Duration,
+) ([]DoctorFinding, error) {
+	commit, err := worktree.LastCommit(ctx, d.Runner, wt.Path)
+	if err != nil {
+		return nil, err
+	}
+	dirty, err := worktree.Dirty(ctx, d.Runner, wt.Path)
+	if err != nil {
+		return nil, err
+	}
+	if commit.ShortSHA == "" {
+		return nil, nil
+	}
+	age := time.Since(commit.Committed)
+	if dirty && age > threshold {
+		return []DoctorFinding{{
+			Branch: wt.Branch,
+			Path:   wt.Path,
+			Kind:   "dirty-old",
+			Detail: fmt.Sprintf("uncommitted changes, last commit %s ago", since(commit.Committed)),
+		}}, nil
+	}
+	if age > threshold {
+		return []DoctorFinding{{
+			Branch: wt.Branch,
+			Path:   wt.Path,
+			Kind:   "stale",
+			Detail: fmt.Sprintf("last commit %s ago", since(commit.Committed)),
+		}}, nil
+	}
+	return nil, nil
+}
+
+func doctorCheckMerged(wt worktree.Worktree, mergedSet map[string]bool, base string) []DoctorFinding {
+	if !wt.IsMain && mergedSet[wt.Branch] {
+		return []DoctorFinding{{
+			Branch: wt.Branch,
+			Path:   wt.Path,
+			Kind:   "merged-present",
+			Detail: fmt.Sprintf("branch already merged into %s", base),
+		}}
+	}
+	return nil
+}
+
+func doctorCheckRemoteGone(ctx context.Context, d Deps, wt worktree.Worktree) ([]DoctorFinding, error) {
+	exists, hasUpstream, err := worktree.RemoteBranchExists(ctx, d.Runner, wt.Path, wt.Branch)
+	if err != nil {
+		return nil, err
+	}
+	if hasUpstream && !exists {
+		return []DoctorFinding{{
+			Branch: wt.Branch,
+			Path:   wt.Path,
+			Kind:   "remote-gone",
+			Detail: "branch no longer exists on remote",
+		}}, nil
+	}
+	return nil, nil
+}
+
+func doctorCheckArtifact(
+	spec artifact.Spec, repoSlug string, wt worktree.Worktree, outputDir string,
+) ([]DoctorFinding, error) {
+	artifactPath, ok, err := resolveArtifactPath(spec, repoSlug, wt.Branch, wt.Path, outputDir)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		if _, statErr := os.Stat(artifactPath); os.IsNotExist(statErr) {
+			return []DoctorFinding{{
+				Branch: wt.Branch,
+				Path:   wt.Path,
+				Kind:   "artifact-missing",
+				Detail: fmt.Sprintf("expected artifact at %s", collapsePath(artifactPath)),
+			}}, nil
+		}
+	}
+	return nil, nil
+}
+
+func doctorCheckConfigDrift(wt worktree.Worktree, mainCfg config.Config) []DoctorFinding {
+	wtCfg, cfgErr := config.Load(wt.Path)
+	if cfgErr != nil {
+		return []DoctorFinding{{
+			Branch: wt.Branch,
+			Path:   wt.Path,
+			Kind:   "config-drift",
+			Detail: fmt.Sprintf("could not load .treepad.toml: %s", cfgErr),
+		}}
+	}
+	if !reflect.DeepEqual(wtCfg, mainCfg) {
+		return []DoctorFinding{{
+			Branch: wt.Branch,
+			Path:   wt.Path,
+			Kind:   "config-drift",
+			Detail: configDriftDetail(mainCfg, wtCfg),
+		}}
 	}
 	return nil
 }

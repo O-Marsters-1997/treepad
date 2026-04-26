@@ -38,7 +38,7 @@ func worktreePorcelainWithPath(branch, path string) []byte {
 
 func TestExec_unknownBranch(t *testing.T) {
 	d := Deps{
-		Runner: fakeRunner{output: twoWorktreePorcelain},
+		Runner: fakeRunner{Output: twoWorktreePorcelain},
 		Syncer: &fakeSyncer{},
 		Out:    &bytes.Buffer{},
 		In:     strings.NewReader(""),
@@ -152,7 +152,7 @@ func TestExec_dispatch(t *testing.T) {
 			var out bytes.Buffer
 			porcelain := worktreePorcelainWithPath("feat", dir)
 			d := Deps{
-				Runner: fakeRunner{output: porcelain},
+				Runner: fakeRunner{Output: porcelain},
 				Syncer: &fakeSyncer{},
 				Out:    &out,
 				Log:    ui.New(&out),
