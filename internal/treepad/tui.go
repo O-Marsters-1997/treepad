@@ -16,6 +16,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"treepad/internal/config"
+	"treepad/internal/treepad/cd"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/lifecycle"
+	"treepad/internal/treepad/repo"
 )
 
 var (
@@ -79,7 +83,7 @@ type uiToast struct {
 
 type uiModel struct {
 	ctx            context.Context
-	d              Deps
+	d              deps.Deps
 	in             StatusInput
 	rows           []StatusRow
 	health         map[string]healthFlags // keyed by branch; nil until first refresh
@@ -424,28 +428,28 @@ func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
 
 func (m uiModel) doRemove(branch string) tea.Cmd {
 	return func() tea.Msg {
-		err := Remove(m.ctx, m.d, RemoveInput{Branch: branch, OutputDir: m.in.OutputDir})
+		err := lifecycle.Remove(m.ctx, m.d, lifecycle.RemoveInput{Branch: branch, OutputDir: m.in.OutputDir})
 		return uiRemoveDoneMsg{branch: branch, err: err}
 	}
 }
 
 func (m uiModel) doForceRemove(branch string) tea.Cmd {
 	return func() tea.Msg {
-		err := Remove(m.ctx, m.d, RemoveInput{Branch: branch, OutputDir: m.in.OutputDir, Force: true})
+		err := lifecycle.Remove(m.ctx, m.d, lifecycle.RemoveInput{Branch: branch, OutputDir: m.in.OutputDir, Force: true})
 		return uiRemoveDoneMsg{branch: branch, err: err}
 	}
 }
 
 func (m uiModel) doPrune() tea.Cmd {
 	return func() tea.Msg {
-		err := Prune(m.ctx, m.d, PruneInput{Yes: true, Base: "main", OutputDir: m.in.OutputDir})
+		err := lifecycle.Prune(m.ctx, m.d, lifecycle.PruneInput{Yes: true, Base: "main", OutputDir: m.in.OutputDir})
 		return uiPruneDoneMsg{err: err}
 	}
 }
 
 func (m uiModel) doOpen(row StatusRow) tea.Cmd {
 	return func() tea.Msg {
-		rc, err := loadRepoContext(m.ctx, m.d, m.in.OutputDir)
+		rc, err := repo.Load(m.ctx, m.d.Runner, m.in.OutputDir)
 		if err != nil {
 			return uiOpenDoneMsg{err: err}
 		}
@@ -457,7 +461,7 @@ func (m uiModel) doOpen(row StatusRow) tea.Cmd {
 		if row.ArtifactPath != "" {
 			openPath = row.ArtifactPath
 		}
-		err = openWorktree(m.ctx, m.d, cfg.Open.Command, row.Branch, row.Path, row.ArtifactPath, m.in.OutputDir)
+		err = lifecycle.OpenWorktree(m.ctx, m.d, cfg.Open.Command, row.Branch, row.Path, row.ArtifactPath, m.in.OutputDir)
 		return uiOpenDoneMsg{path: openPath, err: err}
 	}
 }
@@ -653,7 +657,7 @@ func uiRenderModal(m uiModel) string {
 
 // UI opens a full-screen fleet view. It returns ErrNotTTY when d.Out is not
 // an interactive terminal.
-func UI(ctx context.Context, d Deps, in StatusInput) error {
+func UI(ctx context.Context, d deps.Deps, in StatusInput) error {
 	if !d.IsTerminal(d.Out) {
 		return ErrNotTTY
 	}
@@ -682,8 +686,8 @@ func UI(ctx context.Context, d Deps, in StatusInput) error {
 
 // uiEmitCD writes the cd sentinel (consumed by the shell wrapper) and a
 // human-readable fallback line so users without the wrapper see where they'd land.
-func uiEmitCD(d Deps, path string) {
-	emitCD(d, path)
+func uiEmitCD(d deps.Deps, path string) {
+	cd.EmitCD(d, path)
 	_, _ = fmt.Fprintf(d.Out, "→ cd: %s\n", path)
 }
 
@@ -697,7 +701,7 @@ type HeadlessUI struct {
 // NewHeadlessUI constructs a HeadlessUI ready for headless key replay.
 // The header clock is fixed at "STATIC" for deterministic output; auto-refresh
 // and toast timers are disabled (nil factories) so no time-based cmds are emitted.
-func NewHeadlessUI(ctx context.Context, d Deps, in StatusInput) *HeadlessUI {
+func NewHeadlessUI(ctx context.Context, d deps.Deps, in StatusInput) *HeadlessUI {
 	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	return &HeadlessUI{model: uiModel{
 		ctx:         ctx,

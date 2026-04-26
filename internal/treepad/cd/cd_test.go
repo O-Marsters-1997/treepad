@@ -1,11 +1,23 @@
-package treepad
+package cd
 
 import (
 	"bytes"
 	"context"
 	"strings"
 	"testing"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 )
+
+type fakeRunner struct {
+	calls [][]string
+	err   error
+}
+
+func (f *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	f.calls = append(f.calls, append([]string{name}, args...))
+	return nil, f.err
+}
 
 func TestCD(t *testing.T) {
 	tests := []struct {
@@ -31,9 +43,9 @@ func TestCD(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
-			deps := Deps{
-				Runner: fakeRunner{Output: twoWorktreePorcelain},
-				Syncer: &fakeSyncer{},
+			deps := deps.Deps{
+				Runner: &treepadtest.Runner{},
+				Syncer: &treepadtest.FakeSyncer{},
 				Out:    &out,
 				In:     strings.NewReader(""),
 			}

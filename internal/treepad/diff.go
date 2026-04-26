@@ -7,6 +7,9 @@ import (
 	"os"
 
 	"treepad/internal/config"
+	"treepad/internal/passthrough"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
 )
 
@@ -21,12 +24,12 @@ type DiffInput struct {
 // Diff diffs the target worktree against base using three-dot merge-base
 // semantics (base...HEAD), matching GitHub PR view. Inherits stdio so the
 // user's pager and color config (delta, diff-so-fancy) apply automatically.
-func Diff(ctx context.Context, d Deps, in DiffInput) error {
+func Diff(ctx context.Context, d deps.Deps, in DiffInput) error {
 	if in.Branch == "" {
 		return errors.New("branch name is required")
 	}
 
-	wts, err := listWorktrees(ctx, d)
+	wts, err := repo.ListWorktrees(ctx, d.Runner)
 	if err != nil {
 		return err
 	}
@@ -61,7 +64,7 @@ func Diff(ctx context.Context, d Deps, in DiffInput) error {
 	args := append([]string{"diff", refs}, in.ExtraArgs...)
 	runner := in.Runner
 	if runner == nil {
-		runner = osPassthroughRunner{}
+		runner = passthrough.OSRunner{}
 	}
 	if _, err := runner.Run(ctx, target.Path, "git", args...); err != nil {
 		return fmt.Errorf("git diff: %w", err)

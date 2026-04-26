@@ -11,8 +11,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"treepad/internal/artifact"
 	"treepad/internal/config"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
 )
 
@@ -36,8 +37,8 @@ type StatusRow struct {
 	PrunableReason string              `json:"prunable_reason,omitempty"`
 }
 
-func refreshStatus(ctx context.Context, d Deps, in StatusInput) ([]StatusRow, error) {
-	rc, err := loadRepoContext(ctx, d, in.OutputDir)
+func refreshStatus(ctx context.Context, d deps.Deps, in StatusInput) ([]StatusRow, error) {
+	rc, err := repo.Load(ctx, d.Runner, in.OutputDir)
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +46,10 @@ func refreshStatus(ctx context.Context, d Deps, in StatusInput) ([]StatusRow, er
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	return collectStatusRows(ctx, d, rc, artifactSpec(cfg.Artifact))
+	return collectStatusRows(ctx, d, rc, cfg.Artifact)
 }
 
-func Status(ctx context.Context, d Deps, in StatusInput) error {
+func Status(ctx context.Context, d deps.Deps, in StatusInput) error {
 	rows, err := refreshStatus(ctx, d, in)
 	if err != nil {
 		return err
@@ -59,7 +60,7 @@ func Status(ctx context.Context, d Deps, in StatusInput) error {
 	return writeStatusTable(d, rows)
 }
 
-func collectStatusRows(ctx context.Context, d Deps, rc RepoContext, spec artifact.Spec) ([]StatusRow, error) {
+func collectStatusRows(ctx context.Context, d deps.Deps, rc repo.Context, artCfg config.ArtifactConfig) ([]StatusRow, error) {
 	rows := make([]StatusRow, 0, len(rc.Worktrees))
 	for _, wt := range rc.Worktrees {
 		row := StatusRow{
@@ -91,7 +92,7 @@ func collectStatusRows(ctx context.Context, d Deps, rc RepoContext, spec artifac
 			return nil, err
 		}
 
-		artifactPath, ok, err := resolveArtifactPath(spec, rc.Slug, wt.Branch, wt.Path, rc.OutputDir)
+		artifactPath, ok, err := config.ResolveArtifactPath(artCfg, rc.Slug, wt.Branch, wt.Path, rc.OutputDir)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +108,7 @@ func collectStatusRows(ctx context.Context, d Deps, rc RepoContext, spec artifac
 	return rows, nil
 }
 
-func writeStatusTable(d Deps, rows []StatusRow) error {
+func writeStatusTable(d deps.Deps, rows []StatusRow) error {
 	for _, line := range formatStatusRows(rows) {
 		_, _ = fmt.Fprintln(d.Out, line)
 	}
@@ -217,7 +218,7 @@ const uiStaleThreshold = 14 * 24 * time.Hour
 
 // computeHealth derives health flags for each non-main, non-prunable worktree.
 // Runs only local git/file-IO checks; no network calls are made.
-func computeHealth(ctx context.Context, d Deps, rows []StatusRow) (map[string]healthFlags, error) {
+func computeHealth(ctx context.Context, d deps.Deps, rows []StatusRow) (map[string]healthFlags, error) {
 	var mainPath string
 	for _, r := range rows {
 		if r.IsMain {

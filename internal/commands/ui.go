@@ -7,13 +7,14 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"treepad/internal/treepad"
+	"treepad/internal/treepad/deps"
 )
 
-var uiScriptHandler func(context.Context, treepad.Deps, treepad.StatusInput, string) error
+var uiScriptHandler func(context.Context, deps.Deps, treepad.StatusInput, string) error
 
 // RegisterScriptedUI wires a hidden --script flag and its handler into tp ui.
 // Intended to be called from e2e/register before the CLI is constructed.
-func RegisterScriptedUI(handler func(context.Context, treepad.Deps, treepad.StatusInput, string) error) {
+func RegisterScriptedUI(handler func(context.Context, deps.Deps, treepad.StatusInput, string) error) {
 	uiScriptHandler = handler
 }
 

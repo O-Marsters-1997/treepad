@@ -2,10 +2,9 @@ package commands
 
 import (
 	"context"
+	"treepad/internal/treepad/lifecycle"
 
 	"github.com/urfave/cli/v3"
-
-	"treepad/internal/treepad"
 )
 
 func newCommand() *cli.Command {
@@ -40,10 +39,15 @@ func runNew(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	return treepad.New(ctx, commandDeps(cmd), treepad.NewInput{
-		Branch:  branch,
-		Base:    cmd.String("base"),
-		Open:    cmd.Bool("open"),
-		Current: cmd.Bool("current"),
+	_, err = lifecycle.New(ctx, commandDeps(cmd), lifecycle.NewInput{
+		Branch:    branch,
+		Base:      cmd.String("base"),
+		Open:      cmd.Bool("open"),
+		Current:   cmd.Bool("current"),
+		OutputDir: cmd.String("output-dir"),
 	})
+	if err != nil {
+		return err
+	}
+	return nil
 }

@@ -1,4 +1,4 @@
-package treepad
+package fromspec
 
 import (
 	"bytes"
@@ -10,41 +10,45 @@ import (
 	"testing"
 
 	"treepad/internal/config"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/lifecycle"
+	"treepad/internal/treepad/repo"
+	"treepad/internal/treepad/treepadtest"
 )
 
 func TestResolveIssueSpec(t *testing.T) {
 	tests := []struct {
 		name     string
 		issue    int
-		runner   *seqRunner
+		runner   *treepadtest.SeqRunner
 		wantBody string
 		wantErr  string
 	}{
 		{
 			name:  "invokes gh and trims body",
 			issue: 42,
-			runner: &seqRunner{responses: []runResponse{
-				{output: []byte("  implement OAuth flow\n")},
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: []byte("  implement OAuth flow\n")},
 			}},
 			wantBody: "implement OAuth flow",
 		},
 		{
 			name:    "empty issue body errors",
 			issue:   7,
-			runner:  &seqRunner{responses: []runResponse{{output: []byte("\n")}}},
+			runner:  &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: []byte("\n")}}},
 			wantErr: "empty body",
 		},
 		{
 			name:    "gh error propagates",
 			issue:   99,
-			runner:  &seqRunner{responses: []runResponse{{err: errors.New("gh: not authenticated")}}},
+			runner:  &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Err: errors.New("gh: not authenticated")}}},
 			wantErr: "gh issue view 99",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := Deps{Runner: tt.runner}
+			d := deps.Deps{Runner: tt.runner}
 			body, err := resolveIssueSpec(context.Background(), d, tt.issue)
 
 			if tt.wantErr != "" {
@@ -117,8 +121,8 @@ func TestRunAgent(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("empty agent_command returns 0 and skips PTRunner", func(t *testing.T) {
-		pt := &fakePassthroughRunner{}
-		d := Deps{PTRunner: pt, Out: &bytes.Buffer{}}
+		pt := &treepadtest.FakePassthroughRunner{}
+		d := deps.Deps{PTRunner: pt, Out: &bytes.Buffer{}}
 		code, err := runAgent(ctx, d, nil, promptData{PromptPath: "/p"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -126,14 +130,14 @@ func TestRunAgent(t *testing.T) {
 		if code != 0 {
 			t.Errorf("code = %d, want 0", code)
 		}
-		if len(pt.calls) != 0 {
-			t.Errorf("PTRunner called %d times, want 0", len(pt.calls))
+		if len(pt.Calls) != 0 {
+			t.Errorf("PTRunner called %d times, want 0", len(pt.Calls))
 		}
 	})
 
 	t.Run("renders each element and invokes PTRunner with worktree dir", func(t *testing.T) {
-		pt := &fakePassthroughRunner{}
-		d := Deps{PTRunner: pt}
+		pt := &treepadtest.FakePassthroughRunner{}
+		d := deps.Deps{PTRunner: pt}
 		data := promptData{WorktreePath: "/wt", PromptPath: "/wt/PROMPT.md", Prompt: "do the thing"}
 		code, err := runAgent(ctx, d, []string{"claude", "{{.PromptPath}}"}, data)
 		if err != nil {
@@ -142,22 +146,22 @@ func TestRunAgent(t *testing.T) {
 		if code != 0 {
 			t.Errorf("code = %d, want 0", code)
 		}
-		if len(pt.calls) != 1 {
-			t.Fatalf("PTRunner called %d times, want 1", len(pt.calls))
+		if len(pt.Calls) != 1 {
+			t.Fatalf("PTRunner called %d times, want 1", len(pt.Calls))
 		}
-		if pt.calls[0].dir != "/wt" {
-			t.Errorf("dir = %q, want /wt", pt.calls[0].dir)
+		if pt.Calls[0].Dir != "/wt" {
+			t.Errorf("dir = %q, want /wt", pt.Calls[0].Dir)
 		}
-		if pt.calls[0].name != "claude" {
-			t.Errorf("name = %q, want claude", pt.calls[0].name)
+		if pt.Calls[0].Name != "claude" {
+			t.Errorf("name = %q, want claude", pt.Calls[0].Name)
 		}
-		if len(pt.calls[0].args) != 1 || pt.calls[0].args[0] != "/wt/PROMPT.md" {
-			t.Errorf("args = %v, want [/wt/PROMPT.md]", pt.calls[0].args)
+		if len(pt.Calls[0].Args) != 1 || pt.Calls[0].Args[0] != "/wt/PROMPT.md" {
+			t.Errorf("args = %v, want [/wt/PROMPT.md]", pt.Calls[0].Args)
 		}
 	})
 
 	t.Run("template error surfaces with index", func(t *testing.T) {
-		d := Deps{PTRunner: &fakePassthroughRunner{}}
+		d := deps.Deps{PTRunner: &treepadtest.FakePassthroughRunner{}}
 		_, err := runAgent(ctx, d, []string{"ok", "{{.NoSuchField}}"}, promptData{})
 		if err == nil || !strings.Contains(err.Error(), "agent_command[1]") {
 			t.Errorf("got error %v, want error containing agent_command[1]", err)
@@ -165,8 +169,8 @@ func TestRunAgent(t *testing.T) {
 	})
 
 	t.Run("propagates PTRunner exit code", func(t *testing.T) {
-		pt := &fakePassthroughRunner{exitCode: 42}
-		d := Deps{PTRunner: pt}
+		pt := &treepadtest.FakePassthroughRunner{ExitCode: 42}
+		d := deps.Deps{PTRunner: pt}
 		code, err := runAgent(ctx, d, []string{"claude"}, promptData{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -183,7 +187,7 @@ func TestFromSpec(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 	outputDir := t.TempDir()
-	porcelain := mainWorktreePorcelain(mainPath)
+	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
 	const specBody = "implement OAuth flow"
 	const fromSpecTOML = `
@@ -199,12 +203,12 @@ agent_command = []
 			t.Fatalf("setup: %v", err)
 		}
 
-		res := createWorktreeResult{
+		res := lifecycle.CreateResult{
 			WorktreePath: wt,
-			RC:           RepoContext{Slug: "treepad"},
-			Cfg:          config.Config{},
+			RC:           repo.Context{Slug: "treepad"},
+			Cfg:          config.Config{FromSpec: config.FromSpecConfig{}},
 		}
-		deps := testDeps(&seqRunner{}, &fakeSyncer{}, &fakeOpener{})
+		deps := deps.Deps{Runner: &treepadtest.SeqRunner{}, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 
 		path, rendered, err := resolveOrBuildPrompt(deps, res, "feat/test", specBody, "")
 		if err != nil {
@@ -224,13 +228,13 @@ agent_command = []
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{
-			{output: []byte(specBody)}, // gh issue view
-			{output: porcelain},        // git worktree list
-			{output: nil},              // git worktree add
+		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: []byte(specBody)}, // gh issue view
+			{Output: porcelain},        // git worktree list
+			{Output: nil},              // git worktree add
 		}}}
-		deps := testDeps(rr, &fakeSyncer{}, &fakeOpener{})
-		deps.PTRunner = &fakePassthroughRunner{}
+		deps := deps.Deps{Runner: rr, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
 			Issue:     42,
@@ -244,7 +248,7 @@ agent_command = []
 
 		// Verify gh was called with the issue number.
 		var ghFound bool
-		for _, call := range rr.calls {
+		for _, call := range rr.Calls {
 			if len(call) > 0 && call[0] == "gh" {
 				ghFound = true
 				if len(call) < 4 || call[3] != "42" {
@@ -263,13 +267,13 @@ agent_command = []
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: []byte(specBody)}, // gh issue view
-			{output: porcelain},        // git worktree list
-			{output: nil},              // git worktree add
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: []byte(specBody)}, // gh issue view
+			{Output: porcelain},        // git worktree list
+			{Output: nil},              // git worktree add
 		}}
-		pt := &fakePassthroughRunner{}
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		pt := &treepadtest.FakePassthroughRunner{}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		deps.PTRunner = pt
 
 		var logBuf bytes.Buffer
@@ -287,8 +291,8 @@ agent_command = []
 		if code != 0 {
 			t.Errorf("exit code = %d, want 0", code)
 		}
-		if len(pt.calls) != 0 {
-			t.Errorf("PTRunner called %d times, want 0", len(pt.calls))
+		if len(pt.Calls) != 0 {
+			t.Errorf("PTRunner called %d times, want 0", len(pt.Calls))
 		}
 	})
 
@@ -298,13 +302,13 @@ agent_command = []
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: []byte(specBody)}, // gh issue view
-			{output: porcelain},        // git worktree list
-			{output: nil},              // git worktree add
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: []byte(specBody)}, // gh issue view
+			{Output: porcelain},        // git worktree list
+			{Output: nil},              // git worktree add
 		}}
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
-		deps.PTRunner = &fakePassthroughRunner{}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
 			Issue:     1,
@@ -332,9 +336,9 @@ agent_command = []
 	})
 
 	t.Run("empty skills produces no Skills section", func(t *testing.T) {
-		res := createWorktreeResult{
+		res := lifecycle.CreateResult{
 			WorktreePath: t.TempDir(),
-			RC:           RepoContext{Slug: "treepad"},
+			RC:           repo.Context{Slug: "treepad"},
 			Cfg:          config.Config{FromSpec: config.FromSpecConfig{Skills: nil}},
 		}
 		body := buildPrompt(res.Cfg.FromSpec, "feat/test", specBody, "")
@@ -355,15 +359,15 @@ agent_command = []
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: []byte(specBody)}, // gh issue view
-			{output: porcelain},        // git worktree list
-			{output: nil},              // git worktree add
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: []byte(specBody)}, // gh issue view
+			{Output: porcelain},        // git worktree list
+			{Output: nil},              // git worktree add
 		}}
-		hr := &fakeHookRunner{}
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		hr := &treepadtest.FakeHookRunner{}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		deps.HookRunner = hr
-		deps.PTRunner = &fakePassthroughRunner{}
+		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		if _, err := FromSpec(context.Background(), deps, FromSpecInput{
 			Issue:     1,
@@ -373,13 +377,13 @@ agent_command = []
 		}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(hr.calls) != 2 {
-			t.Fatalf("hook runner called %d times, want 2", len(hr.calls))
+		if len(hr.Calls) != 2 {
+			t.Fatalf("hook runner called %d times, want 2", len(hr.Calls))
 		}
-		if got := hr.calls[0].data.HookType; got != "pre_new" {
+		if got := hr.Calls[0].Data.HookType; got != "pre_new" {
 			t.Errorf("calls[0].HookType = %q, want pre_new", got)
 		}
-		if got := hr.calls[1].data.HookType; got != "post_new" {
+		if got := hr.Calls[1].Data.HookType; got != "post_new" {
 			t.Errorf("calls[1].HookType = %q, want post_new", got)
 		}
 	})
@@ -391,14 +395,14 @@ agent_command = []
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		rr := &recordingRunner{inner: &seqRunner{responses: []runResponse{
-			{output: []byte(specBody)}, // gh issue view
-			{output: porcelain},        // git worktree list
+		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: []byte(specBody)}, // gh issue view
+			{Output: porcelain},        // git worktree list
 		}}}
-		hr := &fakeHookRunner{err: errors.New("hook aborted")}
-		deps := testDeps(rr, &fakeSyncer{}, &fakeOpener{})
+		hr := &treepadtest.FakeHookRunner{Err: errors.New("hook aborted")}
+		deps := deps.Deps{Runner: rr, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		deps.HookRunner = hr
-		deps.PTRunner = &fakePassthroughRunner{}
+		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
 			Issue:     1,
@@ -409,7 +413,7 @@ agent_command = []
 		if err == nil || !strings.Contains(err.Error(), "hook aborted") {
 			t.Errorf("got error %v, want error containing 'hook aborted'", err)
 		}
-		for _, call := range rr.calls {
+		for _, call := range rr.Calls {
 			if len(call) >= 3 && call[1] == "worktree" && call[2] == "add" {
 				t.Error("git worktree add should not be called when pre_new hook fails")
 			}
@@ -422,14 +426,14 @@ agent_command = []
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: []byte(specBody)}, // gh issue view
-			{output: porcelain},        // git worktree list
-			{output: nil},              // git worktree add
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: []byte(specBody)}, // gh issue view
+			{Output: porcelain},        // git worktree list
+			{Output: nil},              // git worktree add
 		}}
 		var buf bytes.Buffer
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
-		deps.PTRunner = &fakePassthroughRunner{}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 		deps.Out = &buf
 
 		if _, err := FromSpec(context.Background(), deps, FromSpecInput{

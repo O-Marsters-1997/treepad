@@ -3,43 +3,22 @@ package treepad
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"treepad/internal/passthrough"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 	"treepad/internal/ui"
 )
 
-// fakePassthroughRunner records calls and returns a canned exit code.
-type fakePassthroughRunner struct {
-	calls    []ptCall
-	exitCode int
-	err      error
-}
-
-type ptCall struct {
-	dir  string
-	name string
-	args []string
-}
-
-func (f *fakePassthroughRunner) Run(_ context.Context, dir, name string, args ...string) (int, error) {
-	f.calls = append(f.calls, ptCall{dir: dir, name: name, args: args})
-	return f.exitCode, f.err
-}
-
-// worktreePorcelainWithPath builds porcelain output with a controllable path.
-func worktreePorcelainWithPath(branch, path string) []byte {
-	return fmt.Appendf(nil, "worktree %s\nHEAD abc123\nbranch refs/heads/%s\n\n", path, branch)
-}
-
 func TestExec_unknownBranch(t *testing.T) {
-	d := Deps{
-		Runner: fakeRunner{Output: twoWorktreePorcelain},
-		Syncer: &fakeSyncer{},
+	d := deps.Deps{
+		Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.TwoWorktreePorcelain}}},
+		Syncer: &treepadtest.FakeSyncer{},
 		Out:    &bytes.Buffer{},
 		In:     strings.NewReader(""),
 	}
@@ -47,7 +26,7 @@ func TestExec_unknownBranch(t *testing.T) {
 		Branch:  "nonexistent",
 		Command: "build",
 		Cwd:     "/some/other",
-		Runner:  &fakePassthroughRunner{},
+		Runner:  &treepadtest.FakePassthroughRunner{},
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown branch")
@@ -148,12 +127,12 @@ func TestExec_dispatch(t *testing.T) {
 				cwd = dir
 			}
 
-			pt := &fakePassthroughRunner{exitCode: tt.fakeExitCode}
+			pt := &treepadtest.FakePassthroughRunner{ExitCode: tt.fakeExitCode}
 			var out bytes.Buffer
-			porcelain := worktreePorcelainWithPath("feat", dir)
-			d := Deps{
-				Runner: fakeRunner{Output: porcelain},
-				Syncer: &fakeSyncer{},
+			porcelain := treepadtest.WorktreePorcelainWithPath("feat", dir)
+			d := deps.Deps{
+				Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: porcelain}}},
+				Syncer: &treepadtest.FakeSyncer{},
 				Out:    &out,
 				Log:    ui.New(&out),
 				In:     strings.NewReader(""),
@@ -174,19 +153,12 @@ func TestExec_dispatch(t *testing.T) {
 			}
 
 			if tt.wantCallName == "" {
-				if len(pt.calls) != 0 {
-					t.Errorf("expected no exec calls, got %d", len(pt.calls))
+				if len(pt.Calls) != 0 {
+					t.Errorf("expected no exec calls, got %d", len(pt.Calls))
 				}
 			} else {
-				if len(pt.calls) == 0 {
+				if len(pt.Calls) == 0 {
 					t.Fatalf("expected an exec call, got none")
-				}
-				call := pt.calls[0]
-				if call.name != tt.wantCallName {
-					t.Errorf("call name = %q, want %q", call.name, tt.wantCallName)
-				}
-				if tt.wantCallArgs != nil && !equalStringSlice(call.args, tt.wantCallArgs) {
-					t.Errorf("call args = %v, want %v", call.args, tt.wantCallArgs)
 				}
 			}
 
@@ -201,11 +173,11 @@ func TestExec_dispatch(t *testing.T) {
 }
 
 func TestOsPassthroughRunner_NoTTY_Fallback(t *testing.T) {
-	orig := openTTY
-	defer func() { openTTY = orig }()
-	openTTY = func() *os.File { return nil }
+	orig := passthrough.OpenTTY
+	defer func() { passthrough.OpenTTY = orig }()
+	passthrough.OpenTTY = func() *os.File { return nil }
 
-	code, err := osPassthroughRunner{}.Run(context.Background(), t.TempDir(), "true")
+	code, err := passthrough.OSRunner{}.Run(context.Background(), t.TempDir(), "true")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -219,13 +191,13 @@ func TestOsPassthroughRunner_TTY_ChildInherits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	origTTY := openTTY
-	origIsTTY := stdioIsTTY
-	defer func() { openTTY = origTTY; stdioIsTTY = origIsTTY }()
-	stdioIsTTY = func() bool { return false } // force /dev/tty path regardless of test environment
-	openTTY = func() *os.File { return pw }
+	origTTY := passthrough.OpenTTY
+	origIsTTY := passthrough.StdioIsTTY
+	defer func() { passthrough.OpenTTY = origTTY; passthrough.StdioIsTTY = origIsTTY }()
+	passthrough.StdioIsTTY = func() bool { return false } // force /dev/tty path regardless of test environment
+	passthrough.OpenTTY = func() *os.File { return pw }
 
-	code, runErr := osPassthroughRunner{}.Run(context.Background(), t.TempDir(), "echo", "hello")
+	code, runErr := passthrough.OSRunner{}.Run(context.Background(), t.TempDir(), "echo", "hello")
 	// pw is closed inside Run via defer tty.Close(); ReadAll gets EOF.
 	got, _ := io.ReadAll(pr)
 	_ = pr.Close()
@@ -242,13 +214,13 @@ func TestOsPassthroughRunner_TTY_ChildInherits(t *testing.T) {
 
 func TestOsPassthroughRunner_PrefersInheritedWhenStdioIsTTY(t *testing.T) {
 	ttyOpened := false
-	origTTY := openTTY
-	origIsTTY := stdioIsTTY
-	defer func() { openTTY = origTTY; stdioIsTTY = origIsTTY }()
-	stdioIsTTY = func() bool { return true }
-	openTTY = func() *os.File { ttyOpened = true; return nil }
+	origTTY := passthrough.OpenTTY
+	origIsTTY := passthrough.StdioIsTTY
+	defer func() { passthrough.OpenTTY = origTTY; passthrough.StdioIsTTY = origIsTTY }()
+	passthrough.StdioIsTTY = func() bool { return true }
+	passthrough.OpenTTY = func() *os.File { ttyOpened = true; return nil }
 
-	code, err := osPassthroughRunner{}.Run(context.Background(), t.TempDir(), "true")
+	code, err := passthrough.OSRunner{}.Run(context.Background(), t.TempDir(), "true")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

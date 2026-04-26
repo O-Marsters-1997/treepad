@@ -1,4 +1,4 @@
-package treepad
+package fromspec
 
 import (
 	"bytes"
@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
+	"treepad/internal/ui"
 )
 
 const bulkTOML = `
@@ -21,14 +24,14 @@ func fakeIssueJSON(title, body string) []byte {
 
 // bulkSeqResponses builds seqRunner responses for N happy-path issues.
 // Per issue: gh response, git worktree list, git worktree add.
-func bulkSeqResponses(mainPath string, issues []struct{ title, body string }) []runResponse {
-	porcelain := mainWorktreePorcelain(mainPath)
-	var responses []runResponse
+func bulkSeqResponses(mainPath string, issues []struct{ title, body string }) []treepadtest.RunResponse {
+	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
+	var responses []treepadtest.RunResponse
 	for _, issue := range issues {
 		responses = append(responses,
-			runResponse{output: fakeIssueJSON(issue.title, issue.body)},
-			runResponse{output: porcelain},
-			runResponse{output: nil},
+			treepadtest.RunResponse{Output: fakeIssueJSON(issue.title, issue.body)},
+			treepadtest.RunResponse{Output: porcelain},
+			treepadtest.RunResponse{Output: nil},
 		)
 	}
 	return responses
@@ -57,12 +60,12 @@ func TestFromSpecBulk(t *testing.T) {
 			{"Cache cleanup", "remove stale cache"},
 			{"Fix auth flow", "patch oauth handler"},
 		}
-		runner := &seqRunner{responses: bulkSeqResponses(mainPath, issues)}
-		pt := &fakePassthroughRunner{}
+		runner := &treepadtest.SeqRunner{Responses: bulkSeqResponses(mainPath, issues)}
+		pt := &treepadtest.FakePassthroughRunner{}
 		var logBuf bytes.Buffer
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		deps.PTRunner = pt
-		deps.Log = newTestPrinter(&logBuf)
+		deps.Log = treepadtest.NewPrinter(&logBuf)
 
 		results, failed, err := FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
 			Issues:       []int{12, 14, 19},
@@ -104,8 +107,8 @@ func TestFromSpecBulk(t *testing.T) {
 		}
 
 		// No agent invoked.
-		if len(pt.calls) != 0 {
-			t.Errorf("PTRunner called %d times, want 0", len(pt.calls))
+		if len(pt.Calls) != 0 {
+			t.Errorf("PTRunner called %d times, want 0", len(pt.Calls))
 		}
 
 		// Summary printed.
@@ -117,21 +120,21 @@ func TestFromSpecBulk(t *testing.T) {
 
 	t.Run("middle issue has empty body: continues, records failure", func(t *testing.T) {
 		writeBulkTOML(t)
-		porcelain := mainWorktreePorcelain(mainPath)
+		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: fakeIssueJSON("Add retry", "implement retry")},
-			{output: porcelain},
-			{output: nil},
-			{output: fakeIssueJSON("Empty issue", "")}, // empty body
-			{output: fakeIssueJSON("Fix auth", "patch oauth")},
-			{output: porcelain},
-			{output: nil},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: fakeIssueJSON("Add retry", "implement retry")},
+			{Output: porcelain},
+			{Output: nil},
+			{Output: fakeIssueJSON("Empty issue", "")}, // empty body
+			{Output: fakeIssueJSON("Fix auth", "patch oauth")},
+			{Output: porcelain},
+			{Output: nil},
 		}}
 		var logBuf bytes.Buffer
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
-		deps.PTRunner = &fakePassthroughRunner{}
-		deps.Log = newTestPrinter(&logBuf)
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
+		deps.Log = treepadtest.NewPrinter(&logBuf)
 
 		results, failed, err := FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
 			Issues:    []int{12, 14, 19},
@@ -158,21 +161,20 @@ func TestFromSpecBulk(t *testing.T) {
 
 	t.Run("middle issue gh exits non-zero: continues, records failure", func(t *testing.T) {
 		writeBulkTOML(t)
-		porcelain := mainWorktreePorcelain(mainPath)
+		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: fakeIssueJSON("Add retry", "implement retry")},
-			{output: porcelain},
-			{output: nil},
-			{output: nil, err: errExitNonZero},
-			{output: fakeIssueJSON("Fix auth", "patch oauth")},
-			{output: porcelain},
-			{output: nil},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: fakeIssueJSON("Add retry", "implement retry")},
+			{Output: porcelain},
+			{Output: nil},
+			{Output: nil, Err: treepadtest.ErrExitNonZero},
+			{Output: fakeIssueJSON("Fix auth", "patch oauth")},
+			{Output: porcelain},
+			{Output: nil},
 		}}
 		var logBuf bytes.Buffer
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
-		deps.PTRunner = &fakePassthroughRunner{}
-		deps.Log = newTestPrinter(&logBuf)
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps.Log = ui.New(&logBuf)
 
 		results, failed, err := FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
 			Issues:    []int{12, 14, 19},
@@ -193,20 +195,20 @@ func TestFromSpecBulk(t *testing.T) {
 
 	t.Run("branch name collision: second issue gets -N suffix", func(t *testing.T) {
 		writeBulkTOML(t)
-		porcelain := mainWorktreePorcelain(mainPath)
+		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
 		// Both issues have the same title.
-		runner := &seqRunner{responses: []runResponse{
-			{output: fakeIssueJSON("Duplicate Title", "spec body one")},
-			{output: porcelain},
-			{output: nil},
-			{output: fakeIssueJSON("Duplicate Title", "spec body two")},
-			{output: porcelain},
-			{output: nil},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: fakeIssueJSON("Duplicate Title", "spec body one")},
+			{Output: porcelain},
+			{Output: nil},
+			{Output: fakeIssueJSON("Duplicate Title", "spec body two")},
+			{Output: porcelain},
+			{Output: nil},
 		}}
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
-		deps.PTRunner = &fakePassthroughRunner{}
-		deps.Log = newTestPrinter(&bytes.Buffer{})
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		var logBuf bytes.Buffer
+		deps.Log = ui.New(&logBuf)
 
 		results, failed, err := FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
 			Issues:    []int{10, 11},
@@ -230,17 +232,17 @@ func TestFromSpecBulk(t *testing.T) {
 
 	t.Run("no agent is ever invoked", func(t *testing.T) {
 		writeBulkTOML(t)
-		porcelain := mainWorktreePorcelain(mainPath)
+		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: fakeIssueJSON("Some feature", "do the thing")},
-			{output: porcelain},
-			{output: nil},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: fakeIssueJSON("Some feature", "do the thing")},
+			{Output: porcelain},
+			{Output: nil},
 		}}
-		pt := &fakePassthroughRunner{}
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
+		pt := &treepadtest.FakePassthroughRunner{}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		deps.PTRunner = pt
-		deps.Log = newTestPrinter(&bytes.Buffer{})
+		deps.Log = ui.New(&bytes.Buffer{})
 
 		_, _, _ = FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
 			Issues:    []int{42},
@@ -248,26 +250,26 @@ func TestFromSpecBulk(t *testing.T) {
 			OutputDir: outputDir,
 		})
 
-		if len(pt.calls) != 0 {
-			t.Errorf("PTRunner called %d times, want 0", len(pt.calls))
+		if len(pt.Calls) != 0 {
+			t.Errorf("PTRunner called %d times, want 0", len(pt.Calls))
 		}
 	})
 
 	t.Run("__TREEPAD_CD__ never emitted", func(t *testing.T) {
 		writeBulkTOML(t)
-		porcelain := mainWorktreePorcelain(mainPath)
+		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: fakeIssueJSON("Some feature", "do the thing")},
-			{output: porcelain},
-			{output: nil},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: fakeIssueJSON("Some feature", "do the thing")},
+			{Output: porcelain},
+			{Output: nil},
 		}}
 		var stdout bytes.Buffer
 		var logBuf bytes.Buffer
-		deps := testDeps(runner, &fakeSyncer{}, &fakeOpener{})
-		deps.PTRunner = &fakePassthroughRunner{}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 		deps.Out = &stdout
-		deps.Log = newTestPrinter(&logBuf)
+		deps.Log = ui.New(&logBuf)
 
 		_, _, _ = FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
 			Issues:    []int{42},

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 	"treepad/internal/ui"
 )
 
@@ -24,9 +26,9 @@ func makeMainWorktree(t *testing.T) string {
 
 func TestDiff(t *testing.T) {
 	t.Run("requires branch", func(t *testing.T) {
-		d := Deps{
-			Runner: fakeRunner{},
-			Syncer: &fakeSyncer{},
+		d := deps.Deps{
+			Runner: &treepadtest.SeqRunner{},
+			Syncer: &treepadtest.FakeSyncer{},
 			Out:    &bytes.Buffer{},
 			Log:    ui.New(&bytes.Buffer{}),
 			In:     strings.NewReader(""),
@@ -38,9 +40,9 @@ func TestDiff(t *testing.T) {
 	})
 
 	t.Run("unknown branch", func(t *testing.T) {
-		d := Deps{
-			Runner: fakeRunner{Output: twoWorktreePorcelain},
-			Syncer: &fakeSyncer{},
+		d := deps.Deps{
+			Runner: &treepadtest.SeqRunner{},
+			Syncer: &treepadtest.FakeSyncer{},
 			Out:    &bytes.Buffer{},
 			Log:    ui.New(&bytes.Buffer{}),
 			In:     strings.NewReader(""),
@@ -52,10 +54,12 @@ func TestDiff(t *testing.T) {
 	})
 
 	t.Run("prunable branch", func(t *testing.T) {
-		porcelain := twoWorktreePorcelainWithPrunable(t.TempDir(), t.TempDir())
-		d := Deps{
-			Runner: fakeRunner{Output: porcelain},
-			Syncer: &fakeSyncer{},
+		porcelain := treepadtest.TwoWorktreePorcelainWithPrunable(t.TempDir(), t.TempDir())
+		d := deps.Deps{
+			Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+			}},
+			Syncer: &treepadtest.FakeSyncer{},
 			Out:    &bytes.Buffer{},
 			Log:    ui.New(&bytes.Buffer{}),
 			In:     strings.NewReader(""),
@@ -90,10 +94,12 @@ func TestDiff(t *testing.T) {
 	for _, tt := range streamTests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			pt := &fakePassthroughRunner{}
-			d := Deps{
-				Runner: fakeRunner{Output: worktreePorcelainWithPath("feat", dir)},
-				Syncer: &fakeSyncer{},
+			pt := &treepadtest.FakePassthroughRunner{}
+			d := deps.Deps{
+				Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+					{Output: treepadtest.WorktreePorcelainWithPath("feat", dir)},
+				}},
+				Syncer: &treepadtest.FakeSyncer{},
 				Out:    &bytes.Buffer{},
 				Log:    ui.New(&bytes.Buffer{}),
 				In:     strings.NewReader(""),
@@ -103,18 +109,18 @@ func TestDiff(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if len(pt.calls) == 0 {
+			if len(pt.Calls) == 0 {
 				t.Fatal("expected passthrough runner call, got none")
 			}
-			call := pt.calls[0]
-			if call.dir != dir {
-				t.Errorf("dir = %q, want %q", call.dir, dir)
+			call := pt.Calls[0]
+			if call.Dir != dir {
+				t.Errorf("dir = %q, want %q", call.Dir, dir)
 			}
-			if call.name != "git" {
-				t.Errorf("name = %q, want git", call.name)
+			if call.Name != "git" {
+				t.Errorf("name = %q, want git", call.Name)
 			}
-			if !equalStringSlice(call.args, tt.wantArgs) {
-				t.Errorf("args = %v, want %v", call.args, tt.wantArgs)
+			if !equalStringSlice(call.Args, tt.wantArgs) {
+				t.Errorf("args = %v, want %v", call.Args, tt.wantArgs)
 			}
 		})
 	}
@@ -126,10 +132,12 @@ func TestDiff(t *testing.T) {
 			t.Fatal(err)
 		}
 		featPath := t.TempDir()
-		pt := &fakePassthroughRunner{}
-		d := Deps{
-			Runner: fakeRunner{Output: twoWorktreePorcelainWithMain(mainPath, featPath)},
-			Syncer: &fakeSyncer{},
+		pt := &treepadtest.FakePassthroughRunner{}
+		d := deps.Deps{
+			Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: treepadtest.TwoWorktreePorcelainWithMain(mainPath, featPath)},
+			}},
+			Syncer: &treepadtest.FakeSyncer{},
 			Out:    &bytes.Buffer{},
 			Log:    ui.New(&bytes.Buffer{}),
 			In:     strings.NewReader(""),
@@ -138,12 +146,12 @@ func TestDiff(t *testing.T) {
 		if err := Diff(context.Background(), d, DiffInput{Branch: "feat", Runner: pt}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(pt.calls) == 0 {
+		if len(pt.Calls) == 0 {
 			t.Fatal("expected passthrough runner call, got none")
 		}
 		wantArgs := []string{"diff", "master...HEAD"}
-		if !equalStringSlice(pt.calls[0].args, wantArgs) {
-			t.Errorf("args = %v, want %v", pt.calls[0].args, wantArgs)
+		if !equalStringSlice(pt.Calls[0].Args, wantArgs) {
+			t.Errorf("args = %v, want %v", pt.Calls[0].Args, wantArgs)
 		}
 	})
 
@@ -152,12 +160,12 @@ func TestDiff(t *testing.T) {
 		outFile := filepath.Join(dir, "out.patch")
 		patchContent := []byte("diff --git a/foo.go b/foo.go\n--- a/foo.go\n+++ b/foo.go\n")
 
-		rec := &recordingRunner{inner: &seqRunner{responses: []runResponse{
-			{output: worktreePorcelainWithPath("feat", dir)},
-			{output: patchContent},
+		rec := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: treepadtest.WorktreePorcelainWithPath("feat", dir)},
+			{Output: patchContent},
 		}}}
 		var logBuf bytes.Buffer
-		d := Deps{Runner: rec, Syncer: &fakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&logBuf), In: strings.NewReader("")}
+		d := deps.Deps{Runner: rec, Syncer: &treepadtest.FakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&logBuf), In: strings.NewReader("")}
 
 		if err := Diff(context.Background(), d, DiffInput{Branch: "feat", Base: "main", OutputFile: outFile}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -171,15 +179,15 @@ func TestDiff(t *testing.T) {
 			t.Errorf("file contents = %q, want %q", got, patchContent)
 		}
 
-		if len(rec.calls) < 2 {
-			t.Fatalf("expected at least 2 runner calls, got %d", len(rec.calls))
+		if len(rec.Calls) < 2 {
+			t.Fatalf("expected at least 2 runner calls, got %d", len(rec.Calls))
 		}
-		joined := strings.Join(rec.calls[1], " ")
+		joined := strings.Join(rec.Calls[1], " ")
 		if !strings.Contains(joined, "--no-color") {
-			t.Errorf("expected --no-color in git call: %v", rec.calls[1])
+			t.Errorf("expected --no-color in git call: %v", rec.Calls[1])
 		}
 		if !strings.Contains(joined, "main...HEAD") {
-			t.Errorf("expected main...HEAD in git call: %v", rec.calls[1])
+			t.Errorf("expected main...HEAD in git call: %v", rec.Calls[1])
 		}
 		if !strings.Contains(logBuf.String(), "wrote diff to") {
 			t.Errorf("expected success log, got: %q", logBuf.String())

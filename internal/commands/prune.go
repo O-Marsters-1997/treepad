@@ -2,10 +2,9 @@ package commands
 
 import (
 	"context"
+	"treepad/internal/treepad/lifecycle"
 
 	"github.com/urfave/cli/v3"
-
-	"treepad/internal/treepad"
 )
 
 func pruneCommand() *cli.Command {
@@ -28,7 +27,7 @@ func pruneCommand() *cli.Command {
 
 func runPrune(ctx context.Context, cmd *cli.Command) error {
 	d := commandDeps(cmd)
-	return treepad.Prune(ctx, d, treepad.PruneInput{
+	return lifecycle.Prune(ctx, d, lifecycle.PruneInput{
 		Base:   cmd.String("base"),
 		DryRun: cmd.Bool("dry-run"),
 		All:    cmd.Bool("all"),

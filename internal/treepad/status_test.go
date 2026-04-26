@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"treepad/internal/slug"
+	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/treepadtest"
 	"treepad/internal/worktree"
 )
 
@@ -67,7 +69,7 @@ func TestStatus(t *testing.T) {
 	featPath := mainPath + "-feat"
 	outputDir := t.TempDir()
 	repoSlug := slug.Slug(filepath.Base(mainPath))
-	porcelain := twoWorktreePorcelainWithMain(mainPath, featPath)
+	porcelain := treepadtest.TwoWorktreePorcelainWithMain(mainPath, featPath)
 
 	commitOutput := func(sha, subject string) []byte {
 		return fmt.Appendf(nil, "%s\x00%s\x002024-06-01T12:00:00Z\n", sha, subject)
@@ -82,25 +84,25 @@ func TestStatus(t *testing.T) {
 			t.Fatalf("setup artifact: %v", err)
 		}
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},                        // git worktree list
-			{output: []byte("")},                       // dirty: main (clean)
-			{output: []byte("origin/main\n")},          // rev-parse @{upstream}: main
-			{output: []byte("0\t1\n")},                 // rev-list: main (0↑ 1↓)
-			{output: commitOutput("abc1234", "init")},  // git log: main
-			{output: []byte("M file.go\n")},            // dirty: feat
-			{err: errors.New("no upstream")},           // rev-parse @{upstream}: feat (none)
-			{output: commitOutput("def5678", "add x")}, // git log: feat
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},                        // git worktree list
+			{Output: []byte("")},                       // dirty: main (clean)
+			{Output: []byte("origin/main\n")},          // rev-parse @{upstream}: main
+			{Output: []byte("0\t1\n")},                 // rev-list: main (0↑ 1↓)
+			{Output: commitOutput("abc1234", "init")},  // git log: main
+			{Output: []byte("M file.go\n")},            // dirty: feat
+			{Err: errors.New("no upstream")},           // rev-parse @{upstream}: feat (none)
+			{Output: commitOutput("def5678", "add x")}, // git log: feat
 		}}
 
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
 		err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.idx != 8 {
-			t.Errorf("runner called %d times, want 8", runner.idx)
+		if runner.Idx != 8 {
+			t.Errorf("runner called %d times, want 8", runner.Idx)
 		}
 		out := buf.String()
 		for _, want := range []string{"BRANCH", "main", "feat", "clean", "dirty", "↑0 ↓1", "—", "abc1234", "def5678"} {
@@ -111,17 +113,17 @@ func TestStatus(t *testing.T) {
 	})
 
 	t.Run("json flag emits JSON array", func(t *testing.T) {
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelain},
-			{output: []byte("")},
-			{err: errors.New("no upstream")},
-			{output: commitOutput("abc1234", "init")},
-			{output: []byte("")},
-			{err: errors.New("no upstream")},
-			{output: commitOutput("def5678", "add x")},
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("")},
+			{Err: errors.New("no upstream")},
+			{Output: commitOutput("abc1234", "init")},
+			{Output: []byte("")},
+			{Err: errors.New("no upstream")},
+			{Output: commitOutput("def5678", "add x")},
 		}}
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
 		err := Status(context.Background(), deps, StatusInput{JSON: true, OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -139,25 +141,25 @@ func TestStatus(t *testing.T) {
 
 	t.Run("prunable worktree renders without git calls", func(t *testing.T) {
 		prunablePath := mainPath + "-stale"
-		porcelainWithPrunable := twoWorktreePorcelainWithPrunable(mainPath, prunablePath)
+		porcelainWithPrunable := treepadtest.TwoWorktreePorcelainWithPrunable(mainPath, prunablePath)
 
-		runner := &seqRunner{responses: []runResponse{
-			{output: porcelainWithPrunable},           // git worktree list
-			{output: []byte("")},                      // dirty: main (clean)
-			{output: []byte("origin/main\n")},         // rev-parse @{upstream}: main
-			{output: []byte("0\t0\n")},                // rev-list: main
-			{output: commitOutput("abc1234", "init")}, // git log: main
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelainWithPrunable},           // git worktree list
+			{Output: []byte("")},                      // dirty: main (clean)
+			{Output: []byte("origin/main\n")},         // rev-parse @{upstream}: main
+			{Output: []byte("0\t0\n")},                // rev-list: main
+			{Output: commitOutput("abc1234", "init")}, // git log: main
 		}}
 
 		var buf strings.Builder
-		deps := Deps{Runner: runner, Syncer: &fakeSyncer{}, Opener: &fakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
 		err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		// Only 5 runner calls: list + 4 for main. No calls for the prunable worktree.
-		if runner.idx != 5 {
-			t.Errorf("runner called %d times, want 5 (no git calls for prunable)", runner.idx)
+		if runner.Idx != 5 {
+			t.Errorf("runner called %d times, want 5 (no git calls for prunable)", runner.Idx)
 		}
 		out := buf.String()
 		for _, want := range []string{"stale-branch", "prunable", "gitdir file points to non-existent location", "tp prune"} {
@@ -169,38 +171,38 @@ func TestStatus(t *testing.T) {
 
 	errorTests := []struct {
 		name    string
-		runner  *seqRunner
+		runner  *treepadtest.SeqRunner
 		wantErr string
 	}{
 		{
 			name: "git worktree list fails",
-			runner: &seqRunner{responses: []runResponse{
-				{err: errors.New("git not found")},
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Err: errors.New("git not found")},
 			}},
 			wantErr: "git not found",
 		},
 		{
 			name: "dirty probe fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{err: errors.New("status failed")},
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+				{Err: errors.New("status failed")},
 			}},
 			wantErr: "status failed",
 		},
 		{
 			name: "last commit probe fails",
-			runner: &seqRunner{responses: []runResponse{
-				{output: porcelain},
-				{output: []byte("")},             // dirty: clean
-				{err: errors.New("no upstream")}, // no upstream
-				{err: errors.New("log failed")},  // log fails
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+				{Output: []byte("")},             // dirty: clean
+				{Err: errors.New("no upstream")}, // no upstream
+				{Err: errors.New("log failed")},  // log fails
 			}},
 			wantErr: "log failed",
 		},
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			deps := testDeps(tt.runner, &fakeSyncer{}, &fakeOpener{})
+			deps := deps.Deps{Runner: tt.runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 			err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)

@@ -1,19 +1,11 @@
 package treepad
 
-import (
-	"fmt"
-	"path/filepath"
-	"strings"
-)
+import "treepad/internal/treepad/repo"
 
 func cwdInside(cwd, wtPath string) bool {
-	rel, err := filepath.Rel(wtPath, cwd)
-	return err == nil && !strings.HasPrefix(rel, "..")
+	return repo.CwdInside(cwd, wtPath)
 }
 
 func requireCwdInside(cwd, wtPath, msg string) error {
-	if !cwdInside(cwd, wtPath) {
-		return fmt.Errorf("%s", msg)
-	}
-	return nil
+	return repo.RequireCwdInside(cwd, wtPath, msg)
 }

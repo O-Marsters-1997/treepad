@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"treepad/internal/config"
+	"treepad/internal/treepad/deps"
 	"treepad/internal/worktree"
 )
 
@@ -12,7 +13,7 @@ type ConfigInitInput struct {
 	Global bool
 }
 
-func ConfigInit(ctx context.Context, d Deps, in ConfigInitInput) error {
+func ConfigInit(ctx context.Context, d deps.Deps, in ConfigInitInput) error {
 	if in.Global {
 		path, err := config.WriteDefault("", true)
 		if err != nil {
@@ -40,7 +41,7 @@ func ConfigInit(ctx context.Context, d Deps, in ConfigInitInput) error {
 
 type ConfigShowInput struct{}
 
-func ConfigShow(ctx context.Context, d Deps, _ ConfigShowInput) error {
+func ConfigShow(ctx context.Context, d deps.Deps, _ ConfigShowInput) error {
 	wts, err := worktree.List(ctx, d.Runner)
 	if err != nil {
 		return fmt.Errorf("list worktrees: %w", err)
