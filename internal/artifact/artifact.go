@@ -40,12 +40,10 @@ type TemplateData struct {
 	OutputDir string
 }
 
-// RenderFilename executes the filename template and returns the result.
 func RenderFilename(spec Spec, data TemplateData) (string, error) {
 	return renderString("filename", spec.FilenameTemplate, data)
 }
 
-// RenderContent executes the content template and returns the rendered bytes.
 func RenderContent(spec Spec, data TemplateData) ([]byte, error) {
 	s, err := renderString("content", spec.ContentTemplate, data)
 	if err != nil {
@@ -91,8 +89,6 @@ func Write(spec Spec, outputDir string, data TemplateData) (string, error) {
 	return dest, nil
 }
 
-// ToWorktree builds the template-friendly Worktree view from raw path and branch,
-// computing RelPath relative to outputDir.
 func ToWorktree(branch, path, outputDir string) Worktree {
 	relPath, err := filepath.Rel(outputDir, path)
 	if err != nil {

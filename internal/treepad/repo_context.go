@@ -2,6 +2,7 @@ package treepad
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,34 +12,33 @@ import (
 	"treepad/internal/worktree"
 )
 
-// repoContext captures the values derived from listing worktrees at the
+// RepoContext captures the values derived from listing worktrees at the
 // beginning of every treepad operation: the worktrees themselves, the main
 // one, a slug derived from its path, and the artifact output directory.
-type repoContext struct {
+type RepoContext struct {
 	Worktrees []worktree.Worktree
 	Main      worktree.Worktree
 	Slug      string
 	OutputDir string
 }
 
-// loadRepoContext runs the prologue shared by every public operation:
-// list worktrees → find main → derive slug → resolve output directory.
+// loadRepoContext runs the prologue shared by every public operation.
 // An empty explicitOutputDir means "derive the default".
-func loadRepoContext(ctx context.Context, d Deps, explicitOutputDir string) (repoContext, error) {
+func loadRepoContext(ctx context.Context, d Deps, explicitOutputDir string) (RepoContext, error) {
 	worktrees, err := listWorktrees(ctx, d)
 	if err != nil {
-		return repoContext{}, err
+		return RepoContext{}, err
 	}
 	main, err := worktree.MainWorktree(worktrees)
 	if err != nil {
-		return repoContext{}, err
+		return RepoContext{}, err
 	}
 	repoSlug := slug.Slug(filepath.Base(main.Path))
 	outputDir, err := resolveOutputDir(explicitOutputDir, repoSlug)
 	if err != nil {
-		return repoContext{}, err
+		return RepoContext{}, err
 	}
-	return repoContext{
+	return RepoContext{
 		Worktrees: worktrees,
 		Main:      main,
 		Slug:      repoSlug,
@@ -52,7 +52,7 @@ func listWorktrees(ctx context.Context, d Deps) ([]worktree.Worktree, error) {
 		return nil, fmt.Errorf("list worktrees: %w", err)
 	}
 	if len(worktrees) == 0 {
-		return nil, fmt.Errorf("no git worktrees found")
+		return nil, errors.New("no git worktrees found")
 	}
 	slog.Debug("discovered worktrees", "count", len(worktrees))
 	return worktrees, nil

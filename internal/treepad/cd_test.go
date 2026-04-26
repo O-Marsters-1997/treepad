@@ -32,7 +32,7 @@ func TestCD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
 			deps := Deps{
-				Runner: fakeRunner{output: twoWorktreePorcelain},
+				Runner: fakeRunner{Output: twoWorktreePorcelain},
 				Syncer: &fakeSyncer{},
 				Out:    &out,
 				In:     strings.NewReader(""),

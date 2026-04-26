@@ -19,7 +19,7 @@ func CD(ctx context.Context, d Deps, in CDInput) error {
 
 	wt, ok := worktree.FindByBranch(worktrees, in.Branch)
 	if !ok {
-		return fmt.Errorf("no worktree found for branch %q; create one with: treepad new %s", in.Branch, in.Branch)
+		return fmt.Errorf("no worktree found for branch %q; create one with: tp new %s", in.Branch, in.Branch)
 	}
 
 	emitCD(d, wt.Path)

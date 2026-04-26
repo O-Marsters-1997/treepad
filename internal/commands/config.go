@@ -2,13 +2,10 @@ package commands
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/config"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
+	"treepad/internal/treepad"
 )
 
 func configCommand() *cli.Command {
@@ -34,30 +31,9 @@ func configInitCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			log := ui.New(cmd.Root().ErrWriter)
-			if cmd.Bool("global") {
-				path, err := config.WriteDefault("", true)
-				if err != nil {
-					return err
-				}
-				log.OK("wrote config to %s", path)
-				return nil
-			}
-
-			wts, err := worktree.List(ctx, worktree.ExecRunner{})
-			if err != nil {
-				return fmt.Errorf("list worktrees: %w", err)
-			}
-			main, err := worktree.MainWorktree(wts)
-			if err != nil {
-				return err
-			}
-			path, err := config.WriteDefault(main.Path, false)
-			if err != nil {
-				return err
-			}
-			log.OK("wrote config to %s", path)
-			return nil
+			return treepad.ConfigInit(ctx, commandDeps(cmd), treepad.ConfigInitInput{
+				Global: cmd.Bool("global"),
+			})
 		},
 	}
 }
@@ -67,20 +43,7 @@ func configShowCommand() *cli.Command {
 		Name:  "show",
 		Usage: "print the resolved config and which sources contributed",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			wts, err := worktree.List(ctx, worktree.ExecRunner{})
-			if err != nil {
-				return fmt.Errorf("list worktrees: %w", err)
-			}
-			main, err := worktree.MainWorktree(wts)
-			if err != nil {
-				return err
-			}
-			output, err := config.Show(main.Path)
-			if err != nil {
-				return err
-			}
-			_, err = fmt.Fprint(cmd.Root().Writer, output)
-			return err
+			return treepad.ConfigShow(ctx, commandDeps(cmd), treepad.ConfigShowInput{})
 		},
 	}
 }

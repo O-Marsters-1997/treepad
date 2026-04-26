@@ -135,8 +135,6 @@ func printScripts(out io.Writer, runner tpexec.Runner) {
 	}
 }
 
-// buildCommand returns the executable name and arguments for the given command,
-// routing through the runner when the command matches an enumerated script.
 func buildCommand(runner tpexec.Runner, command string, extraArgs []string) (string, []string) {
 	scriptSet := make(map[string]bool, len(runner.Scripts))
 	for _, sc := range runner.Scripts {

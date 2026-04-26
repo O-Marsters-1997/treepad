@@ -2,8 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -28,15 +26,12 @@ func diffCommand() *cli.Command {
 }
 
 func runDiff(ctx context.Context, cmd *cli.Command) error {
-	args := cmd.Args().Slice()
-	if len(args) == 0 {
-		return fmt.Errorf("branch name is required")
+	branch, err := requireBranch(cmd)
+	if err != nil {
+		return err
 	}
-	branch := args[0]
-	extra := args[1:]
-
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
-	return treepad.Diff(ctx, d, treepad.DiffInput{
+	extra := cmd.Args().Slice()[1:]
+	return treepad.Diff(ctx, commandDeps(cmd), treepad.DiffInput{
 		Branch:     branch,
 		Base:       cmd.String("base"),
 		OutputFile: cmd.String("output"),

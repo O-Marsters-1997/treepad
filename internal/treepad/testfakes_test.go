@@ -6,23 +6,16 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"treepad/internal/artifact"
 	"treepad/internal/hook"
 	internalsync "treepad/internal/sync"
 	"treepad/internal/ui"
 	"treepad/internal/worktree"
+	"treepad/internal/worktree/worktreetest"
 )
 
-type fakeRunner struct {
-	output []byte
-	err    error
-}
-
-func (f fakeRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
-	return f.output, f.err
-}
+type fakeRunner = worktreetest.StaticRunner
 
 type fakeSyncer struct {
 	calls []internalsync.Config
@@ -168,7 +161,6 @@ func testDeps(
 		Out:        io.Discard,
 		In:         strings.NewReader(""),
 		IsTerminal: func(io.Writer) bool { return false },
-		Sleep:      func(time.Duration) <-chan time.Time { return make(chan time.Time) },
 	}
 	for _, o := range opts {
 		o(&d)

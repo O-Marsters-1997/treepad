@@ -2,10 +2,9 @@ package treepad
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"treepad/internal/worktree"
 )
@@ -25,7 +24,7 @@ func Remove(ctx context.Context, d Deps, in RemoveInput) error {
 	}
 
 	if in.Branch == rc.Main.Branch {
-		return fmt.Errorf("cannot remove the main worktree")
+		return errors.New("cannot remove the main worktree")
 	}
 
 	found, ok := worktree.FindByBranch(rc.Worktrees, in.Branch)
@@ -40,8 +39,8 @@ func Remove(ctx context.Context, d Deps, in RemoveInput) error {
 			return fmt.Errorf("get current directory: %w", err)
 		}
 	}
-	if rel, relErr := filepath.Rel(found.Path, cwd); relErr == nil && !strings.HasPrefix(rel, "..") {
-		return fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
+	if cwdInside(cwd, found.Path) {
+		return errors.New("cannot remove the worktree you are currently in; cd elsewhere first")
 	}
 
 	return removeWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, in.Force)

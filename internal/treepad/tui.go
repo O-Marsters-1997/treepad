@@ -3,6 +3,7 @@ package treepad
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +15,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"treepad/internal/artifact"
 	"treepad/internal/config"
 )
 
@@ -28,7 +28,7 @@ var (
 )
 
 // ErrNotTTY is returned by UI when stdout is not an interactive terminal.
-var ErrNotTTY = fmt.Errorf("tp ui requires an interactive terminal")
+var ErrNotTTY = errors.New("tp ui requires an interactive terminal")
 
 type (
 	uiTickMsg         struct{}
@@ -60,7 +60,6 @@ type (
 	uiYankClearMsg struct{}
 )
 
-// uiMode tracks the current interaction mode.
 type uiMode int
 
 const (
@@ -382,8 +381,6 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// visibleRows applies the active filter and returns the rows to display.
-// When no filter is active it returns m.rows unchanged.
 func (m uiModel) visibleRows() []StatusRow {
 	if !m.filterActive && m.mode != uiModeFilter {
 		return m.rows
@@ -391,8 +388,6 @@ func (m uiModel) visibleRows() []StatusRow {
 	return filterRows(m.rows, m.filterStr)
 }
 
-// visibleCursorRow returns the row under the cursor within the visible set.
-// Returns the zero value and false when the visible set is empty.
 func (m uiModel) visibleCursorRow() (StatusRow, bool) {
 	vr := m.visibleRows()
 	if len(vr) == 0 || m.cursor >= len(vr) {
@@ -462,12 +457,7 @@ func (m uiModel) doOpen(row StatusRow) tea.Cmd {
 		if row.ArtifactPath != "" {
 			openPath = row.ArtifactPath
 		}
-		spec := artifact.OpenSpec{Command: cfg.Open.Command}
-		data := artifact.OpenData{
-			ArtifactPath: openPath,
-			Worktree:     artifact.ToWorktree(row.Branch, row.Path, m.in.OutputDir),
-		}
-		err = m.d.Opener.Open(m.ctx, spec, data)
+		err = openWorktree(m.ctx, m.d, cfg.Open.Command, row.Branch, row.Path, row.ArtifactPath, m.in.OutputDir)
 		return uiOpenDoneMsg{path: openPath, err: err}
 	}
 }
@@ -480,12 +470,7 @@ func (m uiModel) doDiff(row StatusRow) tea.Cmd {
 			break
 		}
 	}
-	base := "origin/main"
-	if mainPath != "" {
-		if cfg, err := config.Load(mainPath); err == nil {
-			base = cfg.Diff.Base
-		}
-	}
+	base := resolveDiffBaseFromMainPath(mainPath)
 	cmd := exec.Command("git", "-C", row.Path, "diff", base+"...HEAD")
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return uiDiffDoneMsg{branch: row.Branch, err: err}
@@ -562,7 +547,7 @@ func (m uiModel) View() string {
 				}
 
 				isActive := m.activePath != "" && rowIdx < len(vr) &&
-					isActiveWorktree(m.activePath, vr[rowIdx].Path)
+					cwdInside(m.activePath, vr[rowIdx].Path)
 				switch {
 				case rowIdx == m.cursor:
 					sb.WriteString(uiCursorStyle.Render(prefix + line))
@@ -586,11 +571,12 @@ func (m uiModel) View() string {
 		fmt.Fprintf(&sb, "\n/ %s  (esc to clear)\n", m.filterStr)
 	}
 
-	if m.mode == uiModeHelp {
+	switch m.mode {
+	case uiModeHelp:
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderHelp())
 		sb.WriteString("\n")
-	} else if m.mode != uiModeNormal && m.mode != uiModeFilter {
+	case uiModeConfirmRemove, uiModeConfirmForceRemove, uiModeConfirmPrune:
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderModal(m))
 		sb.WriteString("\n")
@@ -664,13 +650,6 @@ func uiRenderModal(m uiModel) string {
 	return uiModalStyle.Render(body)
 }
 
-// isActiveWorktree reports whether activePath (the cwd at TUI launch) is inside
-// wtPath. Mirrors the convention used in remove.go and prune.go.
-func isActiveWorktree(activePath, wtPath string) bool {
-	rel, err := filepath.Rel(filepath.Clean(wtPath), activePath)
-	return err == nil && !strings.HasPrefix(rel, "..")
-}
-
 // UI opens a full-screen fleet view. It returns ErrNotTTY when d.Out is not
 // an interactive terminal.
 func UI(ctx context.Context, d Deps, in StatusInput) error {
@@ -742,7 +721,6 @@ func (h *HeadlessUI) Update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// View renders the current frame.
 func (h *HeadlessUI) View() string {
 	return h.model.View()
 }

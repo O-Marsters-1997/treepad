@@ -39,7 +39,7 @@ func TestDiff(t *testing.T) {
 
 	t.Run("unknown branch", func(t *testing.T) {
 		d := Deps{
-			Runner: fakeRunner{output: twoWorktreePorcelain},
+			Runner: fakeRunner{Output: twoWorktreePorcelain},
 			Syncer: &fakeSyncer{},
 			Out:    &bytes.Buffer{},
 			Log:    ui.New(&bytes.Buffer{}),
@@ -54,7 +54,7 @@ func TestDiff(t *testing.T) {
 	t.Run("prunable branch", func(t *testing.T) {
 		porcelain := twoWorktreePorcelainWithPrunable(t.TempDir(), t.TempDir())
 		d := Deps{
-			Runner: fakeRunner{output: porcelain},
+			Runner: fakeRunner{Output: porcelain},
 			Syncer: &fakeSyncer{},
 			Out:    &bytes.Buffer{},
 			Log:    ui.New(&bytes.Buffer{}),
@@ -92,7 +92,7 @@ func TestDiff(t *testing.T) {
 			dir := t.TempDir()
 			pt := &fakePassthroughRunner{}
 			d := Deps{
-				Runner: fakeRunner{output: worktreePorcelainWithPath("feat", dir)},
+				Runner: fakeRunner{Output: worktreePorcelainWithPath("feat", dir)},
 				Syncer: &fakeSyncer{},
 				Out:    &bytes.Buffer{},
 				Log:    ui.New(&bytes.Buffer{}),
@@ -128,7 +128,7 @@ func TestDiff(t *testing.T) {
 		featPath := t.TempDir()
 		pt := &fakePassthroughRunner{}
 		d := Deps{
-			Runner: fakeRunner{output: twoWorktreePorcelainWithMain(mainPath, featPath)},
+			Runner: fakeRunner{Output: twoWorktreePorcelainWithMain(mainPath, featPath)},
 			Syncer: &fakeSyncer{},
 			Out:    &bytes.Buffer{},
 			Log:    ui.New(&bytes.Buffer{}),

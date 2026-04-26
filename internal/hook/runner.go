@@ -8,7 +8,6 @@ import (
 	"text/template"
 )
 
-// CommandRunner executes a system command.
 type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
 }

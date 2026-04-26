@@ -2,12 +2,25 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/urfave/cli/v3"
 
 	"treepad/internal/treepad"
 )
+
+func commandDeps(cmd *cli.Command) treepad.Deps {
+	return treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+}
+
+func requireBranch(cmd *cli.Command) (string, error) {
+	branch := cmd.Args().First()
+	if branch == "" {
+		return "", fmt.Errorf("branch name is required")
+	}
+	return branch, nil
+}
 
 func baseCommand() *cli.Command {
 	return &cli.Command{
@@ -18,6 +31,5 @@ func baseCommand() *cli.Command {
 }
 
 func runBase(ctx context.Context, cmd *cli.Command) error {
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
-	return treepad.Base(ctx, d, treepad.BaseInput{})
+	return treepad.Base(ctx, commandDeps(cmd), treepad.BaseInput{})
 }

@@ -2,6 +2,7 @@ package treepad
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,7 +35,7 @@ func Base(ctx context.Context, d Deps, in BaseInput) error {
 	}
 
 	if filepath.Clean(cwd) == filepath.Clean(main.Path) {
-		return fmt.Errorf("already on the default worktree")
+		return errors.New("already on the default worktree")
 	}
 
 	emitCD(d, main.Path)

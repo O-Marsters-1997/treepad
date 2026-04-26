@@ -10,7 +10,7 @@ import (
 // and produces VS Code .code-workspace files out of the box.
 const defaultTOML = `# Files copied from the source worktree into newly-created worktrees.
 [sync]
-files = [
+include = [
   ".claude/settings.local.json",
   ".env",
   ".env.docker-compose",

@@ -2,8 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -21,12 +19,12 @@ func execCommand() *cli.Command {
 }
 
 func runExec(ctx context.Context, cmd *cli.Command) error {
-	args := cmd.Args().Slice()
-	if len(args) == 0 {
-		return fmt.Errorf("branch name is required")
+	branch, err := requireBranch(cmd)
+	if err != nil {
+		return err
 	}
 
-	branch := args[0]
+	args := cmd.Args().Slice()
 	var command string
 	var cmdArgs []string
 	if len(args) > 1 {
@@ -34,7 +32,7 @@ func runExec(ctx context.Context, cmd *cli.Command) error {
 		cmdArgs = args[2:]
 	}
 
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	d := commandDeps(cmd)
 	exitCode, err := treepad.Exec(ctx, d, treepad.ExecInput{
 		Branch:  branch,
 		Command: command,

@@ -2,8 +2,6 @@ package commands
 
 import (
 	"context"
-	"fmt"
-	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -38,13 +36,11 @@ func newCommand() *cli.Command {
 }
 
 func runNew(ctx context.Context, cmd *cli.Command) error {
-	branch := cmd.Args().First()
-	if branch == "" {
-		return fmt.Errorf("branch name is required")
+	branch, err := requireBranch(cmd)
+	if err != nil {
+		return err
 	}
-
-	d := treepad.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
-	return treepad.New(ctx, d, treepad.NewInput{
+	return treepad.New(ctx, commandDeps(cmd), treepad.NewInput{
 		Branch:  branch,
 		Base:    cmd.String("base"),
 		Open:    cmd.Bool("open"),

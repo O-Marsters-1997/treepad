@@ -81,8 +81,6 @@ func FromSpec(ctx context.Context, d Deps, in FromSpecInput) (int, error) {
 	return code, nil
 }
 
-// resolveOrBuildPrompt builds the prompt from the spec, skills, and optional user prompt,
-// then written into the worktree as PROMPT.md.
 func resolveOrBuildPrompt(
 	d Deps,
 	res createWorktreeResult,
@@ -100,7 +98,6 @@ func resolveOrBuildPrompt(
 	return path, body, err
 }
 
-// buildPrompt constructs the prompt body from fixed structure + config skills + optional user instructions.
 func buildPrompt(cfg config.FromSpecConfig, branch, spec, userPrompt string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n## Spec\n%s\n", branch, spec)
@@ -118,7 +115,6 @@ func buildPrompt(cfg config.FromSpecConfig, branch, spec, userPrompt string) str
 	return b.String()
 }
 
-// writePromptFile writes body to PROMPT.md inside worktreePath and returns the absolute path.
 func writePromptFile(d Deps, worktreePath, body string) (string, error) {
 	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
 		return "", fmt.Errorf("create worktree dir: %w", err)
@@ -131,7 +127,6 @@ func writePromptFile(d Deps, worktreePath, body string) (string, error) {
 	return promptPath, nil
 }
 
-// resolveIssueSpec fetches the body of a single GitHub issue.
 func resolveIssueSpec(ctx context.Context, d Deps, issue int) (string, error) {
 	out, err := d.Runner.Run(ctx, "gh", "issue", "view", strconv.Itoa(issue), "--json", "body", "-q", ".body")
 	if err != nil {
@@ -144,7 +139,6 @@ func resolveIssueSpec(ctx context.Context, d Deps, issue int) (string, error) {
 	return body, nil
 }
 
-// renderPrompt executes a text/template string with the given promptData.
 func renderPrompt(tmpl string, data promptData) (string, error) {
 	t, err := template.New("prompt").Parse(tmpl)
 	if err != nil {
@@ -157,8 +151,7 @@ func renderPrompt(tmpl string, data promptData) (string, error) {
 	return buf.String(), nil
 }
 
-// runAgent renders agent_command templates and invokes the passthrough runner.
-// Returns 0 with no error when agent_command is empty.
+// runAgent returns 0 with no error when agent_command is empty.
 func runAgent(ctx context.Context, d Deps, cmdTmpls []string, data promptData) (int, error) {
 	if len(cmdTmpls) == 0 {
 		d.Log.Info("no agent_command configured; prompt written to %s", data.PromptPath)

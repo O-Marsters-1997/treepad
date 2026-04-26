@@ -2,6 +2,7 @@ package treepad
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -11,7 +12,7 @@ import (
 
 type DiffInput struct {
 	Branch     string
-	Base       string // empty defaults to "main"
+	Base       string // empty defaults to "origin/main"
 	OutputFile string // if set, writes uncolored patch here instead of terminal
 	ExtraArgs  []string
 	Runner     PassthroughRunner // nil uses osPassthroughRunner
@@ -22,7 +23,7 @@ type DiffInput struct {
 // user's pager and color config (delta, diff-so-fancy) apply automatically.
 func Diff(ctx context.Context, d Deps, in DiffInput) error {
 	if in.Branch == "" {
-		return fmt.Errorf("branch name is required")
+		return errors.New("branch name is required")
 	}
 
 	wts, err := listWorktrees(ctx, d)
@@ -68,13 +69,19 @@ func Diff(ctx context.Context, d Deps, in DiffInput) error {
 	return nil
 }
 
-// resolveBase returns the base ref for diffing, loading from config when
-// available. Falls back to "origin/main".
 func resolveBase(wts []worktree.Worktree) string {
 	if main, err := worktree.MainWorktree(wts); err == nil {
-		if cfg, err := config.Load(main.Path); err == nil {
-			return cfg.Diff.Base
-		}
+		return resolveDiffBaseFromMainPath(main.Path)
+	}
+	return "origin/main"
+}
+
+func resolveDiffBaseFromMainPath(mainPath string) string {
+	if mainPath == "" {
+		return "origin/main"
+	}
+	if cfg, err := config.Load(mainPath); err == nil && cfg.Diff.Base != "" {
+		return cfg.Diff.Base
 	}
 	return "origin/main"
 }

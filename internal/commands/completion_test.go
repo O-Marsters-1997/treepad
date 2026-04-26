@@ -9,16 +9,8 @@ import (
 	"testing"
 
 	"treepad/internal/worktree"
+	"treepad/internal/worktree/worktreetest"
 )
-
-type stubRunner struct {
-	out []byte
-	err error
-}
-
-func (s stubRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
-	return s.out, s.err
-}
 
 func TestWriteBranches(t *testing.T) {
 	mainPath := t.TempDir()
@@ -72,9 +64,9 @@ func TestWriteBranches(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var runner worktree.CommandRunner
 			if tt.porcelain == "" {
-				runner = stubRunner{err: fmt.Errorf("git unavailable")}
+				runner = worktreetest.StaticRunner{Err: fmt.Errorf("git unavailable")}
 			} else {
-				runner = stubRunner{out: []byte(tt.porcelain)}
+				runner = worktreetest.StaticRunner{Output: []byte(tt.porcelain)}
 			}
 
 			var buf bytes.Buffer

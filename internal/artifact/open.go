@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// CommandRunner executes a system command.
 type CommandRunner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
 }
@@ -27,12 +26,10 @@ type OpenData struct {
 	Worktree     Worktree // the specific worktree being opened
 }
 
-// Opener opens an artifact or worktree path.
 type Opener interface {
 	Open(ctx context.Context, spec OpenSpec, data OpenData) error
 }
 
-// ExecOpener renders the command templates and executes the result.
 type ExecOpener struct {
 	Runner CommandRunner
 }
