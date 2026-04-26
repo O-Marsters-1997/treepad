@@ -9,6 +9,7 @@ import (
 	"treepad/internal/artifact"
 	"treepad/internal/hook"
 	"treepad/internal/passthrough"
+	"treepad/internal/profile"
 	internalsync "treepad/internal/sync"
 	"treepad/internal/ui"
 	"treepad/internal/worktree"
@@ -22,6 +23,7 @@ type Deps struct {
 	Opener     artifact.Opener
 	HookRunner hook.Runner
 	PTRunner   passthrough.Runner
+	Profiler   profile.Profiler
 	Out        io.Writer   // stdout: machine payloads (__TREEPAD_CD__, JSON, tables)
 	Log        *ui.Printer // stderr: tagged user-facing narrative
 	In         io.Reader
@@ -44,6 +46,7 @@ func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
 		Opener:     artifact.ExecOpener{Runner: runner},
 		HookRunner: hook.ExecRunner{Runner: runner},
 		PTRunner:   passthrough.OSRunner{},
+		Profiler:   profile.Disabled(),
 		Out:        out,
 		Log:        ui.New(errw),
 		In:         in,

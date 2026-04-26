@@ -7,12 +7,17 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"treepad/internal/profile"
 	"treepad/internal/treepad/cd"
 	"treepad/internal/treepad/deps"
 )
 
 func commandDeps(cmd *cli.Command) deps.Deps {
-	return deps.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	d := deps.DefaultDeps(cmd.Root().Writer, cmd.Root().ErrWriter, os.Stdin)
+	if rec, ok := cmd.Root().Metadata["profiler"].(*profile.Recorder); ok {
+		d.Profiler = rec
+	}
+	return d
 }
 
 func requireBranch(cmd *cli.Command) (string, error) {

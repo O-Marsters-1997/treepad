@@ -4,6 +4,8 @@ package hook
 import (
 	"context"
 	"fmt"
+
+	"treepad/internal/profile"
 )
 
 // Event identifies a lifecycle point in a treepad operation.
@@ -102,18 +104,25 @@ func Run(ctx context.Context, r Runner, cfg Config, e Event, data Data) error {
 // RunSandwich runs pre → do → post. Pre failure aborts and returns an error.
 // Post failure returns a non-nil *PostErr with a nil main error — the caller
 // should log it as a warning.
+// p times the pre and post hook phases as "<event>_hooks" stages.
 func RunSandwich(
-	ctx context.Context, r Runner, cfg Config,
+	ctx context.Context, p profile.Profiler, r Runner, cfg Config,
 	pre, post Event, data Data, do func() error,
 ) (*PostErr, error) {
-	if err := Run(ctx, r, cfg, pre, data); err != nil {
-		return nil, fmt.Errorf("%s hook: %w", pre, err)
+	preDone := p.Stage(string(pre) + "_hooks")
+	preErr := Run(ctx, r, cfg, pre, data)
+	preDone()
+	if preErr != nil {
+		return nil, fmt.Errorf("%s hook: %w", pre, preErr)
 	}
 	if err := do(); err != nil {
 		return nil, err
 	}
-	if err := Run(ctx, r, cfg, post, data); err != nil {
-		return &PostErr{Event: post, Err: err}, nil
+	postDone := p.Stage(string(post) + "_hooks")
+	postRunErr := Run(ctx, r, cfg, post, data)
+	postDone()
+	if postRunErr != nil {
+		return &PostErr{Event: post, Err: postRunErr}, nil
 	}
 	return nil, nil
 }

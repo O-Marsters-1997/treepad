@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 
+	"treepad/internal/profile"
 	"treepad/internal/treepad/cwd"
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/repo"
@@ -28,7 +29,11 @@ type pruneSelection struct {
 
 // Prune removes merged (or all non-main) worktrees.
 func Prune(ctx context.Context, d deps.Deps, in PruneInput) error {
+	p := profile.OrDisabled(d.Profiler)
+
+	repoLoadDone := p.Stage("repo.load")
 	rc, err := repo.Load(ctx, d.Runner, in.OutputDir)
+	repoLoadDone()
 	if err != nil {
 		return err
 	}
@@ -38,12 +43,14 @@ func Prune(ctx context.Context, d deps.Deps, in PruneInput) error {
 		return err
 	}
 
+	gatherDone := p.Stage("gather")
 	var sel pruneSelection
 	if in.All {
 		sel, err = gatherAll(rc, curDir)
 	} else {
 		sel, err = gatherMerged(ctx, d, rc, curDir, in.Base)
 	}
+	gatherDone()
 	if err != nil {
 		return err
 	}

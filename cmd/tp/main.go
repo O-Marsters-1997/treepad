@@ -10,6 +10,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"treepad/internal/commands"
+	"treepad/internal/profile"
 	"treepad/internal/ui"
 )
 
@@ -36,6 +37,10 @@ func main() {
 				Aliases: []string{"v"},
 				Usage:   "enable debug logging to stderr",
 			},
+			&cli.BoolFlag{
+				Name:  "profile",
+				Usage: "collect and display per-stage timing after the command finishes",
+			},
 		},
 		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
 			level := slog.LevelWarn
@@ -45,7 +50,19 @@ func main() {
 			slog.SetDefault(slog.New(
 				slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}),
 			))
+			if cmd.Bool("profile") {
+				if cmd.Metadata == nil {
+					cmd.Metadata = make(map[string]any)
+				}
+				cmd.Metadata["profiler"] = profile.NewRecorder()
+			}
 			return ctx, nil
+		},
+		After: func(_ context.Context, cmd *cli.Command) error {
+			if rec, ok := cmd.Metadata["profiler"].(*profile.Recorder); ok {
+				rec.Summary(cmd.Root().ErrWriter, cmd.Name+" "+cmd.Args().First())
+			}
+			return nil
 		},
 		Commands: commands.Router(),
 	}
