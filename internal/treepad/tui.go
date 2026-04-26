@@ -55,6 +55,10 @@ type (
 		branch string
 		err    error
 	}
+	uiShellDoneMsg struct {
+		branch string
+		err    error
+	}
 	uiYankClearMsg struct{}
 )
 
@@ -65,6 +69,7 @@ const (
 	uiModeConfirmRemove             // r pressed — awaiting y/cancel
 	uiModeConfirmForceRemove        // R pressed — awaiting y/cancel
 	uiModeConfirmPrune              // p pressed — awaiting y/cancel
+	uiModeConfirmShell              // e pressed — awaiting y/cancel
 	uiModeHelp                      // ? pressed — any key dismisses
 	uiModeFilter                    // / pressed — typing filter query
 )
@@ -76,27 +81,28 @@ type uiToast struct {
 }
 
 type uiModel struct {
-	ctx            context.Context
-	d              deps.Deps
-	in             StatusInput
-	rows           []StatusRow
-	health         map[string]healthFlags // keyed by branch; nil until first refresh
-	activePath     string                 // filepath.Clean(cwd) at UI launch; "" if unavailable
-	cursor         int
-	width          int
-	height         int
-	loading        bool
-	err            error
-	selectedPath   string
-	actionInFlight bool   // sync in progress — pauses auto-refresh
-	syncBranch     string // branch being synced; empty = fleet sync
-	toast          *uiToast
-	spinner        spinner.Model
-	mode           uiMode
-	confirmBranch  string // branch name shown in the remove confirm modal
-	yankPath       string // emits OSC-52 in View() then cleared on next cycle
-	filterStr      string // query typed while in uiModeFilter; retained after commit
-	filterActive   bool   // true once Enter commits a non-empty filter
+	ctx              context.Context
+	d                deps.Deps
+	in               StatusInput
+	rows             []StatusRow
+	health           map[string]healthFlags // keyed by branch; nil until first refresh
+	activePath       string                 // filepath.Clean(cwd) at UI launch; "" if unavailable
+	cursor           int
+	width            int
+	height           int
+	loading          bool
+	err              error
+	selectedPath     string
+	actionInFlight   bool   // sync in progress — pauses auto-refresh
+	syncBranch       string // branch being synced; empty = fleet sync
+	toast            *uiToast
+	spinner          spinner.Model
+	mode             uiMode
+	confirmBranch    string // branch name shown in confirm modals
+	confirmShellPath string // worktree path stashed for the shell confirm
+	yankPath         string // emits OSC-52 in View() then cleared on next cycle
+	filterStr        string // query typed while in uiModeFilter; retained after commit
+	filterActive     bool   // true once Enter commits a non-empty filter
 
 	// Injectable behaviour. Nil means the feature is disabled; see UI() for
 	// production defaults and NewHeadlessUI for the headless/e2e overrides.

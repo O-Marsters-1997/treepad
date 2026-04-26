@@ -91,7 +91,7 @@ func (m uiModel) View() string {
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderHelp())
 		sb.WriteString("\n")
-	case uiModeConfirmRemove, uiModeConfirmForceRemove, uiModeConfirmPrune:
+	case uiModeConfirmRemove, uiModeConfirmForceRemove, uiModeConfirmPrune, uiModeConfirmShell:
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderModal(m))
 		sb.WriteString("\n")
@@ -128,6 +128,7 @@ func uiRenderHelp() string {
 		"S           Sync all worktrees\n" +
 		"o           Open artifact for selected worktree\n" +
 		"d           Diff selected worktree against base (default origin/main)\n" +
+		"e           Open shell in selected worktree (with confirmation)\n" +
 		"y           Yank path of selected worktree (OSC-52)\n" +
 		"r           Remove selected worktree (with confirmation)\n" +
 		"R           Force-remove selected worktree (discards unmerged work, with confirmation)\n" +
@@ -153,6 +154,9 @@ func uiRenderModal(m uiModel) string {
 	case uiModeConfirmPrune:
 		title = "Prune merged worktrees"
 		detail = "All worktrees whose branches are merged into main will be removed."
+	case uiModeConfirmShell:
+		title = fmt.Sprintf("Open shell in %s", m.confirmBranch)
+		detail = m.confirmShellPath
 	}
 	body := fmt.Sprintf("%s\n%s\n\n[y] confirm  ·  [any other key] cancel", title, detail)
 	return uiModalStyle.Render(body)
