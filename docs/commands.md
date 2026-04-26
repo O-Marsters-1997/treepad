@@ -265,6 +265,94 @@ eval "$(tp shell-init)"
 
 After sourcing, `tp new <branch>` will automatically cd into the new worktree. Pass `-c` / `--current` to skip the cd.
 
+## doctor
+
+Report cross-worktree health issues across the fleet.
+
+```
+tp doctor [options]
+```
+
+Scans all worktrees and emits a table (or JSON with `--json`) of findings. Each finding has a `KIND`, `BRANCH`, `DETAIL`, and `PATH` column. Exits 0 by default; use `--strict` to exit non-zero when any findings are present.
+
+### Finding kinds
+
+| Kind | Description |
+|---|---|
+| `stale` | No commit in more than `--stale-days` days (default: 30) |
+| `dirty-old` | Uncommitted changes and no commit in more than `--stale-days` days |
+| `merged-present` | Branch is merged into base but the worktree still exists |
+| `remote-gone` | Branch no longer exists on the remote (requires network; skip with `--offline`) |
+| `artifact-missing` | Expected artifact file is absent for a configured `[artifact]` section |
+| `config-drift` | Worktree's `.treepad.toml` differs from the main worktree's config |
+| `prunable` | Git marks the worktree as prunable (stale metadata) |
+
+### Flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--json` | `-j` | Emit JSON array instead of a table |
+| `--stale-days` | | Threshold in days for stale/dirty-old checks (default: 30) |
+| `--base` | `-b` | Branch to check merges against (default: `main`) |
+| `--offline` | | Skip remote branch existence checks |
+| `--strict` | | Exit non-zero if any findings are reported |
+
+### Examples
+
+```bash
+# Show all health findings for the fleet
+tp doctor
+
+# Use a shorter stale threshold
+tp doctor --stale-days 14
+
+# Check merges against a different base
+tp doctor --base develop
+
+# Skip remote checks (faster, no network required)
+tp doctor --offline
+
+# Emit JSON for scripting
+tp doctor --json
+
+# Fail in CI if any issues are found
+tp doctor --strict
+```
+
+### Output Example
+
+```
+KIND              BRANCH           DETAIL                                  PATH
+stale             feat/old-work    last commit 45 days ago                 ~/myrepo-feat-old-work
+merged-present    feat/done        branch already merged into main         ~/myrepo-feat-done
+config-drift      feat/diverged    differs in: sync                        ~/myrepo-feat-diverged
+```
+
+## base
+
+Return to the main worktree from any branch worktree.
+
+```
+tp base
+```
+
+Emits a `__TREEPAD_CD__` directive for the main worktree path (the one containing `.git`). Requires the shell integration wrapper; returns an error if you are already in the main worktree.
+
+### Setup
+
+Requires the same shell wrapper as `new` and `cd`:
+
+```sh
+eval "$(tp shell-init)"
+```
+
+### Examples
+
+```bash
+# Return to the main worktree from wherever you are
+tp base
+```
+
 ## config
 
 Manage tp configuration files.
@@ -588,10 +676,15 @@ Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Sh
 | `S`            | Sync all worktrees (fleet sync)                                                                               |
 | `o`            | Open artifact file for selected worktree                                                                      |
 | `d`            | Diff selected worktree against base (default from config or `origin/main`)                                    |
+| `e`            | Open an interactive shell (`$SHELL`, falling back to `/bin/sh`) in selected worktree — TUI suspends, shell runs full-screen, TUI resumes on exit (prompts for confirmation) |
 | `y`            | Yank (copy) path to clipboard via OSC-52                                                                      |
 | `r`            | Remove selected worktree (prompts for confirmation)                                                           |
 | `R`            | Force-remove selected worktree — discards uncommitted changes and unmerged commits (prompts for confirmation) |
 | `p`            | Prune merged worktrees (prompts for confirmation)                                                             |
+| `/`            | Enter filter mode — type to fuzzy-match by branch or path basename                                            |
+| `Esc`          | Clear active filter (from normal mode)                                                                        |
+| `Enter`        | Commit filter query and return to normal mode (from filter mode)                                              |
+| `Esc`          | Cancel filter and clear query (from filter mode)                                                              |
 | `?`            | Toggle key binding help overlay                                                                               |
 | `q` / `Ctrl-C` | Quit without cd                                                                                               |
 

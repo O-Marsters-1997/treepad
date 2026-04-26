@@ -6,9 +6,12 @@ This document describes the architecture and module organization.
 
 **`cmd/tp/main.go`** — CLI bootstrap
 
-- Initializes the `urfave/cli` v3 application with the verbose flag
+- Initializes the `urfave/cli` v3 application with two global flags:
+  - `--verbose` / `-v` — sets `slog` to `DEBUG` level on stderr
+  - `--profile` — attaches a `profile.Recorder` to `cmd.Metadata["profiler"]`; `After` hook calls `rec.Summary()` to print a per-stage timing table to stderr
+- `commandDeps()` (in `commands/base.go`) extracts the recorder from metadata and sets `d.Profiler`
 - Calls `commands.Router()` to get all available CLI commands
-- Runs the CLI with context and os.Args
+- Runs the CLI with a signal-notified context (SIGINT/SIGTERM)
 
 ## Commands Package (`internal/commands/`)
 
@@ -16,91 +19,85 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 
 ### `router.go`
 
-- `Router()` — returns `[]*cli.Command` with all top-level commands
-- Routes to sync and config command groups
+- `Router()` — returns `[]*cli.Command` with all top-level commands registered: sync, config, new, shell-init, remove, prune, status, ui, cd, base, doctor, exec, diff, from-spec, from-spec-bulk
 
-### `sync.go`
+### `base.go`
 
-- `syncCommand()` — top-level sync command definition
-- `runSync(ctx, cmd)` — action handler for sync operations
-  - Parses flags: `--use-current`, `--sync-only`, `--output-dir`, `--include`
-  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
-  - Calls `Generate()`
-  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`
+- `commandDeps(cmd)` — builds production `deps.Deps`; if a `profile.Recorder` is stored in `cmd.Root().Metadata["profiler"]`, wires it into `d.Profiler` so lifecycle operations emit timed stages
+- `requireBranch(cmd)` — extracts the first positional argument as a branch name or returns an error
+- `baseCommand()` — `tp base` command: calls `cd.Base()` to emit a cd directive for the main worktree
 
-### `new.go`
+### `cd.go`
 
-- `newCommand()` — top-level new command definition
-- `runNew(ctx, cmd)` — action handler for creating new worktrees
-  - Parses flags: `--base` (default: "main"), `--open`, `--current (-c)`
-  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
-  - Calls `New()`
-  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
+- `cdCommand()` — `tp cd <branch>` command: calls `cd.CD()` to emit a cd directive for the named worktree
+  - Shell completes with available branch names via `completeWorktreeBranch`
+
+### `completion.go`
+
+- `completeWorktreeBranch(ctx, cmd)` — shell completion helper: prints all non-detached branch names
+- `completeRemoveBranch(ctx, cmd)` — shell completion helper: prints non-main, non-detached branches
+- `completeExecBranch(ctx, cmd)` — shell completion helper: prints branches only when no arg is present
 
 ### `shell_init.go`
 
-- `shellInitCommand()` — prints shell wrapper function for `eval "$(tp shell-init)"`
-  - Wrapper intercepts `__TREEPAD_CD__` directive from `tp new`, `tp cd`, and `tp ui`, cd's into the target worktree
-  - Tracks `$TP_PREV_WORKTREE` env var to store the last visited worktree, enabling `tp cd -` toggle support
-  - Updates previous worktree before changing directory to support toggle-back functionality
+- `shellInitCommand()` — prints the shell wrapper function for `eval "$(tp shell-init)"`
+  - Wrapper captures `TREEPAD_CD_FD=3` — the binary writes the cd path to fd 3 (captured separately), while stdout flows live to the terminal via fd 4
+  - `tp cd -` toggles back to the previous worktree using `$TP_PREV_WORKTREE` env var
+  - `$TP_PREV_WORKTREE` is updated before every cd to enable toggle-back functionality
+
+### `sync.go`
+
+- `syncCommand()` — `tp sync [options] [source-path]` command definition
+  - Flags: `--current` / `-c` / `--use-current` (alias), `--sync-only`, `--output-dir` / `-o`, `--include`
+- `runSync(ctx, cmd)` — calls `treepad.Generate()` with parsed flags
+
+### `new.go`
+
+- `newCommand()` — `tp new [options] <branch>` command definition
+  - Flags: `--base` / `-b` (default: "main"), `--open` / `-o`, `--current` / `-c`
+- `runNew(ctx, cmd)` — calls `lifecycle.New()` with parsed flags
 
 ### `remove.go`
 
-- `removeCommand()` — top-level remove command definition
-- `runRemove(ctx, cmd)` — action handler for removing worktrees
-  - Parses branch argument (required)
-  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
-  - Calls `Remove()`
-  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`
+- `removeCommand()` — `tp remove <branch>` command definition
+  - Shell completes with `completeRemoveBranch`
+- `runRemove(ctx, cmd)` — calls `lifecycle.Remove()` with branch
 
 ### `prune.go`
 
-- `pruneCommand()` — top-level prune command definition
-- `runPrune(ctx, cmd)` — action handler for pruning merged worktrees
-  - Parses flags: `--base` (default: "main"), `--dry-run`, `--all` (force-remove all non-main)
-  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
-  - Calls `Prune()`
-  - Creates instances of `worktree.ExecRunner`, `sync.FileSyncer`, `artifact.ExecOpener`
+- `pruneCommand()` — `tp prune [options]` command definition
+  - Flags: `--base` / `-b` (default: "main"), `--dry-run` / `-n`, `--all` / `-a`, `--yes` / `-y`
+- `runPrune(ctx, cmd)` — calls `lifecycle.Prune()` with parsed flags
+
+### `doctor.go`
+
+- `doctorCommand()` — `tp doctor [options]` command definition
+  - Flags: `--json` / `-j`, `--stale-days` (default: 30), `--base` / `-b` (default: "main"), `--offline`, `--strict`
+- `runDoctor(ctx, cmd)` — calls `treepad.Doctor()` with parsed flags
 
 ### `config.go`
 
-- `configCommand()` — top-level config command group
-- `configInitCommand()` — `tp config init` subcommand
-  - Flag: `--global` (write to global config path instead of repo root)
-  - Resolves worktrees and main worktree path
-  - Calls `config.WriteDefault(dir, global bool)` which writes annotated `.treepad.toml`
-- `configShowCommand()` — `tp config show` subcommand
-  - Resolves worktrees and main worktree path
-  - Calls `config.Show(repoRoot)` to display resolved config and sources
+- `configCommand()` — `tp config` command group
+- `configInitCommand()` — `tp config init [--global]`
+  - Calls `treepad.ConfigInit()` which delegates to `config.WriteDefault()`
+- `configShowCommand()` — `tp config show`
+  - Calls `treepad.ConfigShow()` which delegates to `config.Show()`
 
 ### `status.go`
 
-- `statusCommand()` — top-level status command definition
-  - Flags: `--json` (emit JSON instead of table)
-- `runStatus(ctx, cmd)` — action handler for listing worktree status
-  - Instantiates `treepad.Deps` with `os.Stdout`, `os.Stderr`, and `os.Stdin`
-  - Calls `Status()` (use `tp ui` for the live fleet view)
+- `statusCommand()` — `tp status [--json]` command definition
+- `runStatus(ctx, cmd)` — calls `treepad.Status()` via `DefaultDeps()`
 
 ### `exec.go`
 
-- `execCommand()` — top-level exec command definition
-  - Usage: `tp exec <branch> [command] [args...]`
-  - Parses branch argument (required), optional command, and variadic args
-- `runExec(ctx, cmd)` — action handler for executing commands in worktrees
-  - Instantiates `treepad.Service` with `os.Stdout` and `os.Stdin`
-  - Calls `Exec()` with branch, command, and args
-  - Returns exit code from child process via `cli.Exit("")
+- `execCommand()` — `tp exec <branch> [command] [args...]` command definition
+- `runExec(ctx, cmd)` — calls `treepad.Exec()`, returns child process exit code via `cli.Exit("")`
 
 ### `diff.go`
 
-- `diffCommand()` — top-level diff command definition
-  - Usage: `tp diff <branch> [-- <git-diff-args>...]`
-  - Flags: `--base` / `-b` (no hardcoded default; defers to config/fallback), `--output` / `-o` (write to file)
-- `runDiff(ctx, cmd)` — action handler for diffing worktrees
-  - Parses branch argument (required) and extra args after `--`
-  - Instantiates `treepad.Deps` via `DefaultDeps()`
-  - Calls `Diff()` with branch, base, output file, and extra args
-  - Exit code 0 on success, non-zero only on internal error
+- `diffCommand()` — `tp diff [options] <branch> [-- <git-diff-args>...]` command definition
+  - Flags: `--base` / `-b`, `--output` / `-o`
+- `runDiff(ctx, cmd)` — calls `treepad.Diff()` with branch, base, output path, and extra args
 
 ## Config Package (`internal/config/`)
 
@@ -108,7 +105,7 @@ Handles TOML configuration file loading, initialization, and display.
 
 ### `config.go`
 
-- `Config` struct — root config object with `Sync`, `Artifact`, `Open`, `Exec`, `FromSpec`, `Diff` fields
+- `Config` struct — root config object with `Sync`, `Artifact`, `Open`, `Hooks`, `Exec`, `FromSpec`, `Diff` fields
 - `SyncConfig` struct — contains `Include` (string array of gitignore-style patterns)
 - `ArtifactConfig` struct — contains `FilenameTemplate` and `ContentTemplate` (text/template strings)
   - `IsZero()` — reports whether artifact is configured
@@ -134,6 +131,12 @@ Handles TOML configuration file loading, initialization, and display.
   - If `global=false`, writes `.treepad.toml` to `dir`
   - Returns path of file written
   - Writes `defaultTOML` constant: documented TOML with all sections and produces VS Code `.code-workspace` output by default
+
+### `artifact.go`
+
+- `(ArtifactConfig).Spec() artifact.Spec` — converts ArtifactConfig to artifact.Spec
+- `MakeTemplateData(repoSlug, branch, worktreePath, outputDir) artifact.TemplateData` — builds template data for a single worktree
+- `ResolveArtifactPath(ArtifactConfig, repoSlug, branch, wtPath, outputDir) (path string, ok bool, error)` — returns the absolute artifact path for a worktree; `ok=false` when no filename template is configured
 
 ### `show.go`
 
@@ -170,117 +173,152 @@ Task runner detection and script enumeration for the `tp exec` command.
 
 ## Treepad Package (`internal/treepad/`)
 
-Pure business logic for worktree syncing and artifact file generation. Formerly `internal/workspace/`.
+Business logic entry points. Each public function is a standalone top-level function (no Service struct). All share `deps.Deps` for dependency injection.
 
-### `deps.go`
+### `generate.go`
 
-- `Deps` struct — bundles all injectable dependencies for treepad operations
-  - Fields: `Runner` (CommandRunner), `Syncer` (Syncer), `Opener` (Opener), `HookRunner` (hook.Runner), `Out` (io.Writer for payloads), `Log` (stderr printer), `In` (io.Reader for stdin)
-  - `IsTerminal(w io.Writer) bool` — reports whether w is an interactive TTY (injectable, used by StatusWatch)
-  - `Sleep(d time.Duration) <-chan time.Time` — returns a channel that receives after d elapses (injectable for tests; production uses `time.After`)
-- `DefaultDeps(out, errw io.Writer, in io.Reader)` — wires production implementations
-  - Runner: `worktree.ExecRunner{}`
-  - Syncer: `internalsync.FileSyncer{}`
-  - Opener: `artifact.ExecOpener`
-  - HookRunner: `hook.ExecRunner`
-  - Log: `ui.New(errw)`
-  - IsTerminal: checks if w is `*os.File` with TTY via `golang.org/x/term.IsTerminal`
-  - Sleep: defaults to `time.After`
+- `GenerateInput` struct — `UseCurrentDir`, `SourcePath`, `SyncOnly`, `OutputDir`, `ExtraPatterns`, `Branch` (empty = fleet-wide)
+- `Generate(ctx, deps.Deps, GenerateInput)` — syncs configs and optionally generates artifact files
+  - Resolves source directory via `ResolveSourceDir()`
+  - Builds `[]lifecycle.SyncTarget` from all worktrees except source
+  - If `Branch` is set, filters targets to the single named branch
+  - Calls `lifecycle.LoadAndSync()` then iterates worktrees to call `artifact.Write()` (skipped if `SyncOnly`)
 
-### `service.go`
+### `exec.go`
 
-- `Service` struct — coordinates syncing and artifact generation
-  - Fields: `runner` (CommandRunner), `syncer` (Syncer), `opener` (Opener), `out` (io.Writer), `in` (io.Reader)
-  - `NewService(runner, syncer, opener, out, in)` — constructor takes io.Reader for stdin access
-  - `Generate(ctx, GenerateInput)` — generates artifact files and syncs configs
-    - Input: `UseCurrentDir`, `SourcePath`, `SyncOnly`, `OutputDir`, `ExtraPatterns`
-    - Resolves config source, loads config, syncs files, generates artifact files
-  - `New(ctx, NewInput)` — creates new worktree, syncs configs, generates artifact file
-    - Input: `Branch`, `Base`, `Open`, `Current`, `OutputDir`
-    - Emits `__TREEPAD_CD__\t<path>` to output unless `Current` is true
-  - `Remove(ctx, RemoveInput)` — removes worktree, artifact file, and branch
-    - Input: `Branch`, `OutputDir`, `Cwd` (for testing)
-    - Pre-flight guards: prevents removing main worktree, prevents removing from within the target worktree
-    - Three-step removal: git worktree remove → delete artifact file → git branch -d
-  - `Prune(ctx, PruneInput)` — batch removes worktrees or force-removes all non-main
-    - Input: `Base`, `OutputDir`, `DryRun`, `All` (force-remove all non-main), `Cwd` (for testing)
-    - If `All=true`: validates running from main worktree, lists all non-main worktrees, prompts for confirmation, force-removes all via `forceRemoveWorktree()`
-    - If `All=false`: finds merged branches, filters out main/detached/current worktree
-    - Executes removals by default; `DryRun: true` previews without removing
-    - Returns error if any removals fail (after attempting all)
-  - `Status(ctx, StatusInput)` — lists all worktrees with repo-wide status snapshot
-    - Input: `JSON` (emit JSON instead of table), `OutputDir` (for artifact path resolution)
-    - Output: builds `[]StatusRow` with branch, dirty state, ahead/behind count, last commit info, artifact mtime
-    - Renders as aligned table via `text/tabwriter` by default, or JSON array with `--json` flag
-  - `Exec(ctx, ExecInput)` — runs a command in a named worktree with full stdio passthrough
-    - Input: `Branch`, `Command`, `Args`, `Cwd` (for testing), `Runner` (PassthroughRunner override)
-    - Detects task runner via `internal/exec.Detect()` using config override if available
-    - If `Command` is empty: lists detected runner and available scripts, returns
-    - Otherwise: builds command via `buildCommand()` (routes through runner if command matches enumerated script)
-    - Executes via PassthroughRunner and returns child process exit code (non-zero does not produce an error)
-- Private helpers:
-  - `removeWorktree(ctx, target, mainWT, outputDir)` — removes a single worktree (merge-safe removal), deletes artifact, deletes branch
-  - `forceRemoveWorktree(ctx, target, mainWT, outputDir)` — force-removes a worktree via `git worktree remove --force`, deletes artifact, force-deletes branch via `git branch -D`
-  - `pruneAll(ctx, worktrees, mainWT, outputDir, cwd, dryRun)` — helper for `--all` mode; lists candidates, prompts user, force-removes each
-  - `listWorktrees(ctx)` — lists all worktrees in repo
-  - `resolveOutputDir(explicit, repoSlug)` — resolves artifact output directory
-  - `loadAndSync(sourceDir, extraPatterns, targets)` — loads config and syncs to targets; returns `config.Config` so artifact config is available
-  - `printScripts(runner)` — prints runner name and enumerated scripts to output
-  - `buildCommand(runner, command, extraArgs)` — returns executable name and arguments, routing through runner if command matches a known script (adds `--` for npm with extra args)
-
-### `status.go`
-
-- `Status(ctx, d Deps, in StatusInput)` — lists all worktrees with repo-wide status snapshot (snapshot mode)
-  - Input: `JSON` (emit JSON instead of table), `OutputDir` (for artifact path resolution)
-  - Output: builds `[]StatusRow` with branch, dirty state, ahead/behind count, last commit info, artifact mtime
-  - Renders as aligned table via `text/tabwriter` by default, or JSON array with `--json` flag
-  - Calls `collectStatusRows()` to probe each worktree for status
-- `StatusWatch(ctx, d Deps, in StatusInput)` — live-polling terminal monitor with 2s refresh rate
-  - Requires TTY via `d.IsTerminal(d.Out)` (returns error if not a terminal)
-  - Enters alternate screen mode (ANSI codes for alt-screen, hide cursor)
-  - Polling loop: clears screen, renders header with timestamp, calls `collectStatusRows()`, sleeps 2s via `d.Sleep()`
-  - Catches `os.Interrupt` and `syscall.SIGTERM` signals for clean exit
-  - Exits on signal, always restores terminal (show cursor, exit alt-screen)
-- `collectStatusRows(ctx, d Deps, rc repoContext, spec artifact.Spec)` — probes status for all worktrees
-  - For each worktree: queries `worktree.Dirty()`, `worktree.AheadBehind()`, `worktree.LastCommit()`
-  - Resolves artifact file path and modtime via `artifact.Path()` and `os.Stat()`
-  - Skips probing prunable worktrees (metadata without git queries)
-  - Returns `[]StatusRow` sorted as encountered
-- `formatStatusRows(rows []StatusRow)` — formats status rows for table display
-  - Extracted from `ui.go` to separate formatting from presentation
-  - Formats relative times via `since()` helper
-  - Collapses home directory paths via `collapsePath()` helper
-  - Returns formatted strings for rendering
-- `writeStatusTable(d Deps, rows []StatusRow)` — renders table via `text/tabwriter`
-  - Columns: BRANCH, STATUS, AHEAD/BEHIND, LAST COMMIT, TOUCHED, PATH
-  - Formats rows via `formatStatusRows()`
-  - Appends note if any prunable worktrees found
-
-### `source.go`
-
-- `ResolveSourceDir(useCurrentDir, sourcePath, cwd, worktrees)` — determines config source directory
+- `ExecInput` struct — `Branch`, `Command`, `Args`, `Cwd` (testing override), `Runner` (PassthroughRunner override)
+- `Exec(ctx, deps.Deps, ExecInput) (int, error)` — runs a command in the named worktree with full stdio passthrough
+  - Locates worktree by branch; warns if already inside it
+  - Detects task runner via `exec.Resolve()` (uses config override if set)
+  - If `Command` is empty: prints detected runner and scripts via `printScripts()`
+  - Otherwise: builds command via `buildCommand()` (routes through runner if command is a known script)
+  - Returns child process exit code (non-zero does not produce an error)
 
 ### `diff.go`
 
-- `DiffInput` struct — parameterizes a tp diff invocation
-  - Fields: `Branch`, `Base` (empty defaults to config value via `resolveBase()`), `OutputFile` (optional), `ExtraArgs` (forwarded to git diff), `Runner` (PassthroughRunner override for testing)
-- `Diff(ctx, Deps, DiffInput)` — shows diff of target worktree against base using three-dot merge-base semantics
-  - Lists worktrees and locates target by branch
-  - Returns error if branch not found or worktree is prunable (with clear message and suggestion)
-  - Resolves base: if `DiffInput.Base` empty, calls `resolveBase(worktrees)` to load from config or use fallback
-  - Uses three-dot semantics: `<base>...HEAD` (matches GitHub PR diff)
-  - If OutputFile is set: runs `git -C <targetPath> diff --no-color <base>...HEAD [extra-args]`, captures output, writes uncolored patch to file, logs `[OK]`
-  - If OutputFile is empty: executes `git diff <base>...HEAD [extra-args]` via PassthroughRunner with stdio inherited, respecting target worktree's git config (color, pager, delta, diff-so-fancy)
-  - Exit code 0 on success; non-zero only on git command failure or file write error
-- `resolveBase(worktrees)` — helper function that resolves the base ref for diffing
-  - Finds the main worktree and loads its config via `config.Load()`
-  - Returns `config.Diff.Base` if configured
-  - Falls back to `"origin/main"` if config is not found or field is unset
+- `DiffInput` struct — `Branch`, `Base` (empty → from config or `"origin/main"`), `OutputFile`, `ExtraArgs`, `Runner`
+- `Diff(ctx, deps.Deps, DiffInput) error` — diffs target worktree against base using three-dot semantics (`<base>...HEAD`)
+  - Resolves base: calls `resolveBase(worktrees)` → loads `config.Diff.Base` from main worktree, fallback `"origin/main"`
+  - OutputFile set: captures `git -C <path> diff --no-color <base>...HEAD`, writes patch to file
+  - OutputFile empty: executes `git diff` via PassthroughRunner (inherits pager, color, delta config)
 
-### `opener.go`
+### `doctor.go`
 
-- `Opener` interface — abstracts artifact file opening
-- `ExecOpener` struct — implementation that opens files/commands via `artifact.ExecOpener`
+- `DoctorInput` struct — `JSON`, `StaleDays` (default 30), `Base`, `Offline`, `Strict`, `OutputDir`
+- `DoctorFinding` struct — `Branch`, `Path`, `Kind`, `Detail` (JSON-serialisable)
+- `Doctor(ctx, deps.Deps, DoctorInput) error` — reports cross-worktree health findings
+  - Per worktree runs: `doctorCheckAge` (stale/dirty-old), `doctorCheckMerged` (merged-present), `doctorCheckRemoteGone` (remote-gone; skipped when `Offline`), `doctorCheckArtifact` (artifact-missing), `doctorCheckConfigDrift` (config-drift vs main)
+  - Prunable worktrees get a `prunable` finding immediately
+  - `Strict=true` returns an error if any findings were reported
+
+### `status.go`
+
+- `StatusInput` struct — `JSON`, `OutputDir`
+- `StatusRow` struct — branch, path, is_main, dirty, ahead, behind, has_upstream, last_commit, artifact_path, last_touched, prunable, prunable_reason (JSON-serialisable)
+- `Status(ctx, deps.Deps, StatusInput) error` — snapshot status for all worktrees
+  - Calls `refreshStatus()` → `repo.Load()` + `collectStatusRows()`
+  - JSON flag: encodes `[]StatusRow` as JSON; otherwise renders via `writeStatusTable()`
+- `collectStatusRows(ctx, deps.Deps, repo.Context, config.ArtifactConfig)` — probes each worktree
+  - Queries `worktree.Dirty()`, `worktree.AheadBehind()`, `worktree.LastCommit()`; resolves artifact mtime
+  - Skips git queries for prunable worktrees
+
+### `tui.go` / `tui_update.go` / `tui_view.go`
+
+- `UI(ctx, deps.Deps, StatusInput) error` — BubbleTea TUI fleet monitor
+  - Returns `ErrNotTTY` (exit code 2) if stdout is not a terminal
+  - Enters alt-screen; auto-refreshes every 2 seconds
+  - `uiMode` constants: `uiModeNormal`, `uiModeConfirmRemove`, `uiModeConfirmForceRemove`, `uiModeConfirmPrune`, `uiModeConfirmShell`, `uiModeHelp`, `uiModeFilter`
+  - Key events: `s`/`S` sync, `r`/`R` remove (confirm → `y`), `p` prune (confirm → `y`), `o` open, `d` diff, `e` shell (confirm → `y` → `doShell()`: spawns `$SHELL` or `/bin/sh` in worktree dir via `tea.ExecProcess`; TUI suspends, resumes on shell exit), `y` yank (OSC-52), `/` enter filter mode (fuzzy match on branch or path basename), `Esc` clear filter, `?` help overlay, `Enter` cd+quit
+  - Filter mode (`uiModeFilter`) intercepts all keystrokes; Enter commits filter, Esc cancels
+  - `selectedPath` set on Enter → after `p.Run()`, calls `uiEmitCD()` → `cd.EmitCD()` sentinel
+
+### `filter.go`
+
+- `filterRows(rows []StatusRow, query string) []StatusRow` — fuzzy-match rows by branch name and path basename using `sahilm/fuzzy`; returns matched rows ordered by best score; empty query returns rows unchanged
+
+### `source.go`
+
+- `ResolveSourceDir(useCurrentDir, sourcePath, cwd, worktrees)` — thin wrapper over `repo.ResolveSourceDir()`
+
+### `config_ops.go`
+
+- `ConfigInit(ctx, deps.Deps, ConfigInitInput)` — writes `.treepad.toml` (local or global) via `config.WriteDefault()`
+- `ConfigShow(ctx, deps.Deps, ConfigShowInput)` — prints resolved config and sources via `config.Show()`
+
+## Treepad Sub-Packages
+
+### `internal/treepad/deps/`
+
+- `Deps` struct — all injectable dependencies shared by every treepad operation
+  - `Runner worktree.CommandRunner`, `Syncer sync.Syncer`, `Opener artifact.Opener`, `HookRunner hook.Runner`, `PTRunner passthrough.Runner`
+  - `Profiler profile.Profiler` — records per-stage wall-time durations; `DefaultDeps` sets `profile.Disabled()` (no-op); `commandDeps()` replaces it with the `profile.Recorder` when `--profile` is passed
+  - `Out io.Writer` — stdout: machine payloads (`__TREEPAD_CD__`, JSON, tables)
+  - `Log *ui.Printer` — stderr: tagged user-facing narrative
+  - `In io.Reader`
+  - `IsTerminal func(w io.Writer) bool` — injectable TTY check
+  - `CDSentinel func() io.Writer` — test override for the fd-3 cd sentinel writer
+- `DefaultDeps(out, errw io.Writer, in io.Reader) Deps` — wires production implementations; `Profiler` defaults to `profile.Disabled()`
+
+### `internal/treepad/lifecycle/`
+
+Owns the worktree creation, removal, and pruning verbs.
+
+- `CreateResult` struct — `RC repo.Context`, `Cfg config.Config`, `WorktreePath`, `ArtifactPath`
+- `SyncTarget` struct — `Path`, `Branch`
+- `CreateWorktreeWithSync(ctx, deps.Deps, branch, base, outputDir) (CreateResult, error)` — runs `git worktree add`, syncs configs, writes artifact; fires `pre_new`/`post_new` hooks
+- `LoadAndSync(ctx, deps.Deps, sourceDir, extraPatterns, []SyncTarget, repoSlug, outputDir) (config.Config, error)` — loads config, syncs files to all targets; fires `pre_sync`/`post_sync` per target
+- `OpenWorktree(ctx, deps.Deps, openCmd, branch, wtPath, artifactPath, outputDir) error` — opens artifact (or worktree dir) via configured open command
+- `RemoveWorktreeAndArtifact(ctx, deps.Deps, target, main worktree.Worktree, outputDir string, force bool) error` — `git worktree remove [--force]`, deletes artifact, `git branch -d` (or `-D`); fires `pre_remove`/`post_remove` hooks
+- `New(ctx, deps.Deps, NewInput) (mainPath string, error)` — calls `CreateWorktreeWithSync`, optionally opens artifact, emits cd sentinel unless `Current=true`
+- `Remove(ctx, deps.Deps, RemoveInput) error` — guards: not-main, not-cwd-inside; delegates to `RemoveWorktreeAndArtifact`
+- `Prune(ctx, deps.Deps, PruneInput) error` — `All=true`: force-removes all non-main (requires cwd in main); `All=false`: removes merged worktrees (skips dirty, ahead, current); `DryRun=true`: preview only; `Yes=true`: skips confirmation prompt
+
+### `internal/treepad/cd/`
+
+Thin wrappers that adapt `deps.Deps` to `cdshell.Deps`.
+
+- `CD(ctx, deps.Deps, CDInput) error` — delegates to `cdshell.CD()`
+- `Base(ctx, deps.Deps, BaseInput) error` — delegates to `cdshell.Base()`
+- `EmitCD(deps.Deps, path)` — re-exported from cdshell for callers that hold `deps.Deps`
+- `MaybeWarnStaleWrapper(deps.Deps, hasAgentCommand bool)` — re-exported from cdshell
+
+### `internal/treepad/cdshell/`
+
+Owns the `__TREEPAD_CD__` shell-bridge protocol.
+
+- `EmitCD(Deps, path)` — writes the cd path to fd 3 (when `TREEPAD_CD_FD` is set by the shell wrapper) or falls back to writing `__TREEPAD_CD__\t<path>` to `d.Out`
+- `CD(ctx, Deps, CDInput) error` — looks up worktree by branch, calls `EmitCD`
+- `Base(ctx, Deps, BaseInput) error` — looks up main worktree, calls `EmitCD`; errors if already on main
+- `MaybeWarnStaleWrapper(Deps, hasAgentCommand bool)` — prints a hint when `agent_command` is configured but the new fd-3 shell wrapper is not installed
+
+### `internal/treepad/fromspec/`
+
+- `FromSpecInput` struct — `Issue`, `Branch`, `Base`, `Current`, `OutputDir`, `Prompt`
+- `FromSpec(ctx, deps.Deps, FromSpecInput) (exitCode int, error)` — fetches GitHub issue body, calls `CreateWorktreeWithSync`, writes `PROMPT.md`, runs `agent_command` via `PTRunner`; emits cd sentinel unless `Current=true`
+  - Re-uses existing `PROMPT.md` if already present in the worktree
+- `FromSpecBulkInput` struct — `Issues []int`, `BranchPrefix`, `Base`, `OutputDir`, `Prompt`
+- `BulkResult` struct — per-issue outcome record
+- `FromSpecBulk(ctx, deps.Deps, FromSpecBulkInput) ([]BulkResult, failedCount int, error)` — creates one worktree per issue; never launches an agent, never emits cd sentinel; partial failures are non-fatal; prints summary on completion
+
+### `internal/treepad/repo/`
+
+Resolves the repository context shared by every treepad operation.
+
+- `Context` struct — `Worktrees`, `Main worktree.Worktree`, `Slug`, `OutputDir`
+- `Load(ctx, runner, explicitOutputDir) (Context, error)` — lists worktrees, finds main, derives slug and output dir
+- `ListWorktrees(ctx, runner) ([]worktree.Worktree, error)` — wraps `worktree.List()` with an empty-list error
+- `ResolveOutputDir(explicit, repoSlug) (string, error)` — returns explicit if non-empty; otherwise `~/<repoSlug>-workspaces/`
+- `ResolveSourceDir(useCurrentFlag, sourcePath, cwd, worktrees) (string, error)` — pure function; picks source from flag, explicit path, or main worktree
+- `CwdInside(cwd, wtPath) bool` — reports whether cwd is inside wtPath (inclusive)
+- `RequireCwdInside(cwd, wtPath, msg) error` — returns error with msg when cwd is not inside wtPath
+
+### `internal/treepad/cwd/`
+
+- `Resolve(override string) (string, error)` — returns override if non-empty, else `os.Getwd()`
+
+### `internal/treepad/treepadtest/`
+
+Test helpers: `fakes.go` (fake Runner/Syncer/Opener/HookRunner implementations), `fixtures.go` (standard worktree fixture sets), `runner.go` (command runner that records calls).
 
 ## Worktree Package (`internal/worktree/`)
 
@@ -346,27 +384,105 @@ Utility for deriving short identifiers from repository paths.
 
 - `Slug(repoPath)` — generates slug for workspace file naming
 
+## Hook Package (`internal/hook/`)
+
+Lifecycle hooks defined in `.treepad.toml` and run at specific points in `tp` operations.
+
+### `hook.go`
+
+- `Event` type — string constant: `PreNew`, `PostNew`, `PreRemove`, `PostRemove`, `PreSync`, `PostSync`
+- `HookEntry` struct — `Command string`, `Only []string`, `Except []string` (glob branch filters)
+- `Config` struct — holds `[]HookEntry` for each event; `IsZero()`, `For(Event) []HookEntry`
+- `Data` struct — template context: `Branch`, `WorktreePath`, `Slug`, `HookType`, `OutputDir`
+- `Runner` interface — `Run(ctx, []HookEntry, Data) error`
+- `PostErr` struct — non-fatal post-hook error; callers log as warning
+- `Run(ctx, Runner, Config, Event, Data) error` — executes hooks for a single event
+- `RunSandwich(ctx, profile.Profiler, Runner, Config, pre, post Event, Data, do func() error) (*PostErr, error)` — runs pre → do → post; times each hook phase as `"<event>_hooks"` stages on the profiler; pre failure aborts; post failure returns `*PostErr` with nil main error
+
+### `runner.go`
+
+- `ExecRunner` struct — renders each hook command as a Go `text/template` and executes via `sh -c`
+  - Skips entries whose `Only`/`Except` filters do not match `data.Branch`
+  - Not supported on Windows (`GOOS=windows` returns an error)
+
+### `filter.go`
+
+- `shouldRun(entry HookEntry, branch string) bool` — evaluates `Only`/`Except` glob filters against the branch name
+
+## Passthrough Package (`internal/passthrough/`)
+
+Stdio-passthrough runner for child processes where `tp` must inherit the terminal.
+
+### `passthrough.go`
+
+- `Runner` interface — `Run(ctx, workdir, name string, args ...string) (exitCode int, error)`
+- `OSRunner` struct — production implementation; sets `Stdin`/`Stdout`/`Stderr` to `os.Stdin`/`os.Stdout`/`os.Stderr` and `Dir` to workdir; returns child process exit code (non-zero is not an error)
+
+## Profile Package (`internal/profile/`)
+
+Lightweight wall-time stage profiler. Activated by the `--profile` global flag; no-op otherwise.
+
+### `profile.go`
+
+- `Profiler` interface — `Stage(name string) func()`, `Summary(w io.Writer, totalLabel string)`
+- `Recorder` struct — production implementation; accumulates per-stage durations with a mutex; repeated `Stage()` calls with the same name add to the existing total
+  - `Stage(name) func()` — records wall-time elapsed; call as `defer p.Stage("foo")()`
+  - `Summary(w, totalLabel)` — prints a table of stages sorted by duration descending; longest stage marked with `◀`; format: `stage | duration | pct`
+- `NewRecorder() *Recorder` — creates a production recorder using `time.Now`
+- `Disabled() Profiler` — returns a shared no-op profiler (no allocations)
+- `OrDisabled(p Profiler) Profiler` — returns `p` if non-nil, else `Disabled()`; use at package boundaries where `Deps.Profiler` may be unset
+
+**Stage names used in production:**
+
+| Stage | Where timed |
+|---|---|
+| `repo.load` | `lifecycle.CreateWorktreeWithSync` |
+| `config.load` | `lifecycle.CreateWorktreeWithSync`, `lifecycle.LoadAndSync` |
+| `git.worktree_add` | `lifecycle.CreateWorktreeWithSync` |
+| `artifact.write` | `lifecycle.CreateWorktreeWithSync` |
+| `git.worktree_prune` | `lifecycle.pruneGitWorktreeMetadata` |
+| `pre_new_hooks` / `post_new_hooks` | `hook.RunSandwich` via lifecycle |
+| `pre_sync_hooks` / `post_sync_hooks` | `hook.RunSandwich` via lifecycle |
+| `pre_remove_hooks` / `post_remove_hooks` | `hook.RunSandwich` via lifecycle |
+
+## TTY Package (`internal/tty/`)
+
+- `IsTerminal(fd uintptr) bool` — platform-specific TTY detection (unix via `golang.org/x/term`; Windows stub in `tty_windows.go`)
+
 ## CLI Command Structure
 
 ```
 tp [--verbose] <command>
 ├── sync [options] [source-path]
-│   ├── --use-current (-c)
+│   ├── --current (-c, --use-current alias)
 │   ├── --sync-only
 │   ├── --output-dir (-o)
 │   └── --include (repeatable)
 ├── new [options] <branch>
-│   ├── --base (default: main)
+│   ├── --base (-b, default: main)
 │   ├── --open (-o)
 │   └── --current (-c)
+├── from-spec [options] <branch>
+│   ├── --issue (-i, required)
+│   ├── --base (-b, default: main)
+│   ├── --current (-c)
+│   └── --prompt (-p)
+├── from-spec-bulk [options]
+│   ├── --issues (-i, required, comma-separated)
+│   ├── --branch-prefix
+│   ├── --base (-b, default: main)
+│   └── --prompt (-p)
 ├── shell-init
 ├── remove <branch>
 ├── prune [options]
-│   ├── --base (default: main)
-│   ├── --dry-run
-│   └── --all (force-remove all non-main, must be from main)
+│   ├── --base (-b, default: main)
+│   ├── --dry-run (-n)
+│   ├── --all (-a, force-remove all non-main, must be from main)
+│   └── --yes (-y, skip confirmation)
+├── cd <branch | ->
+├── base
 ├── status [options]
-│   └── --json
+│   └── --json (-j)
 ├── ui
 ├── exec <branch> [command] [args...]
 │   └── Auto-detects task runner (just, npm, pnpm, yarn, bun, make, poetry, uv)
@@ -375,8 +491,14 @@ tp [--verbose] <command>
 ├── diff [options] <branch> [-- <git-diff-args>...]
 │   ├── --base (-b, default: from config or origin/main)
 │   └── --output (-o, optional)
+├── doctor [options]
+│   ├── --json (-j)
+│   ├── --stale-days (default: 30)
+│   ├── --base (-b, default: main)
+│   ├── --offline
+│   └── --strict
 └── config
-    ├── init [--global]
+    ├── init [--global (-g)]
     └── show
 ```
 
@@ -384,168 +506,138 @@ tp [--verbose] <command>
 
 1. **CLI Separation** — All CLI wiring (`internal/commands/`) is separate from business logic. Packages like `treepad`, `config`, `worktree`, `artifact`, and `sync` contain pure logic without CLI dependencies.
 
-2. **Dependency Injection** — `CommandRunner` and `Syncer` are injected to enable testing without external commands.
+2. **Dependency Injection** — `deps.Deps` (in `internal/treepad/deps/`) bundles all injectable dependencies. Tests construct `Deps` directly with fakes; production callers use `DefaultDeps()`.
 
-3. **Global Config** — Follows XDG Base Directory spec with fallback to `TREEPAD_CONFIG` env var.
+3. **Sub-package decomposition** — The `internal/treepad/` package delegates to focused sub-packages: `lifecycle/` (create/remove/prune), `cd/` + `cdshell/` (shell bridge), `fromspec/` (spec-driven creation), `repo/` (repository context), `cwd/` (working directory). Top-level functions in `treepad/` are thin orchestrators.
 
-4. **Config Defaults** — Zero-config experience; sensible defaults (VS Code `.code-workspace` files) are built-in and used when `.treepad.toml` is absent.
+4. **Shell Bridge Protocol** — `tp cd`/`tp new`/`tp base`/`tp ui` cannot change the parent shell's directory directly. Instead they write a path to fd 3 (when `TREEPAD_CD_FD=3` is set by the shell wrapper) or fall back to `__TREEPAD_CD__\t<path>` on stdout. The shell function in `shell-init` captures fd 3 separately and calls `cd`.
 
-5. **Config Resolution** — Three-tier lookup in `Show()`:
+5. **Global Config** — Follows XDG Base Directory spec with fallback to `TREEPAD_CONFIG` env var.
+
+6. **Config Defaults** — Zero-config experience; sensible defaults (VS Code `.code-workspace` files) are built-in and used when `.treepad.toml` is absent.
+
+7. **Config Resolution** — Three-tier lookup in `Show()`:
    - Local `.treepad.toml` (highest priority)
    - Global config (medium priority)
    - Built-in defaults (fallback)
 
-6. **Editor Agnosticism** — No editor names in Go code. Artifact filename, content, and open command are all text/template strings in `.treepad.toml`. VS Code is the default (baked into defaults). Other editors configure via config only.
+8. **Editor Agnosticism** — No editor names in Go code. Artifact filename, content, and open command are all text/template strings in `.treepad.toml`. VS Code is the default. Other editors configure via config only.
 
 ## Data Flow Example: `tp sync`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.syncCommand()` defines CLI interface
-3. `runSync()` parses args, instantiates `treepad.Service`, calls `Generate()`
-4. `Service.Generate()` resolves source, loads config via `config.Load()`, syncs files via `sync.FileSyncer`
-5. Optionally generates artifact files via `artifact.Write()`
+3. `runSync()` builds `deps.DefaultDeps()`, calls `treepad.Generate()`
+4. `Generate()` resolves source directory, derives output dir via `repo.ResolveOutputDir()`
+5. Builds `[]lifecycle.SyncTarget` from all worktrees except source; filters to single branch if `--branch` set
+6. Calls `lifecycle.LoadAndSync()` → loads config, syncs each target via `sync.FileSyncer`, fires `pre_sync`/`post_sync` hooks
+7. Unless `--sync-only`, calls `artifact.Write()` per worktree
 
 ## Data Flow Example: `tp new`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.newCommand()` defines CLI interface
-3. `runNew()` parses args, instantiates `treepad.Service`, calls `New()`
-4. `Service.New()` runs `git worktree add`, syncs configs, generates artifact file
-5. Optionally opens artifact file via `artifact.ExecOpener`
-6. Unless `--current` / `-c` is passed, emits `__TREEPAD_CD__\t<path>` to stdout
-7. Shell wrapper (from `tp shell-init`) intercepts the directive and cd's into the new worktree
-
-## Data Flow Example: `tp config init --global`
-
-1. `cmd/tp/main.go` initializes CLI
-2. `commands.config.configInitCommand()` handles the action
-3. If `--global` flag is set, calls `config.WriteDefault("", true)`
-4. Otherwise, lists worktrees via `worktree.List()`, gets main worktree, calls `config.WriteDefault(mainPath, false)`
-5. File is written to global or local path
-
-## Data Flow Example: `tp config show`
-
-1. `cmd/tp/main.go` initializes CLI
-2. `commands.config.configShowCommand()` handles the action
-3. Lists worktrees via `worktree.List()`, gets main worktree path
-4. Calls `config.Show(mainPath)`
-5. `Show()` checks local, global, and defaults; returns formatted summary with sources
+3. `runNew()` builds `deps.DefaultDeps()`, calls `lifecycle.New()`
+4. `lifecycle.New()` calls `CreateWorktreeWithSync()`:
+   - Fires `pre_new` hook, runs `git worktree add -b <branch> <path> <base>`
+   - Calls `lifecycle.LoadAndSync()` for the new worktree (fires `pre_sync`/`post_sync`)
+   - Calls `artifact.Write()`, fires `post_new` hook
+5. If `--open`: calls `lifecycle.OpenWorktree()` via configured `open.command`
+6. Unless `--current` / `-c`: calls `cd.EmitCD()` — writes path to fd 3 (shell wrapper captures it) or falls back to `__TREEPAD_CD__\t<path>` on stdout
 
 ## Data Flow Example: `tp remove <branch>`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.removeCommand()` defines CLI interface
-3. `runRemove()` parses branch argument, instantiates `treepad.Service`, calls `Remove()`
-4. `Service.Remove()` executes three steps:
-   - Lists all worktrees, validates branch exists and is not main
-   - Pre-flight guard: ensures cwd is not inside the target worktree
-   - Removes git worktree via `git worktree remove`
-   - Deletes artifact file from output directory (missing file is not an error)
-   - Deletes branch locally via `git branch -d`
+3. `runRemove()` builds `deps.DefaultDeps()`, calls `lifecycle.Remove()`
+4. `lifecycle.Remove()` guards: not-main, not-cwd-inside
+5. Calls `lifecycle.RemoveWorktreeAndArtifact()`:
+   - Fires `pre_remove` hook, runs `git worktree remove`
+   - Deletes artifact file (missing file is not an error)
+   - Runs `git branch -d`, fires `post_remove` hook
 
 ## Data Flow Example: `tp prune [--base main] [--dry-run] [--all]`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.pruneCommand()` defines CLI interface
-3. `runPrune()` parses flags, instantiates `treepad.Service`, calls `Prune()`
-4. `Service.Prune()` dispatches based on `All` flag:
-   - **If `--all` flag set:** calls `pruneAll()`
-     - Validates running from main worktree (safety guard)
-     - Lists all non-main worktrees
-     - Displays candidates and prompts user: "continue? [y/N]:"
-     - If confirmed, force-removes each via `forceRemoveWorktree()` (git worktree remove --force, git branch -D)
-     - If not confirmed, outputs "aborted" and returns
-   - **If `--all` flag not set:** standard merge-based mode
-     - Lists all worktrees via `worktree.List()`
-     - Gets merged branches via `worktree.MergedBranches(ctx, runner, base)`
-     - Filters candidates: merged, not main, not detached, not current worktree
-     - If `--dry-run` flag set, prints candidates and returns
-     - Otherwise removes each candidate via `removeWorktree()` (safe removal via git worktree remove, git branch -d)
+3. `runPrune()` builds `deps.DefaultDeps()`, calls `lifecycle.Prune()`
+4. `lifecycle.Prune()` calls `repo.Load()` to get worktree list, then dispatches:
+   - **`--all`:** `gatherAll()` collects all non-main worktrees; validates cwd in main worktree
+   - **default:** `gatherMerged()` queries `worktree.MergedBranches()`, skips dirty/ahead/current-cwd worktrees
+5. `executePrune()`:
+   - `--dry-run`: prints candidates and returns
+   - Otherwise: prompts "continue? [y/N]:" (unless `--yes`); calls `RemoveWorktreeAndArtifact()` per candidate (force=true for `--all`)
+   - Runs `git worktree prune` at the end to clean stale metadata
    - Returns error if any removals failed
 
-## Data Flow Example: `tp status [--json]`
+## Data Flow Example: `tp cd <branch>`
 
-1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
-2. `commands.statusCommand()` defines CLI interface
-3. `runStatus()` parses flags, instantiates `treepad.Service`, calls `Status()`
-4. `Service.Status()` executes:
-   - Lists all worktrees via `worktree.List()`
-   - For each worktree, probes:
-     - `worktree.Dirty()` — checks `git status --porcelain`
-     - `worktree.AheadBehind()` — compares vs `@{upstream}` if configured
-     - `worktree.LastCommit()` — fetches HEAD commit info
-   - Computes artifact file path via `artifact.Path()` and checks mtime
-   - Builds `[]StatusRow` with all collected info
-   - If `--json` flag set, encodes as JSON array; otherwise renders via `text/tabwriter` table
-   - Writes to `s.out` and returns
-
-## Data Flow Example: `tp exec <branch> [command] [args...]`
-
-1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
-2. `commands.execCommand()` defines CLI interface
-3. `runExec()` parses branch, optional command, and variadic args; instantiates `treepad.Service`, calls `Exec()`
-4. `Service.Exec()` executes:
-   - Lists all worktrees via `worktree.List()` and finds target by branch
-   - Checks if already in target worktree (emits warning if so)
-   - Loads config and detects task runner via `exec.Detect()` (uses override if configured)
-   - If command is empty: prints runner name and available scripts via `printScripts()`
-   - Otherwise: builds command via `buildCommand()`:
-     - If command matches enumerated script: routes through runner (e.g. "build" → ["pnpm", "run", "build"])
-     - Otherwise: executes raw command in worktree root
-   - Executes via PassthroughRunner with full stdio passthrough (inherits stdin/stdout/stderr from tp process)
-   - Returns exit code from child process (non-zero exit does not produce an error; launch failures do)
+1. `commands.cdCommand()` calls `cd.CD()`
+2. `cd.CD()` adapts deps → `cdshell.CD()`
+3. `cdshell.CD()` lists worktrees, locates by branch, calls `EmitCD()`
+4. `EmitCD()` checks `TREEPAD_CD_FD` env var; writes path to fd 3 when set (captured by shell wrapper); falls back to `__TREEPAD_CD__\t<path>` on stdout
 
 ## Data Flow Example: `tp status [--json]`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
-2. `commands.statusCommand()` defines CLI interface with `--json` flag
-3. `runStatus()` parses flags; instantiates `treepad.Deps` via `DefaultDeps()`
-4. Calls `treepad.Status()`
-   - Calls `refreshStatus()` → `loadRepoContext()` → `collectStatusRows()` to probe all worktrees
-   - **If `--json` flag:** encodes `[]StatusRow` as JSON array to stdout
-   - **Otherwise:** renders aligned table via `writeStatusTable()`
+2. `commands.statusCommand()` builds `deps.DefaultDeps()`, calls `treepad.Status()`
+3. `Status()` → `refreshStatus()` → `repo.Load()` + `config.Load()` + `collectStatusRows()`
+4. `collectStatusRows()` probes each worktree: `worktree.Dirty()`, `worktree.AheadBehind()`, `worktree.LastCommit()`; resolves artifact mtime
+5. JSON flag: encodes `[]StatusRow` to stdout; otherwise renders via `writeStatusTable()` using `text/tabwriter`
 
 ## Data Flow Example: `tp ui`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
-2. `commands.uiCommand()` defines CLI interface (no flags)
-3. `runUI()` instantiates `treepad.Deps` via `DefaultDeps()`, calls `treepad.UI()`
-4. `UI()` checks TTY via `d.IsTerminal(d.Out)`; returns `ErrNotTTY` (exit code 2) if not a terminal
-5. Constructs `uiModel` with BubbleTea spinner, enters alt-screen via `tea.NewProgram(..., tea.WithAltScreen(), tea.WithContext(ctx))`
-6. BubbleTea event loop:
-   - `Init()` dispatches `doRefresh()` and `doTick()` commands
+2. `commands.uiCommand()` builds `deps.DefaultDeps()`, calls `treepad.UI()`
+3. `UI()` checks TTY via `d.IsTerminal(d.Out)`; returns `ErrNotTTY` (exit code 2) if not a terminal
+4. Constructs `uiModel`, enters alt-screen via `tea.NewProgram(..., tea.WithAltScreen(), ...)`
+5. BubbleTea event loop:
+   - `Init()` dispatches `doRefresh()` and `doTick()` (2-second tick)
    - `doRefresh()` calls `refreshStatus()` asynchronously; result arrives as `uiRefreshMsg`
-   - Tick fires every 5s via `uiTickMsg`; skipped if an action is in flight
-   - Key events dispatch sync (`uiSyncDoneMsg`), remove (`uiRemoveDoneMsg`), prune (`uiPruneDoneMsg`), open (`uiOpenDoneMsg`), diff (`uiDiffDoneMsg`) as async commands
-   - `d` key (if not prunable) calls `doDiff()` to suspend alt-screen, run `git diff <base>...HEAD`, and return to TUI on exit
-   - `y` key stores path in `yankPath`; `View()` emits OSC-52 escape sequence; `uiYankClearMsg` clears it next tick
-   - `Enter` sets `selectedPath` and returns `tea.Quit`
-7. After `p.Run()` returns, if `selectedPath` is non-empty:
-   - Emits `__TREEPAD_CD__\t<path>` sentinel to stdout (shell wrapper cd's)
-   - Emits human-readable `→ cd: <path>` line
+   - Tick fires every 2s; skipped if an action is in flight
+   - `/` key enters `uiModeFilter`; keystrokes update `filterStr`; Enter commits, Esc cancels; committed filter applied via `filterRows()` (fuzzy match)
+   - `e` key enters `uiModeConfirmShell`; `y` confirms → `doShell()`: `tea.ExecProcess($SHELL)` in worktree dir; TUI suspends, resumes on shell exit
+   - Key events dispatch sync, remove, prune, open, diff, shell as async `tea.Cmd`s
+   - `y` key stores path in `yankPath`; `View()` emits OSC-52 escape; cleared next tick via `uiYankClearMsg`
+   - Enter sets `selectedPath` and returns `tea.Quit`
+6. After `p.Run()` returns, if `selectedPath` is non-empty: calls `uiEmitCD()` → `cd.EmitCD()` → shell wrapper cd's
 
 ## Data Flow Example: `tp diff <branch> [--base ref] [-o file] [-- <git-diff-args>...]`
 
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
-2. `commands.diffCommand()` defines CLI interface with branch positional arg, `--base` / `-b` flag (no hardcoded default), `--output` / `-o` flag, and `--` arg forwarding
-3. `runDiff()` parses branch arg, base and output flags, and extra args after `--`; instantiates `treepad.Deps` via `DefaultDeps()`, calls `Diff()`
-4. `Diff()` executes:
-   - Lists all worktrees via `worktree.List()` and finds target by branch
-   - Returns error if branch not found (with suggestion to sync)
-   - Checks if worktree is prunable; returns clear error with suggestion to prune if so
-   - Resolves base: if `DiffInput.Base` is empty, calls `resolveBase(worktrees)` to load from config or use fallback `"origin/main"`
-   - Builds three-dot ref string: `<base>...HEAD`
-   - **If output file specified:** runs `git -C <targetPath> diff --no-color <base>...HEAD [extra-args]` via `d.Runner.Run()` (uncolored capture), writes raw patch bytes to file, logs `[OK]` to stderr, returns
-   - **If no output file:** executes `git diff <base>...HEAD [extra-args]` via PassthroughRunner with stdio inherited from caller, respecting target worktree's git config (pager, color, delta, diff-so-fancy), returns exit code or error
-5. Exit code is 0 on success; non-zero only on git command failure or internal error
+2. `commands.diffCommand()` builds `deps.DefaultDeps()`, calls `treepad.Diff()`
+3. `Diff()`:
+   - Lists worktrees via `repo.ListWorktrees()`, finds target by branch
+   - Returns error if branch not found or worktree is prunable
+   - Resolves base via `resolveBase()` → `config.Load(mainPath).Diff.Base` or `"origin/main"`
+   - **Output file set:** `git -C <targetPath> diff --no-color <base>...HEAD [extra-args]` captured, written to file
+   - **No output file:** `git diff <base>...HEAD [extra-args]` via `passthrough.OSRunner` with inherited stdio
+
+## Data Flow Example: `tp doctor`
+
+1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
+2. `commands.doctorCommand()` builds `deps.DefaultDeps()`, calls `treepad.Doctor()`
+3. `Doctor()`:
+   - Calls `repo.Load()` + `config.Load()` + `worktree.MergedBranches()`
+   - Per worktree: runs five health checks (age, merged, remote-gone, artifact, config-drift)
+   - Prunable worktrees get a `prunable` finding directly
+   - JSON flag: encodes `[]DoctorFinding` to stdout; otherwise renders via `writeDoctorTable()`
+   - `--strict`: returns error if `len(findings) > 0`
 
 ---
 
-**Last Updated:** April 22, 2026
+**Last Updated:** April 26, 2026
 
 **Recent Changes:**
-- Task runner detection refactored to use `fs.FS` interface; `Detect()` renamed to `Resolve()`
-- `formatStatusRows()` extracted from `ui.go` into `status.go` for cleaner separation of concerns
-- Shell wrapper now tracks `$TP_PREV_WORKTREE` to enable `tp cd -` toggle-back functionality
-- Added short flag aliases: `-b` for `--base`, `-n` for `--dry-run`, `-a` for `--all`, `-y` for `--yes` (prune); `-j` for `--json` (status); `-g` for `--global` (config init)
-- Renamed `--use-current` to `--current` in sync command with backwards-compatible alias
+- `internal/treepad/` monolith refactored into focused sub-packages: `lifecycle/`, `cd/`, `cdshell/`, `fromspec/`, `deps/`, `repo/`, `cwd/`
+- `Service` struct removed; replaced by standalone top-level functions (`Generate`, `Exec`, `Diff`, `Doctor`, `Status`, `UI`)
+- `Deps` struct moved to `internal/treepad/deps/` package
+- Added `tp doctor` command for cross-worktree health reporting (stale, merged-present, remote-gone, artifact-missing, config-drift)
+- Added `tp base` command to return to the main worktree
+- Shell bridge upgraded to fd-3 protocol (`TREEPAD_CD_FD`): binary writes cd path to fd 3 (captured by wrapper), stdout flows live to terminal
+- TUI `/` key enters fuzzy filter mode (branch + path basename) via `filterRows()` using `sahilm/fuzzy`
+- `tp prune` safety enhanced: skips dirty and ahead-of-upstream worktrees in merge-based mode
+- Added `--profile` global flag: attaches `profile.Recorder` to `Deps.Profiler`; prints per-stage timing table to stderr after command finishes
+- Added `internal/profile/` package: `Profiler` interface, `Recorder` (production), `Disabled()` (no-op)
+- TUI `e` key: enters `uiModeConfirmShell`; confirmed → `tea.ExecProcess($SHELL)` in selected worktree; TUI suspends then resumes
+- TUI auto-refresh interval is 2 seconds (not 5)
