@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 
 	"treepad/internal/config"
 	tpexec "treepad/internal/exec"
 	"treepad/internal/passthrough"
+	"treepad/internal/treepad/cwd"
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
@@ -38,19 +38,16 @@ func Exec(ctx context.Context, d deps.Deps, in ExecInput) (int, error) {
 		return 0, err
 	}
 
-	wt, ok := worktree.FindByBranch(worktrees, in.Branch)
-	if !ok {
-		return 0, fmt.Errorf("no worktree found for branch %q; run `tp sync` to list worktrees", in.Branch)
+	wt, err := worktree.FindOrErr(worktrees, in.Branch)
+	if err != nil {
+		return 0, err
 	}
 
-	cwd := in.Cwd
-	if cwd == "" {
-		cwd, err = os.Getwd()
-		if err != nil {
-			return 0, fmt.Errorf("get current directory: %w", err)
-		}
+	curDir, err := cwd.Resolve(in.Cwd)
+	if err != nil {
+		return 0, err
 	}
-	if filepath.Clean(wt.Path) == filepath.Clean(cwd) {
+	if filepath.Clean(wt.Path) == filepath.Clean(curDir) {
 		d.Log.Warn("already in this worktree; consider invoking the runner directly")
 	}
 

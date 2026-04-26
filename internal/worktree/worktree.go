@@ -221,6 +221,24 @@ func FindByBranch(wts []Worktree, branch string) (Worktree, bool) {
 	return Worktree{}, false
 }
 
+// ErrNotFound is returned when no worktree matches the requested branch.
+type ErrNotFound struct {
+	Branch string
+}
+
+func (e ErrNotFound) Error() string {
+	return fmt.Sprintf("no worktree found for branch %q; run `tp sync` to list worktrees", e.Branch)
+}
+
+// FindOrErr wraps FindByBranch, returning ErrNotFound when no match exists.
+func FindOrErr(wts []Worktree, branch string) (Worktree, error) {
+	wt, ok := FindByBranch(wts, branch)
+	if !ok {
+		return Worktree{}, ErrNotFound{Branch: branch}
+	}
+	return wt, nil
+}
+
 func isMainWorktree(path string) bool {
 	info, err := os.Stat(filepath.Join(path, ".git"))
 	return err == nil && info.IsDir()

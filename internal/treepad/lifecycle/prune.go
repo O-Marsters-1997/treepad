@@ -2,9 +2,8 @@ package lifecycle
 
 import (
 	"context"
-	"fmt"
-	"os"
 
+	"treepad/internal/treepad/cwd"
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
@@ -34,19 +33,16 @@ func Prune(ctx context.Context, d deps.Deps, in PruneInput) error {
 		return err
 	}
 
-	cwd := in.Cwd
-	if cwd == "" {
-		cwd, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("get current directory: %w", err)
-		}
+	curDir, err := cwd.Resolve(in.Cwd)
+	if err != nil {
+		return err
 	}
 
 	var sel pruneSelection
 	if in.All {
-		sel, err = gatherAll(rc, cwd)
+		sel, err = gatherAll(rc, curDir)
 	} else {
-		sel, err = gatherMerged(ctx, d, rc, cwd, in.Base)
+		sel, err = gatherMerged(ctx, d, rc, curDir, in.Base)
 	}
 	if err != nil {
 		return err

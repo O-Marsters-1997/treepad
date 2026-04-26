@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"treepad/internal/treepad/cwd"
 	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
 )
@@ -93,9 +94,9 @@ func CD(ctx context.Context, d Deps, in CDInput) error {
 		return err
 	}
 
-	wt, ok := worktree.FindByBranch(worktrees, in.Branch)
-	if !ok {
-		return fmt.Errorf("no worktree found for branch %q; create one with: tp new %s", in.Branch, in.Branch)
+	wt, err := worktree.FindOrErr(worktrees, in.Branch)
+	if err != nil {
+		return err
 	}
 
 	EmitCD(d, wt.Path)
@@ -120,16 +121,12 @@ func Base(ctx context.Context, d Deps, in BaseInput) error {
 		return err
 	}
 
-	cwd := in.Cwd
-	if cwd == "" {
-		var cwdErr error
-		cwd, cwdErr = os.Getwd()
-		if cwdErr != nil {
-			return fmt.Errorf("get current directory: %w", cwdErr)
-		}
+	curDir, err := cwd.Resolve(in.Cwd)
+	if err != nil {
+		return err
 	}
 
-	if filepath.Clean(cwd) == filepath.Clean(main.Path) {
+	if filepath.Clean(curDir) == filepath.Clean(main.Path) {
 		return errors.New("already on the default worktree")
 	}
 

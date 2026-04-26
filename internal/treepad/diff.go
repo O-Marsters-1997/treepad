@@ -33,9 +33,9 @@ func Diff(ctx context.Context, d deps.Deps, in DiffInput) error {
 	if err != nil {
 		return err
 	}
-	target, ok := worktree.FindByBranch(wts, in.Branch)
-	if !ok {
-		return fmt.Errorf("no worktree found for branch %q; run `tp sync` to list worktrees", in.Branch)
+	target, err := worktree.FindOrErr(wts, in.Branch)
+	if err != nil {
+		return err
 	}
 	if target.Prunable {
 		return fmt.Errorf("worktree for %q is prunable (%s); run `tp prune`", in.Branch, target.PrunableReason)
