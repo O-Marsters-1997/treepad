@@ -183,10 +183,7 @@ func TestRunAgent(t *testing.T) {
 }
 
 func TestFromSpec(t *testing.T) {
-	mainPath := t.TempDir()
-	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	mainPath := makeMainWorktree(t)
 	outputDir := t.TempDir()
 	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
@@ -228,10 +225,7 @@ agent_command = []
 	})
 
 	t.Run("issue source invokes gh and renders prompt with issue body", func(t *testing.T) {
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(fromSpecTOML), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, fromSpecTOML)
 
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
@@ -272,10 +266,7 @@ agent_command = []
 	})
 
 	t.Run("empty agent_command skips passthrough but writes PROMPT.md", func(t *testing.T) {
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(fromSpecTOML), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, fromSpecTOML)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
@@ -307,10 +298,7 @@ agent_command = []
 	})
 
 	t.Run("--prompt flag appends user instructions to body", func(t *testing.T) {
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(fromSpecTOML), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, fromSpecTOML)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
@@ -364,10 +352,7 @@ agent_command = []
 		toml := "[[hooks.pre_new]]\ncommand = \"marker-pre\"\n\n" +
 			"[[hooks.post_new]]\ncommand = \"marker-post\"\n\n" +
 			fromSpecTOML
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, toml)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
@@ -400,10 +385,7 @@ agent_command = []
 
 	t.Run("pre_new failure aborts before worktree add", func(t *testing.T) {
 		toml := "[[hooks.pre_new]]\ncommand = \"fail\"\n\n" + fromSpecTOML
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, toml)
 
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
@@ -431,10 +413,7 @@ agent_command = []
 	})
 
 	t.Run("emits __TREEPAD_CD__ when Current is false", func(t *testing.T) {
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(fromSpecTOML), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, fromSpecTOML)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view

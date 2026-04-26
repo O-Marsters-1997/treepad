@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,10 +12,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	mainPath := t.TempDir()
-	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	mainPath := makeMainWorktree(t)
 	outputDir := t.TempDir()
 	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
@@ -132,10 +127,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("fires PreNew and PostNew hooks", func(t *testing.T) {
 		toml := "[[hooks.pre_new]]\ncommand = \"marker-pre\"\n\n[[hooks.post_new]]\ncommand = \"marker-post\"\n"
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, toml)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
@@ -169,10 +161,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("PreNew failure aborts before git worktree add", func(t *testing.T) {
 		toml := "[[hooks.pre_new]]\ncommand = \"fail\"\n"
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, toml)
 
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
@@ -194,10 +183,7 @@ func TestNew(t *testing.T) {
 
 	t.Run("PostNew failure logs warning but does not abort", func(t *testing.T) {
 		toml := "[[hooks.post_new]]\ncommand = \"fail\"\n"
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, toml)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},

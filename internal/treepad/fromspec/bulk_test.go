@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,22 +38,11 @@ func bulkSeqResponses(mainPath string, issues []struct{ title, body string }) []
 }
 
 func TestFromSpecBulk(t *testing.T) {
-	mainPath := t.TempDir()
-	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	mainPath := makeMainWorktree(t)
 	outputDir := t.TempDir()
 
-	writeBulkTOML := func(t *testing.T) {
-		t.Helper()
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(bulkTOML), 0o644); err != nil {
-			t.Fatalf("write toml: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
-	}
-
 	t.Run("happy path: 3 issues creates 3 worktrees with PROMPT.md", func(t *testing.T) {
-		writeBulkTOML(t)
+		writeTOML(t, mainPath, bulkTOML)
 
 		issues := []struct{ title, body string }{
 			{"Add retry to sync", "implement retry logic"},
@@ -120,7 +108,7 @@ func TestFromSpecBulk(t *testing.T) {
 	})
 
 	t.Run("middle issue has empty body: continues, records failure", func(t *testing.T) {
-		writeBulkTOML(t)
+		writeTOML(t, mainPath, bulkTOML)
 		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
@@ -161,7 +149,7 @@ func TestFromSpecBulk(t *testing.T) {
 	})
 
 	t.Run("middle issue gh exits non-zero: continues, records failure", func(t *testing.T) {
-		writeBulkTOML(t)
+		writeTOML(t, mainPath, bulkTOML)
 		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
@@ -195,7 +183,7 @@ func TestFromSpecBulk(t *testing.T) {
 	})
 
 	t.Run("branch name collision: second issue gets -N suffix", func(t *testing.T) {
-		writeBulkTOML(t)
+		writeTOML(t, mainPath, bulkTOML)
 		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
 		// Both issues have the same title.
@@ -232,7 +220,7 @@ func TestFromSpecBulk(t *testing.T) {
 	})
 
 	t.Run("no agent is ever invoked", func(t *testing.T) {
-		writeBulkTOML(t)
+		writeTOML(t, mainPath, bulkTOML)
 		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
@@ -257,7 +245,7 @@ func TestFromSpecBulk(t *testing.T) {
 	})
 
 	t.Run("__TREEPAD_CD__ never emitted", func(t *testing.T) {
-		writeBulkTOML(t)
+		writeTOML(t, mainPath, bulkTOML)
 		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{

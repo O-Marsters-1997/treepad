@@ -62,10 +62,7 @@ func TestFormatStatusRows(t *testing.T) {
 }
 
 func TestStatus(t *testing.T) {
-	mainPath := t.TempDir()
-	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	mainPath := makeMainWorktree(t)
 	featPath := mainPath + "-feat"
 	outputDir := t.TempDir()
 	repoSlug := slug.Slug(filepath.Base(mainPath))

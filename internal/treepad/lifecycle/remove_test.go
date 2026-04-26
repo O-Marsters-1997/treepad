@@ -14,10 +14,7 @@ import (
 )
 
 func TestRemove(t *testing.T) {
-	mainPath := t.TempDir()
-	if err := os.Mkdir(filepath.Join(mainPath, ".git"), 0o755); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	mainPath := makeMainWorktree(t)
 	featPath := mainPath + "-feat"
 	outputDir := t.TempDir()
 	repoSlug := slug.Slug(filepath.Base(mainPath))
@@ -66,10 +63,7 @@ func TestRemove(t *testing.T) {
 
 	t.Run("fires PreRemove and PostRemove hooks", func(t *testing.T) {
 		toml := "[[hooks.pre_remove]]\ncommand = \"marker-pre\"\n\n[[hooks.post_remove]]\ncommand = \"marker-post\"\n"
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, toml)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
@@ -99,10 +93,7 @@ func TestRemove(t *testing.T) {
 
 	t.Run("PreRemove failure aborts before git worktree remove", func(t *testing.T) {
 		toml := "[[hooks.pre_remove]]\ncommand = \"fail\"\n"
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, toml)
 
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
@@ -124,10 +115,7 @@ func TestRemove(t *testing.T) {
 
 	t.Run("PostRemove failure logs warning but does not abort", func(t *testing.T) {
 		toml := "[[hooks.post_remove]]\ncommand = \"fail\"\n"
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		writeTOML(t, mainPath, toml)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
