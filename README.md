@@ -149,14 +149,26 @@ tp prune --base develop
 tp prune --all
 ```
 
-**`cd`** — cd into an existing worktree by branch name:
+**`cd`** — cd into an existing worktree by branch name, or toggle back to the previous one:
 
 ```bash
 # cd into an existing worktree (shell integration handles the directory change)
 tp cd feature-x
+
+# toggle back to the previous worktree (like cd -)
+tp cd -
 ```
 
 > Requires `eval "$(tp shell-init)"` in your shell rc — the same wrapper used by `new`.
+
+**`base`** — return to the main worktree from any branch worktree:
+
+```bash
+# cd back to the main worktree
+tp base
+```
+
+> Requires `eval "$(tp shell-init)"` in your shell rc.
 
 **`status`** — List all worktrees with their branch, dirty state, ahead/behind count, and last commit:
 
@@ -175,20 +187,23 @@ tp status --json
 tp ui
 ```
 
-| Key | Action |
-|-----|--------|
-| `↑` / `k` | Move cursor up |
-| `↓` / `j` | Move cursor down |
-| `Enter` | cd into selected worktree and exit |
-| `s` | Sync selected worktree configs |
-| `S` | Sync all worktrees (fleet sync) |
-| `o` | Open artifact file for selected worktree |
-| `y` | Yank (copy) path of selected worktree to clipboard |
-| `r` | Remove selected worktree (with confirmation) |
-| `R` | Force-remove selected worktree — discards uncommitted changes and unmerged commits (with confirmation) |
-| `p` | Prune merged worktrees (with confirmation) |
-| `?` | Toggle key binding help overlay |
-| `q` / `Ctrl-C` | Quit |
+| Key            | Action                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------ |
+| `↑` / `k`      | Move cursor up                                                                                         |
+| `↓` / `j`      | Move cursor down                                                                                       |
+| `Enter`        | cd into selected worktree and exit                                                                     |
+| `s`            | Sync selected worktree configs                                                                         |
+| `S`            | Sync all worktrees (fleet sync)                                                                        |
+| `o`            | Open artifact file for selected worktree                                                               |
+| `d`            | Diff selected worktree against base branch                                                             |
+| `y`            | Yank (copy) path of selected worktree to clipboard                                                     |
+| `r`            | Remove selected worktree (with confirmation)                                                           |
+| `R`            | Force-remove selected worktree — discards uncommitted changes and unmerged commits (with confirmation) |
+| `p`            | Prune merged worktrees (with confirmation)                                                             |
+| `/`            | Filter worktrees by branch or path (fuzzy match)                                                       |
+| `Esc`          | Clear active filter                                                                                    |
+| `?`            | Toggle key binding help overlay                                                                        |
+| `q` / `Ctrl-C` | Quit                                                                                                   |
 
 Requires `eval "$(tp shell-init)"` for the `Enter`→cd action to work.
 
@@ -228,6 +243,28 @@ tp diff feature-x -- -- src/
 
 The `diff` command uses `git diff <base>...HEAD` three-dot semantics (matches GitHub PR diff view) and respects your git configuration (pager, delta, diff-so-fancy). Inherits color and pager config from the target worktree's git setup. Pass `--output` / `-o` to write an uncolored patch to a file.
 
+**`doctor`** — Report cross-worktree health issues (stale, merged, remote-gone, artifact-missing, config-drift):
+
+```bash
+# Show a table of findings
+tp doctor
+
+# Flag worktrees with no commit in the last 14 days
+tp doctor --stale-days 14
+
+# Check merges against a different base
+tp doctor --base develop
+
+# Skip remote branch checks (faster, works offline)
+tp doctor --offline
+
+# Emit JSON for scripting
+tp doctor --json
+
+# Exit non-zero if any findings are reported (useful in CI)
+tp doctor --strict
+```
+
 **`config`** — Manage tp configuration:
 
 ```bash
@@ -242,6 +279,29 @@ tp config show
 ```
 
 See [docs/commands.md](docs/commands.md) for the full command reference.
+
+### All commands
+
+```
+tp [--verbose] <command>
+├── sync [options] [source-path]
+├── new [options] <branch>
+├── from-spec [options] <branch>
+├── from-spec-bulk [options]
+├── remove <branch>
+├── prune [options]
+├── cd <branch | ->
+├── base
+├── status [--json]
+├── ui
+├── exec <branch> [command] [args...]
+├── diff [options] <branch> [-- <git-diff-args>...]
+├── doctor [options]
+├── shell-init
+└── config
+    ├── init [--global]
+    └── show
+```
 
 ## Testing
 
@@ -261,11 +321,11 @@ See the [testscript docs](https://pkg.go.dev/github.com/rogpeppe/go-internal/tes
 
 ## Development
 
-| Command           | Description                    |
-| ----------------- | ------------------------------ |
-| `just build`      | Compile the binary             |
-| `just test`       | Run all unit/integration tests |
-| `just test-e2e`   | Run end-to-end tests           |
-| `just lint`       | Run golangci-lint (via Docker) |
-| `just fmt`        | Format all Go files            |
-| `just ci`         | Lint, build, and test          |
+| Command         | Description                    |
+| --------------- | ------------------------------ |
+| `just build`    | Compile the binary             |
+| `just test`     | Run all unit/integration tests |
+| `just test-e2e` | Run end-to-end tests           |
+| `just lint`     | Run golangci-lint (via Docker) |
+| `just fmt`      | Format all Go files            |
+| `just ci`       | Lint, build, and test          |

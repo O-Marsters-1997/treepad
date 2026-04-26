@@ -73,21 +73,23 @@ content = """{
 
 Shell commands to run at lifecycle points in `tp` operations. See [hooks.md](hooks.md) for the full reference.
 
-Each field is a list of shell command strings (Go `text/template` strings rendered before execution). An empty or absent list is a no-op.
+Each event is declared as an array of hook entries using TOML array-of-tables syntax (`[[hooks.<event>]]`). Each entry has a `command` field (required) and optional `only`/`except` branch-filter arrays. An empty or absent list is a no-op.
 
-| Field         | Type     | Description                                                          |
-| ------------- | -------- | -------------------------------------------------------------------- |
-| `pre_new`     | string[] | Run before `git worktree add`; non-zero exit aborts the operation    |
-| `post_new`    | string[] | Run after artifact file is written; failure logs a warning           |
-| `pre_remove`  | string[] | Run before `git worktree remove`; non-zero exit aborts the operation |
-| `post_remove` | string[] | Run after `git branch -d`; failure logs a warning                    |
-| `pre_sync`    | string[] | Run before each worktree's file sync; non-zero exit aborts that sync |
-| `post_sync`   | string[] | Run after each worktree's file sync; failure logs a warning          |
+| Field         | When it fires                              | Blocks on failure |
+| ------------- | ------------------------------------------ | ----------------- |
+| `pre_new`     | Before `git worktree add`                  | Yes               |
+| `post_new`    | After artifact file is written             | No (warning)      |
+| `pre_remove`  | Before `git worktree remove`               | Yes               |
+| `post_remove` | After `git branch -d`                      | No (warning)      |
+| `pre_sync`    | Before each worktree's file sync           | Yes               |
+| `post_sync`   | After each worktree's file sync            | No (warning)      |
 
 ```toml
-[hooks]
-post_new   = ["direnv allow {{.WorktreePath}}"]
-pre_remove = ["git -C {{.WorktreePath}} diff --exit-code HEAD"]
+[[hooks.post_new]]
+command = "direnv allow {{.WorktreePath}}"
+
+[[hooks.pre_remove]]
+command = "git -C {{.WorktreePath}} diff --exit-code HEAD"
 ```
 
 ### `[open]` section
