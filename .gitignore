@@ -1,7 +1,7 @@
 /treepad
 .vscode
-.claude/agents
-.claude/skills
+.claude/
+.agents/
 ideas/
 dist
 /tp
