@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"treepad/internal/profile"
 	"treepad/internal/slug"
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/lifecycle"
@@ -41,6 +42,11 @@ type issueJSON struct {
 // failure it continues to the next issue and records the error in the result.
 // Returns the per-issue results, a count of failures, and any fatal setup error.
 func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]BulkResult, int, error) {
+	p := d.Profiler
+	if p == nil {
+		p = profile.Disabled()
+	}
+
 	results := make([]BulkResult, 0, len(in.Issues))
 	usedBranches := make(map[string]bool)
 	failed := 0
@@ -48,7 +54,9 @@ func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]Bul
 	for _, issueNum := range in.Issues {
 		res := BulkResult{Issue: issueNum}
 
+		issueDone := p.Stage("gh.issue_view")
 		title, body, err := fetchIssue(ctx, d, issueNum)
+		issueDone()
 		if err != nil {
 			res.Err = err
 			results = append(results, res)
@@ -70,7 +78,9 @@ func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]Bul
 		res.WorktreePath = wtRes.WorktreePath
 
 		promptBody := buildPrompt(wtRes.Cfg.FromSpec, branch, body, in.Prompt)
+		promptDone := p.Stage("prompt.write")
 		promptPath, err := writePromptFile(d, wtRes.WorktreePath, promptBody)
+		promptDone()
 		if err != nil {
 			res.Err = fmt.Errorf("render prompt: %w", err)
 			results = append(results, res)

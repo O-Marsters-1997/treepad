@@ -12,6 +12,7 @@ import (
 	"text/template"
 
 	"treepad/internal/config"
+	"treepad/internal/profile"
 	"treepad/internal/treepad/cd"
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/lifecycle"
@@ -46,10 +47,18 @@ type promptData struct {
 // writes PROMPT.md into the worktree, and hands off to a configured agent.
 // Returns the agent's exit code (0 when no agent_command is configured).
 func FromSpec(ctx context.Context, d deps.Deps, in FromSpecInput) (int, error) {
+	p := d.Profiler
+	if p == nil {
+		p = profile.Disabled()
+	}
+
 	if in.Issue == 0 {
 		return 0, errors.New("issue is required")
 	}
+
+	issueDone := p.Stage("gh.issue_view")
 	spec, err := resolveIssueSpec(ctx, d, in.Issue)
+	issueDone()
 	if err != nil {
 		return 0, err
 	}
@@ -59,7 +68,9 @@ func FromSpec(ctx context.Context, d deps.Deps, in FromSpecInput) (int, error) {
 		return 0, err
 	}
 
+	promptDone := p.Stage("prompt.write")
 	promptPath, rendered, err := resolveOrBuildPrompt(d, res, in.Branch, spec, in.Prompt)
+	promptDone()
 	if err != nil {
 		return 0, err
 	}
@@ -74,12 +85,16 @@ func FromSpec(ctx context.Context, d deps.Deps, in FromSpecInput) (int, error) {
 		Prompt:       rendered,
 	}
 	cd.MaybeWarnStaleWrapper(d, len(res.Cfg.FromSpec.AgentCommand) > 0)
+	agentDone := p.Stage("agent.run")
 	code, err := runAgent(ctx, d, res.Cfg.FromSpec.AgentCommand, data)
+	agentDone()
 	if err != nil {
 		return code, err
 	}
 	if !in.Current {
+		cdDone := p.Stage("cd.emit")
 		cd.EmitCD(d, res.WorktreePath)
+		cdDone()
 	}
 	return code, nil
 }

@@ -86,6 +86,7 @@ func Generate(ctx context.Context, d deps.Deps, in GenerateInput) error {
 			Syncer:     d.Syncer,
 			Opener:     d.Opener,
 			HookRunner: d.HookRunner,
+			Profiler:   d.Profiler,
 			Log:        d.Log,
 			In:         d.In,
 		}, sourceDir, in.ExtraPatterns, targets, repoSlug, outputDir)
