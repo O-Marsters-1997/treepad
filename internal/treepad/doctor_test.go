@@ -3,6 +3,7 @@ package treepad
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +61,12 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},                               // dirty: feat (clean)
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -86,7 +92,12 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("M file.go\n")},                    // dirty: feat dirty
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -113,7 +124,12 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},                              // dirty: feat
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -142,7 +158,12 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},                              // ls-remote: empty → branch gone
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
 
 		in := DoctorInput{StaleDays: 30, Base: "main", Offline: false, OutputDir: outputDir}
 		err := Doctor(context.Background(), d, in)
@@ -165,7 +186,12 @@ func TestDoctor(t *testing.T) {
 			{Output: recentCommitOutput("def5678", "feat x")},
 			{Output: []byte("")},
 		}}
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    io.Discard,
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -190,7 +216,13 @@ func TestDoctor(t *testing.T) {
 		// outputDir has no artifact files on disk → both worktrees flagged missing.
 		emptyOutputDir := t.TempDir()
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.OutputDir = emptyOutputDir
@@ -222,7 +254,13 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -254,7 +292,13 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.OutputDir = artifactDir
@@ -278,7 +322,13 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.JSON = true
@@ -308,7 +358,13 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.Strict = true
@@ -337,7 +393,13 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) {
 			in.Strict = true
@@ -357,7 +419,13 @@ func TestDoctor(t *testing.T) {
 			// no per-worktree calls because detached is skipped
 		}}
 		var buf strings.Builder
-		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+			In:     strings.NewReader(""),
+		}
 
 		err := Doctor(context.Background(), d, offlineInput())
 		if err != nil {
@@ -420,7 +488,10 @@ func TestDoctor(t *testing.T) {
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf strings.Builder
-			d := deps.Deps{Runner: tt.runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+			d := deps.Deps{
+				Runner: tt.runner, Syncer: &treepadtest.FakeSyncer{},
+				Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader(""),
+			}
 			err := Doctor(context.Background(), d, offlineInput())
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("got error %v, want error containing %q", err, tt.wantErr)

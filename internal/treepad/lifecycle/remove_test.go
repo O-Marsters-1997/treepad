@@ -209,7 +209,11 @@ func TestRemove(t *testing.T) {
 			{},                  // git worktree remove --force
 			{},                  // git branch -D
 		}}}
-		deps := deps.Deps{Runner: rr.Inner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps := deps.Deps{
+			Runner: rr,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+		}
 
 		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir, Force: true})
 		if err != nil {

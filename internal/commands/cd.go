@@ -2,9 +2,10 @@ package commands
 
 import (
 	"context"
-	"treepad/internal/treepad/cd"
 
 	"github.com/urfave/cli/v3"
+
+	"treepad/internal/treepad/cd"
 )
 
 func cdCommand() *cli.Command {

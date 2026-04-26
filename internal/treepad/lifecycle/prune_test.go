@@ -23,8 +23,9 @@ func TestPrune(t *testing.T) {
 	featPath := mainPath + "-feat"
 	outputDir := t.TempDir()
 	repoSlug := slug.Slug(filepath.Base(mainPath))
+	otherPath := mainPath + "-other"
 	twoPorcelain := treepadtest.TwoWorktreePorcelainWithMain(mainPath, featPath)
-	threePorcelain := treepadtest.ThreeWorktreePorcelain
+	threePorcelain := treepadtest.ThreeWorktreePorcelainWithMain(mainPath, featPath, otherPath)
 
 	t.Run("dry-run lists candidates without removing", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
@@ -302,7 +303,13 @@ func TestPrune(t *testing.T) {
 			{},                     // git branch -D
 			{},                     // git worktree prune
 		}}}
-		deps := deps.Deps{Runner: rec.Inner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: io.Discard, In: strings.NewReader("y\n")}
+		deps := deps.Deps{
+			Runner: rec,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    io.Discard,
+			In:     strings.NewReader("y\n"),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{
 			All:       true,
@@ -341,7 +348,13 @@ func TestPrune(t *testing.T) {
 			{},                     // git branch -D
 			{},                     // git worktree prune
 		}}}
-		deps := deps.Deps{Runner: rec.Inner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: io.Discard, In: strings.NewReader("")}
+		deps := deps.Deps{
+			Runner: rec,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    io.Discard,
+			In:     strings.NewReader(""),
+		}
 
 		err := Prune(context.Background(), deps, PruneInput{
 			All:       true,

@@ -3,6 +3,8 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+
+	"treepad/internal/treepad/cd"
 	"treepad/internal/treepad/deps"
 )
 
@@ -15,7 +17,8 @@ type NewInput struct {
 	OutputDir string
 }
 
-// New creates a new worktree and returns the path to cd into (or "" when Current is true).
+// New creates a new worktree, emits the __TREEPAD_CD__ directive to d.Out, and
+// returns the main worktree path (for callers that need it without an Out writer).
 func New(ctx context.Context, d deps.Deps, in NewInput) (string, error) {
 	res, err := CreateWorktreeWithSync(ctx, d, in.Branch, in.Base, in.OutputDir)
 	if err != nil {
@@ -29,8 +32,8 @@ func New(ctx context.Context, d deps.Deps, in NewInput) (string, error) {
 			return "", fmt.Errorf("open: %w", err)
 		}
 	}
-	if in.Current {
-		return "", nil
+	if !in.Current {
+		cd.EmitCD(d, res.WorktreePath)
 	}
-	return res.WorktreePath, nil
+	return res.RC.Main.Path, nil
 }

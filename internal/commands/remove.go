@@ -2,9 +2,10 @@ package commands
 
 import (
 	"context"
-	"treepad/internal/treepad/lifecycle"
 
 	"github.com/urfave/cli/v3"
+
+	"treepad/internal/treepad/lifecycle"
 )
 
 func removeCommand() *cli.Command {

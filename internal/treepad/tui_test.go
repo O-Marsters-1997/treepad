@@ -7,12 +7,13 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+
 	"treepad/internal/artifact"
 	"treepad/internal/treepad/cd"
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/treepadtest"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestUI(t *testing.T) {

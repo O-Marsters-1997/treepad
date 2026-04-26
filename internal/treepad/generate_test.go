@@ -15,7 +15,8 @@ import (
 func TestGenerate(t *testing.T) {
 	t.Run("syncs non-source worktrees", func(t *testing.T) {
 		syn := &treepadtest.FakeSyncer{}
-		deps := deps.Deps{Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.TwoWorktreePorcelain}}}, Syncer: syn}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.TwoWorktreePorcelain}}}
+		deps := deps.Deps{Runner: runner, Syncer: syn}
 
 		err := Generate(context.Background(), deps, GenerateInput{SourcePath: "/repo/main", SyncOnly: true})
 		if err != nil {
@@ -31,7 +32,8 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("Branch filters to one target", func(t *testing.T) {
 		syn := &treepadtest.FakeSyncer{}
-		deps := deps.Deps{Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}, Syncer: syn}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}
+		deps := deps.Deps{Runner: runner, Syncer: syn}
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -51,7 +53,8 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("unknown Branch returns clear error", func(t *testing.T) {
 		syn := &treepadtest.FakeSyncer{}
-		deps := deps.Deps{Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}, Syncer: syn}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}
+		deps := deps.Deps{Runner: runner, Syncer: syn}
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",
@@ -65,7 +68,8 @@ func TestGenerate(t *testing.T) {
 
 	t.Run("empty Branch syncs all targets", func(t *testing.T) {
 		syn := &treepadtest.FakeSyncer{}
-		deps := deps.Deps{Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}, Syncer: syn}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.ThreeWorktreePorcelain}}}
+		deps := deps.Deps{Runner: runner, Syncer: syn}
 
 		err := Generate(context.Background(), deps, GenerateInput{
 			SourcePath: "/repo/main",

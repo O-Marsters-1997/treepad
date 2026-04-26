@@ -36,12 +36,17 @@ type Logger interface {
 }
 
 // EmitCD writes the __TREEPAD_CD__ sentinel for the path.
+// In the fallback path (no fd-3 sentinel), it also writes a human-readable line.
 func EmitCD(d Deps, path string) {
 	if w := sentinelWriter(d); w != nil {
 		_, _ = io.WriteString(w, path+"\n")
 		return
 	}
+	if d.Out == nil {
+		return
+	}
 	_, _ = fmt.Fprintf(d.Out, "__TREEPAD_CD__\t%s\n", path)
+	_, _ = fmt.Fprintf(d.Out, "→ cd: %s\n", path)
 }
 
 // sentinelWriter returns the writer for the cd sentinel.

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/treepadtest"
 )
@@ -86,7 +87,10 @@ func TestNew(t *testing.T) {
 			{Output: nil},
 		}}
 		var buf strings.Builder
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := deps.Deps{
+			Runner: runner, Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader(""),
+		}
 
 		_, err := New(context.Background(), deps, NewInput{
 			Branch:    "feature/auth",
@@ -107,7 +111,10 @@ func TestNew(t *testing.T) {
 			{Output: nil},
 		}}
 		var buf strings.Builder
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := deps.Deps{
+			Runner: runner, Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader(""),
+		}
 
 		_, err := New(context.Background(), deps, NewInput{
 			Branch:    "feature/auth",
@@ -245,7 +252,10 @@ func TestNew(t *testing.T) {
 	}
 	for _, tt := range errorTests {
 		t.Run(tt.name, func(t *testing.T) {
-			deps := deps.Deps{Runner: tt.runner, Syncer: tt.syncer, Opener: &treepadtest.FakeOpener{}, Out: io.Discard, In: strings.NewReader("")}
+			deps := deps.Deps{
+				Runner: tt.runner, Syncer: tt.syncer,
+				Opener: &treepadtest.FakeOpener{}, Out: io.Discard, In: strings.NewReader(""),
+			}
 			_, err := New(context.Background(), deps, NewInput{
 				Branch:    "feature/auth",
 				Base:      "main",

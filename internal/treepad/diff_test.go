@@ -41,7 +41,9 @@ func TestDiff(t *testing.T) {
 
 	t.Run("unknown branch", func(t *testing.T) {
 		d := deps.Deps{
-			Runner: &treepadtest.SeqRunner{},
+			Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: treepadtest.TwoWorktreePorcelain},
+			}},
 			Syncer: &treepadtest.FakeSyncer{},
 			Out:    &bytes.Buffer{},
 			Log:    ui.New(&bytes.Buffer{}),
@@ -165,7 +167,10 @@ func TestDiff(t *testing.T) {
 			{Output: patchContent},
 		}}}
 		var logBuf bytes.Buffer
-		d := deps.Deps{Runner: rec, Syncer: &treepadtest.FakeSyncer{}, Out: &bytes.Buffer{}, Log: ui.New(&logBuf), In: strings.NewReader("")}
+		d := deps.Deps{
+			Runner: rec, Syncer: &treepadtest.FakeSyncer{},
+			Out: &bytes.Buffer{}, Log: ui.New(&logBuf), In: strings.NewReader(""),
+		}
 
 		if err := Diff(context.Background(), d, DiffInput{Branch: "feat", Base: "main", OutputFile: outFile}); err != nil {
 			t.Fatalf("unexpected error: %v", err)

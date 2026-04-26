@@ -95,7 +95,10 @@ type SyncTarget struct {
 }
 
 // OpenWorktree opens the artifact (or worktree path when no artifact) via the configured command.
-func OpenWorktree(ctx context.Context, d deps.Deps, openCmd []string, branch, wtPath, artifactPath, outputDir string) error {
+func OpenWorktree(
+	ctx context.Context, d deps.Deps, openCmd []string,
+	branch, wtPath, artifactPath, outputDir string,
+) error {
 	openPath := wtPath
 	if artifactPath != "" {
 		openPath = artifactPath

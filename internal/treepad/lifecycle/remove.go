@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/repo"
 	"treepad/internal/worktree"
@@ -46,12 +47,4 @@ func Remove(ctx context.Context, d deps.Deps, in RemoveInput) error {
 	}
 
 	return RemoveWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, in.Force)
-}
-
-func removeWorktreeAndArtifact(
-	ctx context.Context, d deps.Deps,
-	target, main worktree.Worktree,
-	outputDir string, force bool,
-) error {
-	return RemoveWorktreeAndArtifact(ctx, d, target, main, outputDir, force)
 }

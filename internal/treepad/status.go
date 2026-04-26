@@ -60,7 +60,9 @@ func Status(ctx context.Context, d deps.Deps, in StatusInput) error {
 	return writeStatusTable(d, rows)
 }
 
-func collectStatusRows(ctx context.Context, d deps.Deps, rc repo.Context, artCfg config.ArtifactConfig) ([]StatusRow, error) {
+func collectStatusRows(
+	ctx context.Context, d deps.Deps, rc repo.Context, artCfg config.ArtifactConfig,
+) ([]StatusRow, error) {
 	rows := make([]StatusRow, 0, len(rc.Worktrees))
 	for _, wt := range rc.Worktrees {
 		row := StatusRow{

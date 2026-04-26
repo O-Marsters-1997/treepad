@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,7 +209,11 @@ agent_command = []
 			RC:           repo.Context{Slug: "treepad"},
 			Cfg:          config.Config{FromSpec: config.FromSpecConfig{}},
 		}
-		deps := deps.Deps{Runner: &treepadtest.SeqRunner{}, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps := deps.Deps{
+			Runner: &treepadtest.SeqRunner{},
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+		}
 
 		path, rendered, err := resolveOrBuildPrompt(deps, res, "feat/test", specBody, "")
 		if err != nil {
@@ -233,7 +238,12 @@ agent_command = []
 			{Output: porcelain},        // git worktree list
 			{Output: nil},              // git worktree add
 		}}}
-		deps := deps.Deps{Runner: rr, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps := deps.Deps{
+			Runner: rr,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    io.Discard,
+		}
 		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{

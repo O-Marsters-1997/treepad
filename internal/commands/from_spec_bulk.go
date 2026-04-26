@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"treepad/internal/treepad/fromspec"
 
 	"github.com/urfave/cli/v3"
+
+	"treepad/internal/treepad/fromspec"
 )
 
 func fromSpecBulkCommand() *cli.Command {

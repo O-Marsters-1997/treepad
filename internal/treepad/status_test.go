@@ -96,7 +96,10 @@ func TestStatus(t *testing.T) {
 		}}
 
 		var buf strings.Builder
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := deps.Deps{
+			Runner: runner, Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader(""),
+		}
 		err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -123,7 +126,10 @@ func TestStatus(t *testing.T) {
 			{Output: commitOutput("def5678", "add x")},
 		}}
 		var buf strings.Builder
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := deps.Deps{
+			Runner: runner, Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader(""),
+		}
 		err := Status(context.Background(), deps, StatusInput{JSON: true, OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -152,7 +158,10 @@ func TestStatus(t *testing.T) {
 		}}
 
 		var buf strings.Builder
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader("")}
+		deps := deps.Deps{
+			Runner: runner, Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{}, Out: &buf, In: strings.NewReader(""),
+		}
 		err := Status(context.Background(), deps, StatusInput{OutputDir: outputDir})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

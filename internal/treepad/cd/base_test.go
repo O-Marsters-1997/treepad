@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/treepadtest"
 )
@@ -32,7 +33,7 @@ func TestBase(t *testing.T) {
 			name:      "emits cd to main when cwd is a linked worktree",
 			cwd:       featPath,
 			porcelain: porcelain,
-			wantCD:    "__TREEPAD_CD__\t" + mainPath + "\n",
+			wantCD:    "__TREEPAD_CD__\t" + mainPath + "\n→ cd: " + mainPath + "\n",
 		},
 		{
 			name:        "errors when already on the default worktree",
@@ -55,7 +56,7 @@ func TestBase(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
 			deps := deps.Deps{
-				Runner: &treepadtest.Runner{},
+				Runner: treepadtest.StaticRunner{Output: tt.porcelain},
 				Syncer: &treepadtest.FakeSyncer{},
 				Out:    &out,
 				In:     strings.NewReader(""),

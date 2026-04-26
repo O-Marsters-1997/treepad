@@ -658,7 +658,7 @@ func uiRenderModal(m uiModel) string {
 // UI opens a full-screen fleet view. It returns ErrNotTTY when d.Out is not
 // an interactive terminal.
 func UI(ctx context.Context, d deps.Deps, in StatusInput) error {
-	if !d.IsTerminal(d.Out) {
+	if d.IsTerminal == nil || !d.IsTerminal(d.Out) {
 		return ErrNotTTY
 	}
 	cwd, _ := os.Getwd()

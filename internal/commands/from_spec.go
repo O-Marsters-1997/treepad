@@ -3,9 +3,10 @@ package commands
 import (
 	"context"
 	"fmt"
-	"treepad/internal/treepad/fromspec"
 
 	"github.com/urfave/cli/v3"
+
+	"treepad/internal/treepad/fromspec"
 )
 
 func fromSpecCommand() *cli.Command {
