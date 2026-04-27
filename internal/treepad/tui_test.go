@@ -1031,3 +1031,110 @@ func TestUIEmitCD(t *testing.T) {
 		}
 	})
 }
+
+func TestUINumberNavigation(t *testing.T) {
+	rows4 := []StatusRow{
+		{Branch: "main", IsMain: true, Path: "/repo/main"},
+		{Branch: "feat-a", Path: "/repo/feat-a"},
+		{Branch: "feat-b", Path: "/repo/feat-b"},
+		{Branch: "fix", Path: "/repo/fix"},
+	}
+
+	t.Run("number key jumps cursor to that row", func(t *testing.T) {
+		m := uiModel{rows: rows4, cursor: 0}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+		m2 := updated.(uiModel)
+		if m2.cursor != 2 {
+			t.Errorf("cursor = %d, want 2", m2.cursor)
+		}
+		if cmd != nil {
+			t.Error("in-range jump should not dispatch a command")
+		}
+	})
+
+	t.Run("0 jumps to first row", func(t *testing.T) {
+		m := uiModel{rows: rows4, cursor: 3}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}})
+		m2 := updated.(uiModel)
+		if m2.cursor != 0 {
+			t.Errorf("cursor = %d, want 0", m2.cursor)
+		}
+	})
+
+	t.Run("out-of-range shows toast and does not move cursor", func(t *testing.T) {
+		m := uiModel{rows: rows4, cursor: 1}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
+		m2 := updated.(uiModel)
+		if m2.cursor != 1 {
+			t.Errorf("cursor = %d, want 1 (unchanged)", m2.cursor)
+		}
+		if m2.toast == nil {
+			t.Fatal("expected out-of-range toast")
+		}
+		if !strings.Contains(m2.toast.msg, "out of range") {
+			t.Errorf("toast = %q, want containing 'out of range'", m2.toast.msg)
+		}
+		if m2.toast.isErr {
+			t.Error("out-of-range toast should not be sticky error")
+		}
+	})
+
+	t.Run("out-of-range increments toastGen so stale ticks do not clear toast", func(t *testing.T) {
+		m := uiModel{rows: rows4}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
+		m1 := updated.(uiModel)
+		gen1 := m1.toastGen
+
+		// second press bumps gen again
+		updated2, _ := m1.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
+		m2 := updated2.(uiModel)
+		if m2.toastGen <= gen1 {
+			t.Errorf("toastGen = %d, want > %d after second press", m2.toastGen, gen1)
+		}
+
+		// stale tick (gen1) must not clear the current toast
+		updated3, _ := m2.Update(uiToastExpiredMsg{gen: gen1})
+		m3 := updated3.(uiModel)
+		if m3.toast == nil {
+			t.Error("stale tick should not clear toast set by later press")
+		}
+
+		// current tick (m2.toastGen) must clear
+		updated4, _ := m3.Update(uiToastExpiredMsg{gen: m2.toastGen})
+		m4 := updated4.(uiModel)
+		if m4.toast != nil {
+			t.Error("current-gen tick should clear the toast")
+		}
+	})
+
+	t.Run("number key in filter mode types character not navigates", func(t *testing.T) {
+		m := uiModel{rows: rows4, mode: uiModeFilter, filterStr: ""}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+		m2 := updated.(uiModel)
+		if m2.filterStr != "2" {
+			t.Errorf("filterStr = %q, want '2'", m2.filterStr)
+		}
+		if m2.cursor != 0 {
+			t.Errorf("cursor = %d, want 0 (unchanged in filter mode)", m2.cursor)
+		}
+	})
+
+	t.Run("view shows row numbers as inline column prefix", func(t *testing.T) {
+		m := uiModel{rows: rows4, cursor: 0}
+		view := m.View()
+		if !strings.Contains(view, "0 ") {
+			t.Errorf("view missing '0 ' prefix: %s", view)
+		}
+		if !strings.Contains(view, "3 ") {
+			t.Errorf("view missing '3 ' prefix: %s", view)
+		}
+	})
+
+	t.Run("help text mentions number key navigation", func(t *testing.T) {
+		m := uiModel{mode: uiModeHelp}
+		view := m.View()
+		if !strings.Contains(view, "0–9") {
+			t.Errorf("help view missing '0–9' binding: %s", view)
+		}
+	})
+}

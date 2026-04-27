@@ -44,12 +44,19 @@ func (m uiModel) View() string {
 		lines := formatUIRows(vr, m.health)
 		for i, line := range lines {
 			if i == 0 {
-				sb.WriteString("  ")
+				sb.WriteString("    ")
 				sb.WriteString(uiHeaderStyle.Render(line))
 			} else {
 				rowIdx := i - 1
 				isSyncing := m.actionInFlight && m.syncBranch != "" &&
 					rowIdx < len(vr) && vr[rowIdx].Branch == m.syncBranch
+
+				var numCol string
+				if rowIdx < 10 {
+					numCol = fmt.Sprintf("%d ", rowIdx)
+				} else {
+					numCol = "  "
+				}
 
 				var prefix string
 				switch {
@@ -65,11 +72,11 @@ func (m uiModel) View() string {
 					cwdInside(m.activePath, vr[rowIdx].Path)
 				switch {
 				case rowIdx == m.cursor:
-					sb.WriteString(uiCursorStyle.Render(prefix + line))
+					sb.WriteString(numCol + uiCursorStyle.Render(prefix+line))
 				case isActive:
-					sb.WriteString(uiActiveStyle.Render(prefix + line))
+					sb.WriteString(numCol + uiActiveStyle.Render(prefix+line))
 				default:
-					sb.WriteString(prefix + line)
+					sb.WriteString(numCol + prefix + line)
 				}
 			}
 			sb.WriteString("\n")
@@ -121,6 +128,7 @@ func (m uiModel) View() string {
 
 func uiRenderHelp() string {
 	body := "Key Bindings\n\n" +
+		"0–9         Jump to row N (row 0 = main worktree)\n" +
 		"↑ / k       Move cursor up\n" +
 		"↓ / j       Move cursor down\n" +
 		"Enter       cd into selected worktree\n" +
