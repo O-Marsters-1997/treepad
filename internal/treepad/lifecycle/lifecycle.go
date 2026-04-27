@@ -173,6 +173,7 @@ func LoadAndSync(
 			syncRes, syncErr := d.Syncer.Sync(patterns, internalsync.Config{
 				SourceDir: sourceDir,
 				TargetDir: t.Path,
+				Stage:     p.Stage,
 			})
 			fileSyncDone()
 			p.Observe("file_sync", syncRes.Files, syncRes.Bytes)
