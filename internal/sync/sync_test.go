@@ -378,6 +378,9 @@ func TestDirCouldMatch(t *testing.T) {
 	}{
 		{"node_modules", []string{".claude/"}, false},
 		{".claude", []string{".claude/"}, true},
+		{".claude/agents", []string{".claude/"}, true},
+		{".claude/agents/sub", []string{".claude/"}, true},
+		{"node_modules/pkg", []string{"node_modules/"}, true},
 		{".vscode", []string{".vscode/settings.json"}, true},
 		{".vscode", []string{".vscode/*.json"}, true},
 		{".vscode", []string{".env"}, false},

@@ -226,6 +226,10 @@ func dirCouldMatch(dir string, includes []string) bool {
 		if strings.TrimSuffix(literal, "/") == dir {
 			return true
 		}
+		// dir is a subdirectory of the pattern literal (e.g. ".claude/agents" inside ".claude/").
+		if strings.HasPrefix(prefix, literal+"/") {
+			return true
+		}
 		// Wildcard portion could expand into this dir.
 		if literalEnd >= 0 && strings.HasPrefix(prefix, literal) {
 			return true
