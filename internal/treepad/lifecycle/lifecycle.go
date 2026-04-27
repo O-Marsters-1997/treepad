@@ -176,7 +176,7 @@ func LoadAndSync(
 				Stage:     p.Stage,
 			})
 			fileSyncDone()
-			p.Observe("file_sync", syncRes.Files, syncRes.Bytes)
+			p.Observe("file_sync", syncRes.Files, 0)
 			if syncErr != nil {
 				return fmt.Errorf("sync configs to %s: %w", t.Branch, syncErr)
 			}
