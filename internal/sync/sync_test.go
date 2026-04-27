@@ -365,7 +365,7 @@ func TestFileSyncerSyncBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	t.Logf("synced %d files (%d bytes) in %v", res.Files, res.Bytes, elapsed)
+	t.Logf("synced %d files in %v", res.Files, elapsed)
 	if elapsed > budget {
 		t.Errorf("sync took %v, want < %v — possible regression to slow copy path", elapsed, budget)
 	}

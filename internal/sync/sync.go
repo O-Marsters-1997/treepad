@@ -45,7 +45,6 @@ func stageOf(cfg Config) func(string) func() {
 // SyncResult holds file-transfer metrics from a Sync call.
 type SyncResult struct {
 	Files int64
-	Bytes int64
 }
 
 // Syncer copies files matching patterns from SourceDir to TargetDir.
@@ -151,9 +150,6 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 			return fmt.Errorf("sync %s: %w", rel, err)
 		}
 		result.Files++
-		if info, e := d.Info(); e == nil {
-			result.Bytes += info.Size()
-		}
 		return nil
 	})
 	walkDone()
