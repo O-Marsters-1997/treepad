@@ -285,10 +285,6 @@ func dirCouldMatch(dir string, includes []string) bool {
 	return false
 }
 
-func copySymlink(src, dst string) error {
-	return copySymlinkCached(src, dst, nil)
-}
-
 func copySymlinkCached(src, dst string, made map[string]struct{}) error {
 	target, err := os.Readlink(src)
 	if err != nil {
