@@ -32,22 +32,30 @@ type Config struct {
 	TargetDir string
 }
 
+// SyncResult holds file-transfer metrics from a Sync call.
+type SyncResult struct {
+	Files int64
+	Bytes int64
+}
+
 // Syncer copies files matching patterns from SourceDir to TargetDir.
 // Patterns follow gitignore syntax: ** matches across directories,
 // trailing / matches a directory and all its contents,
 // and ! prefix negates a pattern.
 // Files absent in SourceDir are silently skipped.
 type Syncer interface {
-	Sync(patterns []string, cfg Config) error
+	Sync(patterns []string, cfg Config) (SyncResult, error)
 }
 
 type FileSyncer struct{}
 
-func (FileSyncer) Sync(patterns []string, cfg Config) error {
+func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 	if err := validatePatterns(patterns); err != nil {
-		return err
+		return SyncResult{}, err
 	}
 	include, exclude := parsePatterns(patterns)
+
+	var result SyncResult
 
 	// Attempt to fast-clone whole-directory include patterns before walking.
 	// On Darwin/APFS this turns a 30s node_modules copy into a sub-second clone.
@@ -72,11 +80,24 @@ func (FileSyncer) Sync(patterns []string, cfg Config) error {
 			walkIncludes = append(walkIncludes, p)
 			continue
 		}
+		// Stat-walk the source to count files and bytes for the cloned tree.
+		_ = filepath.WalkDir(src, func(_ string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			result.Files++
+			if d.Type().IsRegular() {
+				if info, e := d.Info(); e == nil {
+					result.Bytes += info.Size()
+				}
+			}
+			return nil
+		})
 		cloned[dir] = true
 		slog.Debug("cloned tree", "dir", dir)
 	}
 
-	return filepath.WalkDir(cfg.SourceDir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(cfg.SourceDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -95,6 +116,7 @@ func (FileSyncer) Sync(patterns []string, cfg Config) error {
 			if err := copySymlink(path, dst); err != nil {
 				return fmt.Errorf("sync %s: %w", rel, err)
 			}
+			result.Files++
 			slog.Debug("synced symlink", "rel", rel)
 			return nil
 		}
@@ -121,8 +143,13 @@ func (FileSyncer) Sync(patterns []string, cfg Config) error {
 		if err := copyFile(path, dst); err != nil {
 			return fmt.Errorf("sync %s: %w", rel, err)
 		}
+		result.Files++
+		if info, e := d.Info(); e == nil {
+			result.Bytes += info.Size()
+		}
 		return nil
 	})
+	return result, err
 }
 
 func parsePatterns(patterns []string) (include, exclude []string) {
