@@ -342,6 +342,9 @@ func TestFileSyncerSyncFastPath(t *testing.T) {
 // tree completes within a usable time budget. On APFS (Darwin) the fast-clone
 // path makes this near-instant; on Linux the budget covers kernel-copy overhead.
 func TestFileSyncerSyncBudget(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("fast-clone path (clonefile) is Darwin/APFS only")
+	}
 	const (
 		pkgCount    = 20
 		filesPerPkg = 1000
