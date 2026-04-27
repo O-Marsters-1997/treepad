@@ -1,11 +1,13 @@
 package sync
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -234,6 +236,185 @@ func TestFileSyncerSync(t *testing.T) {
 				tt.check(t, src, dst)
 			}
 		})
+	}
+}
+
+func TestFileSyncerSyncFastPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(src string)
+		patterns []string
+		check    func(t *testing.T, src, dst string)
+	}{
+		{
+			name: "whole-dir clone includes all contents",
+			setup: func(src string) {
+				writeFile(t, filepath.Join(src, "node_modules", "pkg", "index.js"), "module.exports={}")
+				writeFile(t, filepath.Join(src, "node_modules", "pkg", "package.json"), `{"name":"pkg"}`)
+				writeFile(t, filepath.Join(src, "src", "app.ts"), "unrelated")
+			},
+			patterns: []string{"node_modules/"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				if readFile(t, filepath.Join(dst, "node_modules", "pkg", "index.js")) != "module.exports={}" {
+					t.Error("index.js content mismatch")
+				}
+				if readFile(t, filepath.Join(dst, "node_modules", "pkg", "package.json")) != `{"name":"pkg"}` {
+					t.Error("package.json content mismatch")
+				}
+				if _, err := os.Stat(filepath.Join(dst, "src")); !os.IsNotExist(err) {
+					t.Error("src/ should not be synced")
+				}
+			},
+		},
+		{
+			name: "whole-dir clone skips when exclude intersects",
+			setup: func(src string) {
+				writeFile(t, filepath.Join(src, ".claude", "settings.json"), "settings")
+				writeFile(t, filepath.Join(src, ".claude", "secret.md"), "secret")
+			},
+			patterns: []string{".claude/", "!.claude/secret.md"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				if readFile(t, filepath.Join(dst, ".claude", "settings.json")) != "settings" {
+					t.Error("settings.json should be synced")
+				}
+				if _, err := os.Stat(filepath.Join(dst, ".claude", "secret.md")); !os.IsNotExist(err) {
+					t.Error("secret.md should be excluded")
+				}
+			},
+		},
+		{
+			name: "early prune skips unmatched directories",
+			setup: func(src string) {
+				writeFile(t, filepath.Join(src, ".env"), "KEY=val")
+				writeFile(t, filepath.Join(src, "src", "app.ts"), "irrelevant")
+				writeFile(t, filepath.Join(src, "node_modules", "pkg", "index.js"), "irrelevant")
+			},
+			patterns: []string{".env"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				if readFile(t, filepath.Join(dst, ".env")) != "KEY=val" {
+					t.Error(".env content mismatch")
+				}
+				if _, err := os.Stat(filepath.Join(dst, "src")); !os.IsNotExist(err) {
+					t.Error("src/ should not be synced")
+				}
+				if _, err := os.Stat(filepath.Join(dst, "node_modules")); !os.IsNotExist(err) {
+					t.Error("node_modules/ should not be synced")
+				}
+			},
+		},
+		{
+			name:     "whole-dir clone with missing source is a no-op",
+			setup:    func(src string) {},
+			patterns: []string{"node_modules/"},
+			check: func(t *testing.T, src, dst string) {
+				t.Helper()
+				entries, err := os.ReadDir(dst)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(entries) != 0 {
+					t.Errorf("dst has %d entries, want 0", len(entries))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := t.TempDir()
+			dst := t.TempDir()
+			tt.setup(src)
+
+			err := FileSyncer{}.Sync(tt.patterns, Config{SourceDir: src, TargetDir: dst})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			tt.check(t, src, dst)
+		})
+	}
+}
+
+// TestFileSyncerSyncBudget asserts that syncing a node_modules-sized directory
+// tree completes within a usable time budget. On APFS (Darwin) the fast-clone
+// path makes this near-instant; on Linux the budget covers kernel-copy overhead.
+func TestFileSyncerSyncBudget(t *testing.T) {
+	const (
+		pkgCount    = 20
+		filesPerPkg = 1000
+		budget      = 5 * time.Second
+	)
+
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	for i := range pkgCount {
+		for j := range filesPerPkg {
+			path := filepath.Join(src, "node_modules", fmt.Sprintf("pkg%d", i), fmt.Sprintf("file%d.js", j))
+			writeFile(t, path, "module.exports={}")
+		}
+	}
+
+	start := time.Now()
+	err := FileSyncer{}.Sync([]string{"node_modules/"}, Config{SourceDir: src, TargetDir: dst})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	t.Logf("synced %d files in %v", pkgCount*filesPerPkg, elapsed)
+	if elapsed > budget {
+		t.Errorf("sync took %v, want < %v — possible regression to slow copy path", elapsed, budget)
+	}
+}
+
+func TestDirCouldMatch(t *testing.T) {
+	tests := []struct {
+		dir      string
+		includes []string
+		want     bool
+	}{
+		{"node_modules", []string{".claude/"}, false},
+		{".claude", []string{".claude/"}, true},
+		{".claude/agents", []string{".claude/"}, true},
+		{".claude/agents/sub", []string{".claude/"}, true},
+		{"node_modules/pkg", []string{"node_modules/"}, true},
+		{".vscode", []string{".vscode/settings.json"}, true},
+		{".vscode", []string{".vscode/*.json"}, true},
+		{".vscode", []string{".env"}, false},
+		{"docs", []string{"docs/**/*.md"}, true},
+		{"src", []string{"docs/**/*.md"}, false},
+		{"docs/api", []string{"docs/**/*.md"}, true},
+		{".claude", []string{}, false},
+	}
+	for _, tt := range tests {
+		if got := dirCouldMatch(tt.dir, tt.includes); got != tt.want {
+			t.Errorf("dirCouldMatch(%q, %v) = %v, want %v", tt.dir, tt.includes, got, tt.want)
+		}
+	}
+}
+
+func TestWholeDirPattern(t *testing.T) {
+	tests := []struct {
+		pattern string
+		wantDir string
+		wantOK  bool
+	}{
+		{"node_modules/", "node_modules", true},
+		{".claude/", ".claude", true},
+		{".claude/**", ".claude", true},
+		{".vscode/settings.json", "", false},
+		{".vscode/*.json", "", false},
+		{"docs/**/*.md", "", false},
+		{"", "", false},
+	}
+	for _, tt := range tests {
+		dir, ok := wholeDirPattern(tt.pattern)
+		if dir != tt.wantDir || ok != tt.wantOK {
+			t.Errorf("wholeDirPattern(%q) = (%q, %v), want (%q, %v)", tt.pattern, dir, ok, tt.wantDir, tt.wantOK)
+		}
 	}
 }
 

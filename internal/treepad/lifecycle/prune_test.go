@@ -3,11 +3,14 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"treepad/internal/slug"
 	"treepad/internal/treepad/deps"
@@ -134,19 +137,31 @@ func TestPrune(t *testing.T) {
 	})
 
 	t.Run("per-target failure does not stop remaining removals", func(t *testing.T) {
-		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: threePorcelain},
-			{Output: []byte("aaa111\n")},                    // git rev-parse main^{commit}
-			{Output: []byte("feat bbb222\nother ccc333\n")}, // git for-each-ref --merged
-			{Output: []byte("")},                            // dirty: feat (clean)
-			{Err: errors.New("no upstream")},                // rev-parse @{upstream}: feat
-			{Output: []byte("")},                            // dirty: other (clean)
-			{Err: errors.New("no upstream")},                // rev-parse @{upstream}: other
-			{Err: errors.New("locked worktree")},            // git worktree remove feat fails
-			{},                                              // git worktree remove other
-			{},                                              // git branch -d other
-			{},                                              // git worktree prune
-		}}
+		// Uses DispatchRunner so removes run concurrently without order-sensitivity.
+		// The sequential fallback handles the shared preamble and post-loop calls.
+		runner := &treepadtest.DispatchRunner{
+			Classify: func(_ string, args []string) string {
+				if len(args) == 0 {
+					return ""
+				}
+				return args[len(args)-1]
+			},
+			Routes: map[string][]treepadtest.RunResponse{
+				featPath:  {{Err: errors.New("locked worktree")}}, // git worktree remove feat fails
+				otherPath: {{}},                                   // git worktree remove other succeeds
+				"other":   {{}},                                   // git branch -d other
+			},
+			Fallback: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: threePorcelain},
+				{Output: []byte("aaa111\n")},                    // git rev-parse main^{commit}
+				{Output: []byte("feat bbb222\nother ccc333\n")}, // git for-each-ref --merged
+				{Output: []byte("")},                            // dirty: feat (clean)
+				{Err: errors.New("no upstream")},                // rev-parse @{upstream}: feat
+				{Output: []byte("")},                            // dirty: other (clean)
+				{Err: errors.New("no upstream")},                // rev-parse @{upstream}: other
+				{},                                              // git worktree prune
+			}},
+		}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 
 		err := Prune(context.Background(), deps, PruneInput{Base: "main", OutputDir: outputDir, Yes: true})
@@ -155,9 +170,6 @@ func TestPrune(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "feat") {
 			t.Errorf("error %q should mention failed branch", err)
-		}
-		if runner.Idx != 11 {
-			t.Errorf("runner called %d times, want 11", runner.Idx)
 		}
 	})
 
@@ -571,4 +583,92 @@ func TestPrune(t *testing.T) {
 			t.Errorf("runner called %d times, want 8", runner.Idx)
 		}
 	})
+}
+
+// TestPruneBudget asserts that parallel removes beat the sequential baseline.
+// Each worktree remove sleeps removeDelay; with NumCPU goroutines the wall time
+// should be well under candidates*removeDelay.
+func TestPruneBudget(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping budget test in short mode")
+	}
+
+	const (
+		candidates  = 6
+		removeDelay = 60 * time.Millisecond
+	)
+	// Budget: half the sequential time, with generous slack for scheduling.
+	budget := time.Duration(candidates)*removeDelay/2 + 500*time.Millisecond
+
+	if runtime.NumCPU() < 2 {
+		t.Skip("budget test requires at least 2 CPUs")
+	}
+
+	mainPath := makeMainWorktree(t)
+	outputDir := t.TempDir()
+
+	// Build worktree porcelain for main + N feature branches.
+	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
+	for i := range candidates {
+		p := fmt.Sprintf("%s-feat%d", mainPath, i)
+		porcelain = append(porcelain,
+			fmt.Appendf(nil, "worktree %s\nHEAD %06d\nbranch refs/heads/feat%d\n\n", p, i, i)...)
+	}
+
+	runner := &budgetRunner{delay: removeDelay, listOut: porcelain}
+	d := deps.Deps{
+		Runner: runner,
+		Syncer: &treepadtest.FakeSyncer{},
+		Opener: &treepadtest.FakeOpener{},
+		Out:    io.Discard,
+		Log:    ui.New(io.Discard),
+		In:     strings.NewReader(""),
+	}
+
+	start := time.Now()
+	err := Prune(context.Background(), d, PruneInput{
+		All:       true,
+		Yes:       true,
+		OutputDir: outputDir,
+		Cwd:       mainPath,
+	})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if elapsed >= budget {
+		t.Errorf("prune took %v; budget %v (sequential baseline ~%v) — parallel fan-out may be broken",
+			elapsed.Round(time.Millisecond),
+			budget.Round(time.Millisecond),
+			(time.Duration(candidates) * removeDelay).Round(time.Millisecond),
+		)
+	}
+
+	t.Logf("prune took %v", elapsed)
+}
+
+// budgetRunner sleeps on git worktree remove to simulate slow per-tree deletes.
+type budgetRunner struct {
+	delay   time.Duration
+	listOut []byte
+}
+
+func (r *budgetRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if name != "git" || len(args) == 0 {
+		return nil, nil
+	}
+	switch {
+	case args[0] == "worktree" && len(args) >= 2 && args[1] == "list":
+		return r.listOut, nil
+	case args[0] == "worktree" && len(args) >= 2 && args[1] == "remove":
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(r.delay):
+		}
+		return nil, nil
+	default:
+		return nil, nil
+	}
 }

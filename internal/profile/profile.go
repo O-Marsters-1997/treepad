@@ -104,9 +104,9 @@ func (r *Recorder) Summary(w io.Writer, totalLabel string) {
 	}
 
 	sep := strings.Repeat("─", nameWidth) + "  " + strings.Repeat("─", 10) + "  " + strings.Repeat("─", 6)
-	fmt.Fprintf(w, "\nprofile: %s (total %s)\n", totalLabel, fmtDur(total))
-	fmt.Fprintf(w, "  %-*s  %-10s  %s\n", nameWidth, "stage", "duration", "   pct")
-	fmt.Fprintf(w, "  %s\n", sep)
+	_, _ = fmt.Fprintf(w, "\nprofile: %s (total %s)\n", totalLabel, fmtDur(total))
+	_, _ = fmt.Fprintf(w, "  %-*s  %-10s  %s\n", nameWidth, "stage", "duration", "   pct")
+	_, _ = fmt.Fprintf(w, "  %s\n", sep)
 	for i, ro := range rows {
 		pct := 0.0
 		if total > 0 {
@@ -116,10 +116,10 @@ func (r *Recorder) Summary(w io.Writer, totalLabel string) {
 		if i == 0 && len(rows) > 1 {
 			marker = "  ◀"
 		}
-		fmt.Fprintf(w, "  %-*s  %-10s  %5.1f%%%s\n", nameWidth, ro.name, fmtDur(ro.dur), pct, marker)
+		_, _ = fmt.Fprintf(w, "  %-*s  %-10s  %5.1f%%%s\n", nameWidth, ro.name, fmtDur(ro.dur), pct, marker)
 	}
-	fmt.Fprintf(w, "  %s\n", sep)
-	fmt.Fprintf(w, "  %-*s  %-10s  100.0%%\n\n", nameWidth, "total", fmtDur(total))
+	_, _ = fmt.Fprintf(w, "  %s\n", sep)
+	_, _ = fmt.Fprintf(w, "  %-*s  %-10s  100.0%%\n\n", nameWidth, "total", fmtDur(total))
 }
 
 func fmtDur(d time.Duration) string {
