@@ -669,6 +669,7 @@ Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Sh
 
 | Key            | Action                                                                                                        |
 | -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `0`–`9`        | Jump cursor to row N (row 0 is always the main worktree); shows an out-of-range notice if N ≥ number of rows |
 | `↑` / `k`      | Move cursor up                                                                                                |
 | `↓` / `j`      | Move cursor down                                                                                              |
 | `Enter`        | Exit and cd into selected worktree                                                                            |
