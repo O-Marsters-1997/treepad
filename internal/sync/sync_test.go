@@ -221,7 +221,7 @@ func TestFileSyncerSync(t *testing.T) {
 			dst := t.TempDir()
 			tt.setup(src)
 
-			err := FileSyncer{}.Sync(tt.patterns, Config{SourceDir: src, TargetDir: dst})
+			_, err := FileSyncer{}.Sync(tt.patterns, Config{SourceDir: src, TargetDir: dst})
 
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
@@ -328,7 +328,7 @@ func TestFileSyncerSyncFastPath(t *testing.T) {
 			dst := t.TempDir()
 			tt.setup(src)
 
-			err := FileSyncer{}.Sync(tt.patterns, Config{SourceDir: src, TargetDir: dst})
+			_, err := FileSyncer{}.Sync(tt.patterns, Config{SourceDir: src, TargetDir: dst})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -358,13 +358,13 @@ func TestFileSyncerSyncBudget(t *testing.T) {
 	}
 
 	start := time.Now()
-	err := FileSyncer{}.Sync([]string{"node_modules/"}, Config{SourceDir: src, TargetDir: dst})
+	res, err := FileSyncer{}.Sync([]string{"node_modules/"}, Config{SourceDir: src, TargetDir: dst})
 	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	t.Logf("synced %d files in %v", pkgCount*filesPerPkg, elapsed)
+	t.Logf("synced %d files (%d bytes) in %v", res.Files, res.Bytes, elapsed)
 	if elapsed > budget {
 		t.Errorf("sync took %v, want < %v — possible regression to slow copy path", elapsed, budget)
 	}
