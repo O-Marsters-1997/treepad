@@ -30,6 +30,16 @@ func CloneTree(src, dst string) error { return cloneTree(src, dst) }
 type Config struct {
 	SourceDir string
 	TargetDir string
+	// Stage is an optional profiler hook; nil means no-op.
+	// Call: done := cfg.Stage("name"); defer done()
+	Stage func(string) func()
+}
+
+func stageOf(cfg Config) func(string) func() {
+	if cfg.Stage != nil {
+		return cfg.Stage
+	}
+	return func(_ string) func() { return func() {} }
 }
 
 // SyncResult holds file-transfer metrics from a Sync call.
@@ -54,6 +64,7 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 		return SyncResult{}, err
 	}
 	include, exclude := parsePatterns(patterns)
+	stage := stageOf(cfg)
 
 	var result SyncResult
 
@@ -61,6 +72,7 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 	// On Darwin/APFS this turns a 30s node_modules copy into a sub-second clone.
 	cloned := make(map[string]bool)
 	var walkIncludes []string
+	cloneDone := stage("sync.clone_pass")
 	for _, p := range include {
 		dir, ok := wholeDirPattern(p)
 		if !ok || !canFastClone(dir, exclude) {
@@ -96,7 +108,14 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 		cloned[dir] = true
 		slog.Debug("cloned tree", "dir", dir)
 	}
+	cloneDone()
 
+	if len(walkIncludes) == 0 {
+		return result, nil
+	}
+
+	madeDir := make(map[string]struct{})
+	walkDone := stage("sync.walk")
 	err := filepath.WalkDir(cfg.SourceDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -113,7 +132,7 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 				return nil
 			}
 			dst := filepath.Join(cfg.TargetDir, rel)
-			if err := copySymlink(path, dst); err != nil {
+			if err := copySymlinkCached(path, dst, madeDir); err != nil {
 				return fmt.Errorf("sync %s: %w", rel, err)
 			}
 			result.Files++
@@ -140,7 +159,7 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 
 		slog.Debug("syncing file", "rel", rel)
 		dst := filepath.Join(cfg.TargetDir, rel)
-		if err := copyFile(path, dst); err != nil {
+		if err := copyFileCached(path, dst, madeDir); err != nil {
 			return fmt.Errorf("sync %s: %w", rel, err)
 		}
 		result.Files++
@@ -149,6 +168,7 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 		}
 		return nil
 	})
+	walkDone()
 	return result, err
 }
 
@@ -266,12 +286,16 @@ func dirCouldMatch(dir string, includes []string) bool {
 }
 
 func copySymlink(src, dst string) error {
+	return copySymlinkCached(src, dst, nil)
+}
+
+func copySymlinkCached(src, dst string, made map[string]struct{}) error {
 	target, err := os.Readlink(src)
 	if err != nil {
 		return fmt.Errorf("read symlink: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("create destination directory: %w", err)
+	if err := ensureParentDir(dst, made); err != nil {
+		return err
 	}
 	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove existing destination: %w", err)
@@ -283,8 +307,12 @@ func copySymlink(src, dst string) error {
 }
 
 func copyFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("create destination directory: %w", err)
+	return copyFileCached(src, dst, nil)
+}
+
+func copyFileCached(src, dst string, made map[string]struct{}) error {
+	if err := ensureParentDir(dst, made); err != nil {
+		return err
 	}
 	if err := cloneFile(src, dst); !errors.Is(err, errCloneUnsupported) {
 		return err
@@ -305,4 +333,21 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("copy data: %w", err)
 	}
 	return out.Close()
+}
+
+// ensureParentDir calls MkdirAll on dir(dst) at most once per run when made is non-nil.
+func ensureParentDir(dst string, made map[string]struct{}) error {
+	dir := filepath.Dir(dst)
+	if made != nil {
+		if _, ok := made[dir]; ok {
+			return nil
+		}
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create destination directory: %w", err)
+	}
+	if made != nil {
+		made[dir] = struct{}{}
+	}
+	return nil
 }
