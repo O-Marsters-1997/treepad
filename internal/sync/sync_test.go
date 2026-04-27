@@ -352,7 +352,8 @@ func TestFileSyncerSyncBudget(t *testing.T) {
 
 	for i := range pkgCount {
 		for j := range filesPerPkg {
-			writeFile(t, filepath.Join(src, "node_modules", fmt.Sprintf("pkg%d", i), fmt.Sprintf("file%d.js", j)), "module.exports={}")
+			path := filepath.Join(src, "node_modules", fmt.Sprintf("pkg%d", i), fmt.Sprintf("file%d.js", j))
+			writeFile(t, path, "module.exports={}")
 		}
 	}
 

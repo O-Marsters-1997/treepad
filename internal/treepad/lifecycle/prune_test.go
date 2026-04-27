@@ -609,10 +609,8 @@ func TestPruneBudget(t *testing.T) {
 
 	// Build worktree porcelain for main + N feature branches.
 	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
-	var paths []string
 	for i := range candidates {
 		p := fmt.Sprintf("%s-feat%d", mainPath, i)
-		paths = append(paths, p)
 		porcelain = append(porcelain,
 			fmt.Appendf(nil, "worktree %s\nHEAD %06d\nbranch refs/heads/feat%d\n\n", p, i, i)...)
 	}

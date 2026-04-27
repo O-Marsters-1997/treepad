@@ -230,7 +230,8 @@ func doRemove(
 		OutputDir:    outputDir,
 	}
 
-	postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, hook.PreRemove, hook.PostRemove, hData, func() error {
+	pre, post := hook.PreRemove, hook.PostRemove
+	postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, pre, post, hData, func() error {
 		wtRemoveDone := p.Stage("git.worktree_remove")
 		_, wtErr := d.Runner.Run(ctx, "git", removeArgs...)
 		wtRemoveDone()
