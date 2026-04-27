@@ -23,7 +23,7 @@ func fakeIssueJSON(title, body string) []byte {
 }
 
 // bulkSeqResponses builds seqRunner responses for N happy-path issues.
-// Per issue: gh response, git worktree list, git worktree add.
+// Per issue: gh response, git worktree list, git worktree add --no-checkout, git checkout.
 func bulkSeqResponses(mainPath string, issues []struct{ title, body string }) []treepadtest.RunResponse {
 	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 	var responses []treepadtest.RunResponse
@@ -31,7 +31,8 @@ func bulkSeqResponses(mainPath string, issues []struct{ title, body string }) []
 		responses = append(responses,
 			treepadtest.RunResponse{Output: fakeIssueJSON(issue.title, issue.body)},
 			treepadtest.RunResponse{Output: porcelain},
-			treepadtest.RunResponse{Output: nil},
+			treepadtest.RunResponse{Output: nil}, // git worktree add --no-checkout
+			treepadtest.RunResponse{Output: nil}, // git checkout
 		)
 	}
 	return responses
@@ -114,11 +115,13 @@ func TestFromSpecBulk(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: fakeIssueJSON("Add retry", "implement retry")},
 			{Output: porcelain},
-			{Output: nil},
-			{Output: fakeIssueJSON("Empty issue", "")}, // empty body
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
+			{Output: fakeIssueJSON("Empty issue", "")}, // empty body — no worktree created
 			{Output: fakeIssueJSON("Fix auth", "patch oauth")},
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		var logBuf bytes.Buffer
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -155,11 +158,13 @@ func TestFromSpecBulk(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: fakeIssueJSON("Add retry", "implement retry")},
 			{Output: porcelain},
-			{Output: nil},
-			{Output: nil, Err: treepadtest.ErrExitNonZero},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
+			{Output: nil, Err: treepadtest.ErrExitNonZero}, // gh issue view fails
 			{Output: fakeIssueJSON("Fix auth", "patch oauth")},
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		var logBuf bytes.Buffer
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -190,10 +195,12 @@ func TestFromSpecBulk(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: fakeIssueJSON("Duplicate Title", "spec body one")},
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 			{Output: fakeIssueJSON("Duplicate Title", "spec body two")},
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		var logBuf bytes.Buffer
@@ -226,7 +233,8 @@ func TestFromSpecBulk(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: fakeIssueJSON("Some feature", "do the thing")},
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		pt := &treepadtest.FakePassthroughRunner{}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -251,7 +259,8 @@ func TestFromSpecBulk(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: fakeIssueJSON("Some feature", "do the thing")},
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		var stdout bytes.Buffer
 		var logBuf bytes.Buffer

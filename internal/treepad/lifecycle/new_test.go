@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,7 +20,8 @@ func TestNew(t *testing.T) {
 	t.Run("creates worktree and syncs config", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
-			{Output: nil}, // git worktree add
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git -C <path> checkout HEAD -- .
 		}}
 		syn := &treepadtest.FakeSyncer{}
 		opener := &treepadtest.FakeOpener{}
@@ -50,7 +52,8 @@ func TestNew(t *testing.T) {
 	t.Run("opens artifact when Open is true", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		opener := &treepadtest.FakeOpener{}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: opener}
@@ -79,7 +82,8 @@ func TestNew(t *testing.T) {
 	t.Run("emits cd directive by default", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		var buf strings.Builder
 		deps := deps.Deps{
@@ -103,7 +107,8 @@ func TestNew(t *testing.T) {
 	t.Run("suppresses cd directive when Current is true", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		var buf strings.Builder
 		deps := deps.Deps{
@@ -131,7 +136,8 @@ func TestNew(t *testing.T) {
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		hr := &treepadtest.FakeHookRunner{}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -187,7 +193,8 @@ func TestNew(t *testing.T) {
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
-			{Output: nil},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
 		}}
 		hr := &treepadtest.FakeHookRunner{Err: errors.New("post hook failed")}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -200,6 +207,36 @@ func TestNew(t *testing.T) {
 		})
 		if err != nil {
 			t.Errorf("PostNew hook failure should not abort operation, got error: %v", err)
+		}
+	})
+
+	t.Run("uses --no-checkout then checkout concurrently with sync", func(t *testing.T) {
+		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: nil}, // git worktree add --no-checkout
+			{Output: nil}, // git checkout
+		}}}
+		deps := deps.Deps{Runner: rr, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+
+		_, err := New(context.Background(), deps, NewInput{Branch: "feature/auth", Base: "main", OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		var sawNoCheckout, sawCheckout bool
+		for _, call := range rr.Calls {
+			if len(call) >= 4 && call[1] == "worktree" && call[2] == "add" && call[3] == "--no-checkout" {
+				sawNoCheckout = true
+			}
+			if len(call) >= 3 && call[1] == "-C" && slices.Contains(call, "checkout") {
+				sawCheckout = true
+			}
+		}
+		if !sawNoCheckout {
+			t.Error("git worktree add should be called with --no-checkout")
+		}
+		if !sawCheckout {
+			t.Error("git -C <path> checkout should be called after worktree add")
 		}
 	})
 
@@ -230,7 +267,8 @@ func TestNew(t *testing.T) {
 			name: "sync fails",
 			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 				{Output: porcelain},
-				{Output: nil},
+				{Output: nil}, // git worktree add --no-checkout
+				{Output: nil}, // git checkout (runs concurrently with sync)
 			}},
 			syncer:  &treepadtest.FakeSyncer{Err: errors.New("sync failed")},
 			wantErr: "sync failed",

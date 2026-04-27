@@ -242,8 +242,8 @@ type noopProfiler struct{}
 
 var disabledDone = func() {}
 
-func (noopProfiler) Stage(_ string) func()              { return disabledDone }
-func (noopProfiler) Observe(_ string, _, _ int64)       {}
-func (noopProfiler) Summary(_ io.Writer, _ string)      {}
+func (noopProfiler) Stage(_ string) func()         { return disabledDone }
+func (noopProfiler) Observe(_ string, _, _ int64)  {}
+func (noopProfiler) Summary(_ io.Writer, _ string) {}
 
 var sharedDisabled Profiler = noopProfiler{}

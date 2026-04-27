@@ -230,7 +230,8 @@ agent_command = []
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
 			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add
+			{Output: nil},              // git worktree add --no-checkout
+			{Output: nil},              // git checkout
 		}}}
 		deps := deps.Deps{
 			Runner: rr,
@@ -271,7 +272,8 @@ agent_command = []
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
 			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add
+			{Output: nil},              // git worktree add --no-checkout
+			{Output: nil},              // git checkout
 		}}
 		pt := &treepadtest.FakePassthroughRunner{}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -303,7 +305,8 @@ agent_command = []
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
 			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add
+			{Output: nil},              // git worktree add --no-checkout
+			{Output: nil},              // git checkout
 		}}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
@@ -357,7 +360,8 @@ agent_command = []
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
 			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add
+			{Output: nil},              // git worktree add --no-checkout
+			{Output: nil},              // git checkout
 		}}
 		hr := &treepadtest.FakeHookRunner{}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -418,7 +422,8 @@ agent_command = []
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: []byte(specBody)}, // gh issue view
 			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add
+			{Output: nil},              // git worktree add --no-checkout
+			{Output: nil},              // git checkout
 		}}
 		var buf bytes.Buffer
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
