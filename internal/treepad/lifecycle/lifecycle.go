@@ -66,19 +66,35 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 	var artifactPath string
 	postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, hook.PreNew, hook.PostNew, hData, func() error {
 		addDone := p.Stage("git.worktree_add")
-		_, addErr := d.Runner.Run(ctx, "git", "worktree", "add", "-b", branch, worktreePath, base)
+		_, addErr := d.Runner.Run(ctx, "git", "worktree", "add", "--no-checkout", "-b", branch, worktreePath, base)
 		addDone()
 		if addErr != nil {
 			return fmt.Errorf("git worktree add: %w", addErr)
 		}
 		d.Log.OK("created worktree at %s", worktreePath)
 
-		var syncErr error
-		cfg, syncErr = LoadAndSync(ctx, d, rc.Main.Path, &cfg, nil,
-			[]SyncTarget{{Path: worktreePath, Branch: branch}}, rc.Slug, rc.OutputDir)
-		if syncErr != nil {
-			return syncErr
+		// git checkout and sync write disjoint paths (tracked files vs gitignored),
+		// so both can run concurrently after the worktree directory is created.
+		var newCfg config.Config
+		g, gctx := errgroup.WithContext(ctx)
+		g.Go(func() error {
+			done := p.Stage("git.checkout")
+			defer done()
+			if _, err := d.Runner.Run(gctx, "git", "-C", worktreePath, "checkout", "HEAD", "--", "."); err != nil {
+				return fmt.Errorf("git checkout: %w", err)
+			}
+			return nil
+		})
+		g.Go(func() error {
+			var err error
+			newCfg, err = LoadAndSync(gctx, d, rc.Main.Path, &cfg, nil,
+				[]SyncTarget{{Path: worktreePath, Branch: branch}}, rc.Slug, rc.OutputDir)
+			return err
+		})
+		if err := g.Wait(); err != nil {
+			return err
 		}
+		cfg = newCfg
 
 		artData := config.MakeTemplateData(rc.Slug, branch, worktreePath, rc.OutputDir)
 		artDone := p.Stage("artifact.write")
