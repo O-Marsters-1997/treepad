@@ -45,7 +45,6 @@ func stageOf(cfg Config) func(string) func() {
 // SyncResult holds file-transfer metrics from a Sync call.
 type SyncResult struct {
 	Files int64
-	Bytes int64
 }
 
 // Syncer copies files matching patterns from SourceDir to TargetDir.
@@ -92,19 +91,7 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 			walkIncludes = append(walkIncludes, p)
 			continue
 		}
-		// Stat-walk the source to count files and bytes for the cloned tree.
-		_ = filepath.WalkDir(src, func(_ string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return nil
-			}
-			result.Files++
-			if d.Type().IsRegular() {
-				if info, e := d.Info(); e == nil {
-					result.Bytes += info.Size()
-				}
-			}
-			return nil
-		})
+		result.Files++ // one entry per cloned tree; no source walk needed
 		cloned[dir] = true
 		slog.Debug("cloned tree", "dir", dir)
 	}
@@ -163,9 +150,6 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 			return fmt.Errorf("sync %s: %w", rel, err)
 		}
 		result.Files++
-		if info, e := d.Info(); e == nil {
-			result.Bytes += info.Size()
-		}
 		return nil
 	})
 	walkDone()
