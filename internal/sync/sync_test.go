@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -415,6 +416,46 @@ func TestWholeDirPattern(t *testing.T) {
 		if dir != tt.wantDir || ok != tt.wantOK {
 			t.Errorf("wholeDirPattern(%q) = (%q, %v), want (%q, %v)", tt.pattern, dir, ok, tt.wantDir, tt.wantOK)
 		}
+	}
+}
+
+func TestClonePassDoesNotEnumerateClonedTree(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("APFS clonefile required for fast-clone path")
+	}
+	src := t.TempDir()
+	dst := t.TempDir()
+	sub := filepath.Join(src, "node_modules")
+	const leafCount = 5000
+	for i := 0; i < leafCount; i++ {
+		writeFile(t, filepath.Join(sub, fmt.Sprintf("pkg%d", i), "index.js"), "x")
+	}
+
+	stageDur := map[string]time.Duration{}
+	res, err := FileSyncer{}.Sync([]string{"node_modules/"}, Config{
+		SourceDir: src,
+		TargetDir: dst,
+		Stage: func(name string) func() {
+			t0 := time.Now()
+			return func() { stageDur[name] = time.Since(t0) }
+		},
+	})
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	// Primary deterministic check: clone-pass must not enumerate every leaf.
+	if res.Files >= leafCount {
+		t.Errorf("SyncResult.Files = %d (>= leaf count %d): clone_pass is walking the source tree",
+			res.Files, leafCount)
+	}
+	// Sanity: the clone actually happened.
+	if _, err := os.Stat(filepath.Join(dst, "node_modules", "pkg0", "index.js")); err != nil {
+		t.Errorf("expected cloned file present: %v", err)
+	}
+	// Soft perf guard: generous threshold relative to expected <10 ms.
+	if d := stageDur["sync.clone_pass"]; d > 500*time.Millisecond {
+		t.Errorf("sync.clone_pass = %v, expected < 500ms (stat-walk likely reintroduced)", d)
 	}
 }
 
