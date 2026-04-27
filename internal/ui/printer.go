@@ -50,6 +50,14 @@ func (p *Printer) Prompt(format string, a ...any) {
 	_, _ = fmt.Fprintf(p.w, format, a...)
 }
 
+// Writer returns the underlying io.Writer. Returns io.Discard if the Printer is nil or has no writer.
+func (p *Printer) Writer() io.Writer {
+	if p == nil || p.w == nil {
+		return io.Discard
+	}
+	return p.w
+}
+
 func (p *Printer) write(prefix, format string, a ...any) {
 	if p == nil || p.w == nil {
 		return

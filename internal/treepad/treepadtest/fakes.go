@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"treepad/internal/artifact"
 	"treepad/internal/hook"
@@ -90,6 +91,32 @@ type FakeHookRunner struct {
 func (f *FakeHookRunner) Run(_ context.Context, hooks []hook.HookEntry, data hook.Data) error {
 	f.Calls = append(f.Calls, FakeHookCall{Hooks: hooks, Data: data})
 	return f.Err
+}
+
+// DispatchRunner routes Run calls to per-key responses based on a classifier.
+// Calls that return an empty key fall through to Fallback.
+type DispatchRunner struct {
+	// Classify returns a routing key for the call, or "" to fall through to Fallback.
+	Classify func(name string, args []string) string
+	// Routes maps routing keys to ordered response queues consumed one-by-one.
+	Routes   map[string][]RunResponse
+	Fallback *SeqRunner
+	mu       sync.Mutex
+}
+
+func (r *DispatchRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	key := r.Classify(name, args)
+	if key != "" {
+		r.mu.Lock()
+		if responses, ok := r.Routes[key]; ok && len(responses) > 0 {
+			resp := responses[0]
+			r.Routes[key] = responses[1:]
+			r.mu.Unlock()
+			return resp.Output, resp.Err
+		}
+		r.mu.Unlock()
+	}
+	return r.Fallback.Run(ctx, name, args...)
 }
 
 // ErrExitNonZero is a sentinel for tests that expect a non-zero exit.

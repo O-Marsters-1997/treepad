@@ -89,7 +89,7 @@ func Generate(ctx context.Context, d deps.Deps, in GenerateInput) error {
 			Profiler:   d.Profiler,
 			Log:        d.Log,
 			In:         d.In,
-		}, sourceDir, in.ExtraPatterns, targets, repoSlug, outputDir)
+		}, sourceDir, nil, in.ExtraPatterns, targets, repoSlug, outputDir)
 	if err != nil {
 		return err
 	}

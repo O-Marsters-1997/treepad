@@ -3,13 +3,18 @@ package lifecycle
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
 
 	"treepad/internal/artifact"
 	"treepad/internal/config"
@@ -19,6 +24,7 @@ import (
 	internalsync "treepad/internal/sync"
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/repo"
+	"treepad/internal/ui"
 	"treepad/internal/worktree"
 )
 
@@ -68,7 +74,7 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 		d.Log.OK("created worktree at %s", worktreePath)
 
 		var syncErr error
-		cfg, syncErr = LoadAndSync(ctx, d, rc.Main.Path, nil,
+		cfg, syncErr = LoadAndSync(ctx, d, rc.Main.Path, &cfg, nil,
 			[]SyncTarget{{Path: worktreePath, Branch: branch}}, rc.Slug, rc.OutputDir)
 		if syncErr != nil {
 			return syncErr
@@ -123,17 +129,24 @@ func OpenWorktree(
 	return d.Opener.Open(ctx, spec, data)
 }
 
-// LoadAndSync loads config from sourceDir and syncs it to all targets.
+// LoadAndSync syncs configs to all targets. When preloaded is non-nil it is
+// used as-is, otherwise config is loaded from sourceDir.
 func LoadAndSync(
 	ctx context.Context, d deps.Deps, sourceDir string,
-	extraPatterns []string, targets []SyncTarget,
+	preloaded *config.Config, extraPatterns []string, targets []SyncTarget,
 	repoSlug, outputDir string,
 ) (config.Config, error) {
 	p := profile.OrDisabled(d.Profiler)
 
-	cfg, err := config.Load(sourceDir)
-	if err != nil {
-		return config.Config{}, fmt.Errorf("load config: %w", err)
+	var cfg config.Config
+	if preloaded != nil {
+		cfg = *preloaded
+	} else {
+		var err error
+		cfg, err = config.Load(sourceDir)
+		if err != nil {
+			return config.Config{}, fmt.Errorf("load config: %w", err)
+		}
 	}
 
 	if len(targets) == 0 {
@@ -182,6 +195,21 @@ func RemoveWorktreeAndArtifact(
 	outputDir string, force bool,
 ) error {
 	p := profile.OrDisabled(d.Profiler)
+	configLoadDone := p.Stage("config.load")
+	cfg, err := config.Load(main.Path)
+	configLoadDone()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	return doRemove(ctx, d, target, main, outputDir, force, cfg)
+}
+
+func doRemove(
+	ctx context.Context, d deps.Deps,
+	target, main worktree.Worktree,
+	outputDir string, force bool, cfg config.Config,
+) error {
+	p := profile.OrDisabled(d.Profiler)
 
 	removeArgs := []string{"worktree", "remove", target.Path}
 	removeVerb := "git worktree remove"
@@ -192,13 +220,6 @@ func RemoveWorktreeAndArtifact(
 		removeVerb = "git worktree remove --force"
 		branchFlag = "-D"
 		branchVerb = "git branch -D"
-	}
-
-	configLoadDone := p.Stage("config.load")
-	cfg, err := config.Load(main.Path)
-	configLoadDone()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
 	}
 
 	repoSlug := slug.Slug(filepath.Base(main.Path))
@@ -373,16 +394,46 @@ func executePrune(ctx context.Context, d deps.Deps, rc repo.Context, sel pruneSe
 		}
 	}
 
-	var failed []string
-	for _, c := range sel.candidates {
-		if err := RemoveWorktreeAndArtifact(ctx, d, c, rc.Main, rc.OutputDir, sel.force); err != nil {
-			d.Log.Err("error removing %s: %v", c.Branch, err)
-			failed = append(failed, c.Branch)
-		}
+	p := profile.OrDisabled(d.Profiler)
+	configDone := p.Stage("config.load")
+	cfg, err := config.Load(rc.Main.Path)
+	configDone()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	n := len(sel.candidates)
+	bufs := make([]bytes.Buffer, n)
+	errs := make([]error, n)
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(runtime.NumCPU())
+	for i, c := range sel.candidates {
+		g.Go(func() error {
+			bufDeps := d
+			bufDeps.Log = ui.New(&bufs[i])
+			if err := doRemove(gctx, bufDeps, c, rc.Main, rc.OutputDir, sel.force, cfg); err != nil {
+				bufDeps.Log.Err("error removing %s: %v", c.Branch, err)
+				errs[i] = err
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	logWriter := d.Log.Writer()
+	for i := range n {
+		_, _ = io.Copy(logWriter, &bufs[i])
 	}
 
 	pruneGitWorktreeMetadata(ctx, d)
 
+	var failed []string
+	for i, c := range sel.candidates {
+		if errs[i] != nil {
+			failed = append(failed, c.Branch)
+		}
+	}
 	if len(failed) > 0 {
 		return fmt.Errorf("failed to remove: %s", strings.Join(failed, ", "))
 	}
