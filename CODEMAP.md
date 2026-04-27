@@ -221,6 +221,7 @@ Business logic entry points. Each public function is a standalone top-level func
 - `collectStatusRows(ctx, deps.Deps, repo.Context, config.ArtifactConfig)` — probes each worktree
   - Queries `worktree.Dirty()`, `worktree.AheadBehind()`, `worktree.LastCommit()`; resolves artifact mtime
   - Skips git queries for prunable worktrees
+  - Applies `sort.SliceStable` to pin the `IsMain` row first, guaranteeing row 0 = main worktree regardless of git's output order
 
 ### `tui.go` / `tui_update.go` / `tui_view.go`
 
@@ -228,7 +229,7 @@ Business logic entry points. Each public function is a standalone top-level func
   - Returns `ErrNotTTY` (exit code 2) if stdout is not a terminal
   - Enters alt-screen; auto-refreshes every 2 seconds
   - `uiMode` constants: `uiModeNormal`, `uiModeConfirmRemove`, `uiModeConfirmForceRemove`, `uiModeConfirmPrune`, `uiModeConfirmShell`, `uiModeHelp`, `uiModeFilter`
-  - Key events: `s`/`S` sync, `r`/`R` remove (confirm → `y`), `p` prune (confirm → `y`), `o` open, `d` diff, `e` shell (confirm → `y` → `doShell()`: spawns `$SHELL` or `/bin/sh` in worktree dir via `tea.ExecProcess`; TUI suspends, resumes on shell exit), `y` yank (OSC-52), `/` enter filter mode (fuzzy match on branch or path basename), `Esc` clear filter, `?` help overlay, `Enter` cd+quit
+  - Key events: `0`–`9` jump cursor to row N (out-of-range shows a transient toast that re-arms its 2-second timer on each repeat press; implemented via `toastGen int` generation counter on `uiToastExpiredMsg` so stale ticks are ignored), `s`/`S` sync, `r`/`R` remove (confirm → `y`), `p` prune (confirm → `y`), `o` open, `d` diff, `e` shell (confirm → `y` → `doShell()`: spawns `$SHELL` or `/bin/sh` in worktree dir via `tea.ExecProcess`; TUI suspends, resumes on shell exit), `y` yank (OSC-52), `/` enter filter mode (fuzzy match on branch or path basename), `Esc` clear filter, `?` help overlay, `Enter` cd+quit
   - Filter mode (`uiModeFilter`) intercepts all keystrokes; Enter commits filter, Esc cancels
   - `selectedPath` set on Enter → after `p.Run()`, calls `uiEmitCD()` → `cd.EmitCD()` sentinel
 
@@ -595,6 +596,7 @@ tp [--verbose] <command>
    - `Init()` dispatches `doRefresh()` and `doTick()` (2-second tick)
    - `doRefresh()` calls `refreshStatus()` asynchronously; result arrives as `uiRefreshMsg`
    - Tick fires every 2s; skipped if an action is in flight
+   - `0`–`9` keys jump cursor to that row index (rows are rendered with inline number prefixes `0 `–`9 `); out-of-range shows a transient toast
    - `/` key enters `uiModeFilter`; keystrokes update `filterStr`; Enter commits, Esc cancels; committed filter applied via `filterRows()` (fuzzy match)
    - `e` key enters `uiModeConfirmShell`; `y` confirms → `doShell()`: `tea.ExecProcess($SHELL)` in worktree dir; TUI suspends, resumes on shell exit
    - Key events dispatch sync, remove, prune, open, diff, shell as async `tea.Cmd`s
@@ -626,7 +628,7 @@ tp [--verbose] <command>
 
 ---
 
-**Last Updated:** April 26, 2026
+**Last Updated:** April 27, 2026
 
 **Recent Changes:**
 - `internal/treepad/` monolith refactored into focused sub-packages: `lifecycle/`, `cd/`, `cdshell/`, `fromspec/`, `deps/`, `repo/`, `cwd/`
@@ -641,3 +643,4 @@ tp [--verbose] <command>
 - Added `internal/profile/` package: `Profiler` interface, `Recorder` (production), `Disabled()` (no-op)
 - TUI `e` key: enters `uiModeConfirmShell`; confirmed → `tea.ExecProcess($SHELL)` in selected worktree; TUI suspends then resumes
 - TUI auto-refresh interval is 2 seconds (not 5)
+- TUI `0`–`9` keys: jump cursor directly to row N; `collectStatusRows` stable-sorts main worktree first so row 0 is always the base; out-of-range toast re-arms its 2-second timer on each repeat press via `toastGen` generation counter

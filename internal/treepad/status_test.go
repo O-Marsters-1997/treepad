@@ -11,8 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"treepad/internal/config"
 	"treepad/internal/slug"
 	"treepad/internal/treepad/deps"
+	"treepad/internal/treepad/repo"
 	"treepad/internal/treepad/treepadtest"
 	"treepad/internal/worktree"
 )
@@ -442,4 +444,25 @@ func TestUiBuildSummary(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestCollectStatusRowsMainFirst(t *testing.T) {
+	// Git may list worktrees in any order. collectStatusRows must pin IsMain first.
+	rc := repo.Context{
+		Worktrees: []worktree.Worktree{
+			{Branch: "feat", Path: "/repo/feat", Prunable: true, PrunableReason: "gone"},
+			{Branch: "main", Path: "/repo/main", IsMain: true, Prunable: true, PrunableReason: "gone"},
+		},
+		Main: worktree.Worktree{Branch: "main", Path: "/repo/main", IsMain: true},
+	}
+	rows, err := collectStatusRows(context.Background(), deps.Deps{}, rc, config.ArtifactConfig{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if !rows[0].IsMain {
+		t.Error("rows[0].IsMain = false; main worktree must be first regardless of git list order")
+	}
 }

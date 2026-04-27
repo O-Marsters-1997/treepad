@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -84,11 +85,12 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.branch != "" {
 			label = msg.branch
 		}
+		m.toastGen++
 		m.toast = &uiToast{msg: fmt.Sprintf("✓ synced %s", label)}
-		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.timerCmd())
 
 	case uiToastExpiredMsg:
-		if m.toast != nil && !m.toast.isErr {
+		if msg.gen == m.toastGen && m.toast != nil && !m.toast.isErr {
 			m.toast = nil
 		}
 
@@ -98,8 +100,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
 			return m, nil
 		}
+		m.toastGen++
 		m.toast = &uiToast{msg: fmt.Sprintf("✓ opened %s", msg.path)}
-		return m, m.doToastTimer()
+		return m, m.timerCmd()
 
 	case uiDiffDoneMsg:
 		m.actionInFlight = false
@@ -107,8 +110,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
 			return m, nil
 		}
+		m.toastGen++
 		m.toast = &uiToast{msg: fmt.Sprintf("✓ diffed %s", msg.branch)}
-		return m, m.doToastTimer()
+		return m, m.timerCmd()
 
 	case uiShellDoneMsg:
 		m.actionInFlight = false
@@ -117,8 +121,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
 			return m, tea.Batch(m.doRefresh(), m.doTick())
 		}
+		m.toastGen++
 		m.toast = &uiToast{msg: fmt.Sprintf("✓ shell exited (%s)", msg.branch)}
-		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.timerCmd())
 
 	case uiYankClearMsg:
 		m.yankPath = ""
@@ -129,8 +134,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
 			return m, nil
 		}
+		m.toastGen++
 		m.toast = &uiToast{msg: fmt.Sprintf("✓ removed %s", msg.branch)}
-		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.timerCmd())
 
 	case uiPruneDoneMsg:
 		m.actionInFlight = false
@@ -138,8 +144,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
 			return m, nil
 		}
+		m.toastGen++
 		m.toast = &uiToast{msg: "✓ pruned merged worktrees"}
-		return m, tea.Batch(m.doRefresh(), m.doTick(), m.doToastTimer())
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.timerCmd())
 
 	case tea.KeyMsg:
 		// Filter mode intercepts all keystrokes for query editing.
@@ -278,8 +285,9 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "y":
 			if row, ok := m.visibleCursorRow(); ok {
 				m.yankPath = row.Path
+				m.toastGen++
 				m.toast = &uiToast{msg: "📋 yanked " + row.Path}
-				return m, tea.Batch(m.doToastTimer(), func() tea.Msg { return uiYankClearMsg{} })
+				return m, tea.Batch(m.timerCmd(), func() tea.Msg { return uiYankClearMsg{} })
 			}
 		case "?":
 			m.mode = uiModeHelp
@@ -293,6 +301,19 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filterStr = ""
 				m.filterActive = false
 				m.cursor = 0
+			}
+		case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			digit := int(msg.String()[0] - '0')
+			if digit < len(vr) {
+				m.cursor = digit
+			} else {
+				s := "s"
+				if len(vr) == 1 {
+					s = ""
+				}
+				m.toastGen++
+				m.toast = &uiToast{msg: fmt.Sprintf("row %d out of range (%d worktree%s)", digit, len(vr), s)}
+				return m, m.timerCmd()
 			}
 		case "up", "k":
 			if m.cursor > 0 {
@@ -437,9 +458,12 @@ func (m uiModel) doSyncFleet() tea.Cmd {
 	}
 }
 
-func (m uiModel) doToastTimer() tea.Cmd {
+func (m uiModel) timerCmd() tea.Cmd {
 	if m.toastTimerCmd == nil {
 		return nil
 	}
-	return m.toastTimerCmd()
+	gen := m.toastGen
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+		return uiToastExpiredMsg{gen: gen}
+	})
 }

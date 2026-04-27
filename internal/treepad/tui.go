@@ -30,7 +30,7 @@ var ErrNotTTY = errors.New("tp ui requires an interactive terminal")
 
 type (
 	uiTickMsg         struct{}
-	uiToastExpiredMsg struct{}
+	uiToastExpiredMsg struct{ gen int }
 	uiRefreshMsg      struct {
 		rows   []StatusRow
 		health map[string]healthFlags
@@ -96,6 +96,7 @@ type uiModel struct {
 	actionInFlight   bool   // sync in progress — pauses auto-refresh
 	syncBranch       string // branch being synced; empty = fleet sync
 	toast            *uiToast
+	toastGen         int
 	spinner          spinner.Model
 	mode             uiMode
 	confirmBranch    string // branch name shown in confirm modals

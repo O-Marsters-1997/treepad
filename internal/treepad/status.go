@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -107,6 +108,7 @@ func collectStatusRows(
 
 		rows = append(rows, row)
 	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].IsMain && !rows[j].IsMain })
 	return rows, nil
 }
 
