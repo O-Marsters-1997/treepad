@@ -54,15 +54,16 @@ func (r *RecordingRunner) Run(ctx context.Context, name string, args ...string) 
 	return r.Inner.Run(ctx, name, args...)
 }
 
-// FakeSyncer records Sync calls and returns a canned error.
+// FakeSyncer records Sync calls and returns a canned result and error.
 type FakeSyncer struct {
-	Calls []internalsync.Config
-	Err   error
+	Calls  []internalsync.Config
+	Result internalsync.SyncResult
+	Err    error
 }
 
-func (f *FakeSyncer) Sync(_ []string, cfg internalsync.Config) error {
+func (f *FakeSyncer) Sync(_ []string, cfg internalsync.Config) (internalsync.SyncResult, error) {
 	f.Calls = append(f.Calls, cfg)
-	return f.Err
+	return f.Result, f.Err
 }
 
 // FakeOpener records Open calls and returns a canned error.

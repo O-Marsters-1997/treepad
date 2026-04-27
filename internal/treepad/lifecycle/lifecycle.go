@@ -88,6 +88,9 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 		if artErr != nil {
 			return fmt.Errorf("write artifact: %w", artErr)
 		}
+		if info, statErr := os.Stat(artifactPath); statErr == nil {
+			p.Observe("artifact.write", 1, info.Size())
+		}
 		slog.Debug("wrote artifact", "outputDir", rc.OutputDir, "branch", branch)
 		return nil
 	})
@@ -167,11 +170,12 @@ func LoadAndSync(
 		}
 		postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, hook.PreSync, hook.PostSync, hData, func() error {
 			fileSyncDone := p.Stage("file_sync")
-			syncErr := d.Syncer.Sync(patterns, internalsync.Config{
+			syncRes, syncErr := d.Syncer.Sync(patterns, internalsync.Config{
 				SourceDir: sourceDir,
 				TargetDir: t.Path,
 			})
 			fileSyncDone()
+			p.Observe("file_sync", syncRes.Files, syncRes.Bytes)
 			if syncErr != nil {
 				return fmt.Errorf("sync configs to %s: %w", t.Branch, syncErr)
 			}
@@ -232,9 +236,14 @@ func doRemove(
 
 	pre, post := hook.PreRemove, hook.PostRemove
 	postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, pre, post, hData, func() error {
+		var removeFiles, removeBytes int64
+		if profile.IsEnabled(p) {
+			removeFiles, removeBytes = statTree(target.Path)
+		}
 		wtRemoveDone := p.Stage("git.worktree_remove")
 		_, wtErr := d.Runner.Run(ctx, "git", removeArgs...)
 		wtRemoveDone()
+		p.Observe("git.worktree_remove", removeFiles, removeBytes)
 		if wtErr != nil {
 			return fmt.Errorf("%s: %w", removeVerb, wtErr)
 		}
@@ -251,9 +260,14 @@ func doRemove(
 			if !ok {
 				return nil
 			}
+			var artSize int64
+			if info, statErr := os.Stat(artifactPath); statErr == nil {
+				artSize = info.Size()
+			}
 			if rmErr := os.Remove(artifactPath); rmErr != nil && !os.IsNotExist(rmErr) {
 				return fmt.Errorf("remove artifact: %w", rmErr)
 			}
+			p.Observe("artifact.remove", 1, artSize)
 			d.Log.OK("removed artifact: %s", artifactPath)
 			return nil
 		}()
