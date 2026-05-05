@@ -115,6 +115,7 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 		if info, statErr := os.Stat(artifactPath); statErr == nil {
 			p.Observe("artifact.write", 1, info.Size())
 		}
+		slog.Debug("wrote artifact", "outputDir", rc.OutputDir, "branch", branch)
 		return nil
 	})
 	if postErr != nil {
