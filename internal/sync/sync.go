@@ -2,6 +2,7 @@
 package sync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,9 +10,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"golang.org/x/sync/errgroup"
 )
 
 // ErrCloneUnsupported is returned by CloneTree / cloneFile when the platform or
@@ -27,12 +31,14 @@ var errCloneUnsupported = ErrCloneUnsupported
 // the fast-clone path; callers should fall back to a regular copy.
 func CloneTree(src, dst string) error { return cloneTree(src, dst) }
 
+// Config controls where FileSyncer reads from and writes to.
 type Config struct {
 	SourceDir string
 	TargetDir string
 	// Stage is an optional profiler hook; nil means no-op.
 	// Call: done := cfg.Stage("name"); defer done()
-	Stage func(string) func()
+	Stage   func(string) func()
+	Workers int // concurrent copy goroutines; 0 = runtime.NumCPU()
 }
 
 func stageOf(cfg Config) func(string) func() {
@@ -56,7 +62,16 @@ type Syncer interface {
 	Sync(patterns []string, cfg Config) (SyncResult, error)
 }
 
+// FileSyncer is the production Syncer implementation.
 type FileSyncer struct{}
+
+// copyJob is one unit of copy work delivered from the walk producer to the worker pool.
+type copyJob struct {
+	src     string
+	dst     string
+	rel     string // forward-slash relative path, for error messages
+	symlink bool
+}
 
 func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 	if err := validatePatterns(patterns); err != nil {
@@ -65,95 +80,167 @@ func (FileSyncer) Sync(patterns []string, cfg Config) (SyncResult, error) {
 	include, exclude := parsePatterns(patterns)
 	stage := stageOf(cfg)
 
-	var result SyncResult
-
-	// Attempt to fast-clone whole-directory include patterns before walking.
-	// On Darwin/APFS this turns a 30s node_modules copy into a sub-second clone.
-	cloned := make(map[string]bool)
-	var walkIncludes []string
-	cloneDone := stage("sync.clone_pass")
-	for _, p := range include {
+	// Whole-directory fast-clone phase: run each eligible clone concurrently.
+	// Each goroutine writes to results[i] — a unique index — so no mutex is needed.
+	// On Darwin/APFS clonefile is metadata-only; on Linux copy_file_range copies bytes.
+	// Errors are soft: failed clones fall back to the walk phase.
+	type cloneResult struct{ dir, pattern string }
+	results := make([]cloneResult, len(include))
+	for i, p := range include {
 		dir, ok := wholeDirPattern(p)
 		if !ok || !canFastClone(dir, exclude) {
-			walkIncludes = append(walkIncludes, p)
-			continue
+			results[i].pattern = p
 		}
-		src := filepath.Join(cfg.SourceDir, filepath.FromSlash(dir))
-		if _, err := os.Stat(src); err != nil {
-			continue
-		}
-		dst := filepath.Join(cfg.TargetDir, filepath.FromSlash(dir))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			walkIncludes = append(walkIncludes, p)
-			continue
-		}
-		if err := cloneTree(src, dst); err != nil {
-			walkIncludes = append(walkIncludes, p)
-			continue
-		}
-		result.Files++ // one entry per cloned tree; no source walk needed
-		cloned[dir] = true
-		slog.Debug("cloned tree", "dir", dir)
 	}
+	cloneDone := stage("sync.clone_pass")
+	var cg errgroup.Group
+	for i, p := range include {
+		dir, ok := wholeDirPattern(p)
+		if !ok || !canFastClone(dir, exclude) {
+			continue
+		}
+		i, p, dir := i, p, dir
+		srcDir := filepath.Join(cfg.SourceDir, filepath.FromSlash(dir))
+		dstDir := filepath.Join(cfg.TargetDir, filepath.FromSlash(dir))
+		cg.Go(func() error {
+			if _, err := os.Stat(srcDir); err != nil {
+				return nil // source absent; skip silently
+			}
+			if err := os.MkdirAll(filepath.Dir(dstDir), 0o755); err != nil {
+				results[i].pattern = p
+				return nil
+			}
+			if err := cloneTree(srcDir, dstDir); err != nil {
+				results[i].pattern = p
+				return nil
+			}
+			slog.Debug("cloned tree", "dir", dir)
+			results[i].dir = dir
+			return nil
+		})
+	}
+	_ = cg.Wait()
 	cloneDone()
+
+	var result SyncResult
+	cloned := make(map[string]bool)
+	var walkIncludes []string
+	for _, r := range results {
+		if r.dir != "" {
+			cloned[r.dir] = true
+			result.Files++ // one entry per cloned tree
+		}
+		if r.pattern != "" {
+			walkIncludes = append(walkIncludes, r.pattern)
+		}
+	}
 
 	if len(walkIncludes) == 0 {
 		return result, nil
 	}
 
-	madeDir := make(map[string]struct{})
+	// Walk phase: producer goroutine walks the source tree and enqueues copy jobs;
+	// a bounded worker pool copies files concurrently. Each worker keeps its own
+	// madeDir set to avoid redundant MkdirAll calls within that goroutine's work.
+	workers := cfg.Workers
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	jobs := make(chan copyJob, workers*2)
+
+	var fileCount atomic.Int64
+	g, gctx := errgroup.WithContext(context.Background())
+
 	walkDone := stage("sync.walk")
-	err := filepath.WalkDir(cfg.SourceDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
+	for range workers {
+		g.Go(func() error {
+			madeDir := make(map[string]struct{})
+			for j := range jobs {
+				if gctx.Err() != nil {
+					continue // drain cancelled jobs without doing work
+				}
+				var err error
+				if j.symlink {
+					err = copySymlinkCached(j.src, j.dst, madeDir)
+					if err == nil {
+						fileCount.Add(1)
+						slog.Debug("synced symlink", "rel", j.rel)
+					}
+				} else {
+					err = copyFileCached(j.src, j.dst, madeDir)
+					if err == nil {
+						fileCount.Add(1)
+						slog.Debug("synced file", "rel", j.rel)
+					}
+				}
+				if err != nil {
+					return fmt.Errorf("sync %s: %w", j.rel, err)
+				}
+			}
+			return nil
+		})
+	}
 
-		rel, err := filepath.Rel(cfg.SourceDir, path)
-		if err != nil {
-			return fmt.Errorf("relative path for %s: %w", path, err)
-		}
-		relSlash := filepath.ToSlash(rel)
+	g.Go(func() error {
+		defer close(jobs)
+		return filepath.WalkDir(cfg.SourceDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if gctx.Err() != nil {
+				return filepath.SkipAll
+			}
 
-		if d.Type()&fs.ModeSymlink != 0 {
+			rel, err := filepath.Rel(cfg.SourceDir, path)
+			if err != nil {
+				return fmt.Errorf("relative path for %s: %w", path, err)
+			}
+			relSlash := filepath.ToSlash(rel)
+
+			if d.Type()&fs.ModeSymlink != 0 {
+				if !matchesInclude(relSlash, walkIncludes, exclude) {
+					return nil
+				}
+				dst := filepath.Join(cfg.TargetDir, rel)
+				select {
+				case jobs <- copyJob{src: path, dst: dst, rel: relSlash, symlink: true}:
+				case <-gctx.Done():
+					return filepath.SkipAll
+				}
+				return nil
+			}
+
+			if d.IsDir() {
+				if rel == "." {
+					return nil
+				}
+				if cloned[relSlash] {
+					return fs.SkipDir
+				}
+				if !dirCouldMatch(relSlash, walkIncludes) {
+					return fs.SkipDir
+				}
+				return nil
+			}
+
 			if !matchesInclude(relSlash, walkIncludes, exclude) {
 				return nil
 			}
+
 			dst := filepath.Join(cfg.TargetDir, rel)
-			if err := copySymlinkCached(path, dst, madeDir); err != nil {
-				return fmt.Errorf("sync %s: %w", rel, err)
-			}
-			result.Files++
-			slog.Debug("synced symlink", "rel", rel)
-			return nil
-		}
-
-		if d.IsDir() {
-			if rel == "." {
-				return nil
-			}
-			if cloned[relSlash] {
-				return fs.SkipDir
-			}
-			if !dirCouldMatch(relSlash, walkIncludes) {
-				return fs.SkipDir
+			select {
+			case jobs <- copyJob{src: path, dst: dst, rel: relSlash}:
+			case <-gctx.Done():
+				return filepath.SkipAll
 			}
 			return nil
-		}
-
-		if !matchesInclude(relSlash, walkIncludes, exclude) {
-			return nil
-		}
-
-		slog.Debug("syncing file", "rel", rel)
-		dst := filepath.Join(cfg.TargetDir, rel)
-		if err := copyFileCached(path, dst, madeDir); err != nil {
-			return fmt.Errorf("sync %s: %w", rel, err)
-		}
-		result.Files++
-		return nil
+		})
 	})
+
+	walkErr := g.Wait()
 	walkDone()
-	return result, err
+	result.Files += fileCount.Load()
+	return result, walkErr
 }
 
 func parsePatterns(patterns []string) (include, exclude []string) {

@@ -73,8 +73,10 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 		}
 		d.Log.OK("created worktree at %s", worktreePath)
 
-		// git checkout and sync write disjoint paths (tracked files vs gitignored),
-		// so both can run concurrently after the worktree directory is created.
+		// git checkout, sync, and artifact.Write all write to disjoint paths, so run concurrently.
+		artData := config.MakeTemplateData(rc.Slug, branch, worktreePath, rc.OutputDir)
+		artSpec := cfg.Artifact.Spec() // snapshot pre-sync cfg; no data dep on LoadAndSync result
+
 		var newCfg config.Config
 		g, gctx := errgroup.WithContext(ctx)
 		g.Go(func() error {
@@ -91,19 +93,20 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 				[]SyncTarget{{Path: worktreePath, Branch: branch}}, rc.Slug, rc.OutputDir)
 			return err
 		})
+		g.Go(func() error {
+			artDone := p.Stage("artifact.write")
+			var artErr error
+			artifactPath, artErr = artifact.Write(artSpec, rc.OutputDir, artData)
+			artDone()
+			if artErr != nil {
+				return fmt.Errorf("write artifact: %w", artErr)
+			}
+			return nil
+		})
 		if err := g.Wait(); err != nil {
 			return err
 		}
 		cfg = newCfg
-
-		artData := config.MakeTemplateData(rc.Slug, branch, worktreePath, rc.OutputDir)
-		artDone := p.Stage("artifact.write")
-		var artErr error
-		artifactPath, artErr = artifact.Write(cfg.Artifact.Spec(), rc.OutputDir, artData)
-		artDone()
-		if artErr != nil {
-			return fmt.Errorf("write artifact: %w", artErr)
-		}
 		if info, statErr := os.Stat(artifactPath); statErr == nil {
 			p.Observe("artifact.write", 1, info.Size())
 		}
