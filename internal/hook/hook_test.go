@@ -3,6 +3,7 @@ package hook_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"treepad/internal/hook"
@@ -147,6 +148,57 @@ func TestExecRunnerRun(t *testing.T) {
 		}
 		if len(r.Calls) != 0 {
 			t.Errorf("got %d calls, want 0 (feat/foo excluded by except)", len(r.Calls))
+		}
+	})
+
+	t.Run("interactive entry runs through the TTY runner, not the buffered one", func(t *testing.T) {
+		r := &treepadtest.Runner{}
+		pt := &treepadtest.FakePassthroughRunner{}
+		runner := hook.ExecRunner{Runner: r, TTY: pt}
+
+		hooks := []hook.HookEntry{{Command: "picker {{.Branch}}", Interactive: true}, {Command: "quiet"}}
+		if err := runner.Run(context.Background(), hooks, testData); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(pt.Calls) != 1 {
+			t.Fatalf("got %d TTY calls, want 1", len(pt.Calls))
+		}
+		got := pt.Calls[0]
+		if got.Dir != "" || got.Name != "sh" || got.Args[0] != "-c" || got.Args[1] != "picker feat/foo" {
+			t.Errorf("unexpected TTY call: %+v", got)
+		}
+		if len(r.Calls) != 1 {
+			t.Errorf("got %d buffered calls, want 1 (the non-interactive entry)", len(r.Calls))
+		}
+	})
+
+	t.Run("non-zero exit from an interactive entry stops the list", func(t *testing.T) {
+		pt := &treepadtest.FakePassthroughRunner{ExitCode: 130}
+		runner := hook.ExecRunner{Runner: &treepadtest.Runner{}, TTY: pt}
+
+		hooks := []hook.HookEntry{{Command: "picker", Interactive: true}, {Command: "cmd2", Interactive: true}}
+		err := runner.Run(context.Background(), hooks, testData)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "exit status 130") {
+			t.Errorf("error = %v, want it to name exit status 130", err)
+		}
+		if len(pt.Calls) != 1 {
+			t.Errorf("got %d TTY calls, want 1 (should stop after first failure)", len(pt.Calls))
+		}
+	})
+
+	t.Run("branch filters apply to interactive entries", func(t *testing.T) {
+		pt := &treepadtest.FakePassthroughRunner{}
+		runner := hook.ExecRunner{Runner: &treepadtest.Runner{}, TTY: pt}
+
+		hooks := []hook.HookEntry{{Command: "picker", Interactive: true, Only: []string{"fix/*"}}}
+		if err := runner.Run(context.Background(), hooks, testData); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(pt.Calls) != 0 {
+			t.Errorf("got %d TTY calls, want 0 (feat/foo should not match fix/*)", len(pt.Calls))
 		}
 	})
 

@@ -62,6 +62,22 @@ command = "direnv allow {{.WorktreePath}}"
 
 Unset or absent hook lists are silently skipped.
 
+## Interactive hooks
+
+By default a hook runs with no terminal: its stdin is `/dev/null` and its output is captured and discarded. Anything that prompts — a picker, a confirmation, a login — sees a non-TTY, silently falls back to non-interactive mode, and prints nothing.
+
+Set `interactive = true` on the entry to hand it the terminal instead:
+
+```toml
+[[hooks.post_config_init]]
+command = "npx skills add my-org/my-skills"
+interactive = true
+```
+
+The command inherits `tp`'s stdin, stdout and stderr, so it can prompt and its output appears live. Branch filters and template variables work the same as any other entry.
+
+Reach for it only when the command genuinely needs to talk to a human. `post_sync` fires once per worktree and `post_new` runs alongside `tp`'s own progress output, so an interactive hook on those events will interleave with it.
+
 ## Branch filtering
 
 Each hook entry supports `only` and `except` fields, which accept glob patterns (`*` matches within a path segment; `**` crosses path separators).
@@ -92,9 +108,10 @@ Filter semantics:
 ## Execution model
 
 - Each list entry is rendered as a Go template, then passed to `sh -c <rendered>`.
-- Commands run with the working directory inherited from the `tp` process (usually the directory you invoked `tp` from).
+- Commands run with the working directory inherited from the `tp` process (usually the directory you invoked `tp` from). For `post_config_init` that is already the repo root, so `cd {{.WorktreePath}} && …` is redundant there.
 - Environment variables are inherited from the `tp` process.
-- Standard output and error from hook commands are not currently captured or displayed; post-hook failures appear as `warning: post hook <event> failed: <error>` in `tp` output.
+- Standard output and error are discarded unless the entry sets `interactive = true`; post-hook failures appear as `warning: post hook <event> failed: <error>` in `tp` output.
+- A non-zero exit is a failure for interactive and non-interactive entries alike, including a `Ctrl-C` out of an interactive prompt (exit 130). The remaining entries in that list do not run.
 
 ## Example use cases
 
@@ -166,7 +183,8 @@ Set up your standard Claude Code settings and skills the moment a repo is onboar
 command = "cp -r ~/dotfiles/claude/. {{.WorktreePath}}/.claude/"
 
 [[hooks.post_config_init]]
-command = "cd {{.WorktreePath}} && npx skills add code-review tdd"
+command = "npx skills add code-review tdd"
+interactive = true
 ```
 
 ```bash
