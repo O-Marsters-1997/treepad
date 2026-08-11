@@ -19,8 +19,11 @@ Hooks let you run shell commands at specific points in `tp`'s lifecycle — befo
 | `post_remove` | After `git branch -d` | No (warning logged) |
 | `pre_sync` | Before each worktree's file sync | Yes |
 | `post_sync` | After each worktree's file sync | No (warning logged) |
+| `post_config_init` | After `tp config init` writes `.treepad.toml` | No (warning logged) |
 
 Sync events fire per-worktree. For `tp sync` syncing three worktrees, `pre_sync`/`post_sync` fire three times.
+
+`post_config_init` is the one event that isn't tied to a worktree — it fires once, right after `tp config init` writes the file, and reads its hook list from the file it just wrote. It does not fire for `tp config init --global` (there is no repo to set up), and it never fires for a plain `tp config init` with no `--inherit`, since the built-in defaults define no hooks. See "Bootstrap a new repo" below.
 
 ## Template variables
 
@@ -153,6 +156,25 @@ Guard against syncing a broken config into all worktrees.
 command = "./scripts/validate-vscode-settings.sh"
 ```
 
+### Bootstrap a new repo
+
+Set up your standard Claude Code settings and skills the moment a repo is onboarded, by curating the hooks in your global config (`~/.config/treepad/config.toml` or `$TREEPAD_CONFIG`) and inheriting them:
+
+```toml
+# ~/.config/treepad/config.toml
+[[hooks.post_config_init]]
+command = "cp -r ~/dotfiles/claude/. {{.WorktreePath}}/.claude/"
+
+[[hooks.post_config_init]]
+command = "cd {{.WorktreePath}} && npx skills add code-review tdd"
+```
+
+```bash
+tp config init --inherit --hooks-only
+```
+
+`--inherit` seeds the new repo's `.treepad.toml` from the global config before `post_config_init` fires, so the hooks are already on disk when they run. `--hooks-only` keeps this repo's built-in `[sync]`/`[artifact]`/`[open]` defaults and only pulls in `[hooks]`; drop it to copy the global config verbatim instead.
+
 ### Run different setup per branch type
 
 Install dependencies only on feature branches; run integration tests only on fix branches.
@@ -171,7 +193,7 @@ only = ["fix/**", "hotfix/**"]
 
 | Limitation | Notes |
 |---|---|
-| Repo-level only | Global `~/.config/treepad/config.toml` hooks are not merged in v1 |
+| Repo-level only | Global `~/.config/treepad/config.toml` hooks are not merged into an existing repo config in v1 — `tp config init --inherit` copies them in once, at init time, rather than merging on every load |
 | No approval flow | All configured hooks execute unconditionally (no first-run approval gate) |
 | No concurrent hooks | Commands within a list run sequentially; parallel execution is not supported |
 | Windows not supported | `sh -c` execution path; `cmd /C` fallback is deferred |

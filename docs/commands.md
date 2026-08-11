@@ -366,16 +366,23 @@ tp config <subcommand>
 Write a config file with default values.
 
 ```
-tp config init [--global]
+tp config init [--global] [--inherit] [--hooks-only] [--force]
 ```
 
-By default, writes `.treepad.toml` to the main worktree root (the directory containing `.git`). Use the `--global` flag to write to the global config path instead.
+By default, writes `.treepad.toml` to the main worktree root (the directory containing `.git`) populated with documented defaults. Use the `--global` flag to write to the global config path instead. Refuses to overwrite an existing config file unless `--force` is passed.
+
+Use `--inherit` to seed the repo config from the global config instead — useful for onboarding a repo with your standard hooks, sync includes, etc. already in place. Combine with `--hooks-only` to keep the built-in defaults and lift only the `[hooks]` section from the global config.
+
+**Hooks fired**: `post_config_init` (after the file is written; not fired with `--global`, since there is no repo to set up). See [hooks.md](hooks.md).
 
 #### Flags
 
-| Flag       | Short | Description                                                                     |
-| ---------- | ----- | ------------------------------------------------------------------------------- |
-| `--global` | `-g`  | Write to the global config path instead of `.treepad.toml` in the main worktree |
+| Flag           | Short | Description                                                                              |
+| -------------- | ----- | ----------------------------------------------------------------------------------------- |
+| `--global`     | `-g`  | Write to the global config path instead of `.treepad.toml` in the main worktree           |
+| `--inherit`    | `-i`  | Seed the config from the global config instead of the built-in defaults                   |
+| `--hooks-only` | `-H`  | With `--inherit`, keep the built-in defaults and lift only `[hooks]` from the global config |
+| `--force`      | `-f`  | Overwrite the config file if it already exists                                            |
 
 #### Examples
 
@@ -385,6 +392,12 @@ tp config init
 
 # Write default config to the global config path
 tp config init --global
+
+# Onboard a repo with your global hooks (e.g. Claude settings, npx skills add)
+tp config init --inherit
+
+# Same, but keep this repo's built-in defaults for sync/artifact/open
+tp config init --inherit --hooks-only
 ```
 
 ### config show

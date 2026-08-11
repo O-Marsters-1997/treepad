@@ -83,6 +83,7 @@ Each event is declared as an array of hook entries using TOML array-of-tables sy
 | `post_remove` | After `git branch -d`                      | No (warning)      |
 | `pre_sync`    | Before each worktree's file sync           | Yes               |
 | `post_sync`   | After each worktree's file sync            | No (warning)      |
+| `post_config_init` | After `tp config init` writes the config | No (warning)  |
 
 ```toml
 [[hooks.post_new]]

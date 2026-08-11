@@ -1,0 +1,20 @@
+tp-init-repo
+
+env TREEPAD_CONFIG=$WORK/global.toml
+exec tp config init -i
+exists .treepad.toml
+grep 'post_config_init' .treepad.toml
+exists setup.log
+grep 'inherited:main' setup.log
+
+# Re-running without --force must not touch the existing config or fire hooks again.
+! exec tp config init
+grep 'post_config_init' .treepad.toml
+exec sh -c 'test $(grep -c inherited setup.log) = 1'
+
+exec tp config init --force -i
+exec sh -c 'test $(grep -c inherited setup.log) = 2'
+
+-- global.toml --
+[[hooks.post_config_init]]
+command = "echo inherited:{{.Branch}} >> setup.log"

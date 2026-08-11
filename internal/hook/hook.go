@@ -12,12 +12,13 @@ import (
 type Event string
 
 const (
-	PreNew     Event = "pre_new"
-	PostNew    Event = "post_new"
-	PreRemove  Event = "pre_remove"
-	PostRemove Event = "post_remove"
-	PreSync    Event = "pre_sync"
-	PostSync   Event = "post_sync"
+	PreNew         Event = "pre_new"
+	PostNew        Event = "post_new"
+	PreRemove      Event = "pre_remove"
+	PostRemove     Event = "post_remove"
+	PreSync        Event = "pre_sync"
+	PostSync       Event = "post_sync"
+	PostConfigInit Event = "post_config_init"
 )
 
 // Data is the context available when rendering hook command templates.
@@ -47,18 +48,20 @@ type Runner interface {
 
 // Config holds the hook entries for each event.
 type Config struct {
-	PreNew     []HookEntry `toml:"pre_new"`
-	PostNew    []HookEntry `toml:"post_new"`
-	PreRemove  []HookEntry `toml:"pre_remove"`
-	PostRemove []HookEntry `toml:"post_remove"`
-	PreSync    []HookEntry `toml:"pre_sync"`
-	PostSync   []HookEntry `toml:"post_sync"`
+	PreNew         []HookEntry `toml:"pre_new,omitempty"`
+	PostNew        []HookEntry `toml:"post_new,omitempty"`
+	PreRemove      []HookEntry `toml:"pre_remove,omitempty"`
+	PostRemove     []HookEntry `toml:"post_remove,omitempty"`
+	PreSync        []HookEntry `toml:"pre_sync,omitempty"`
+	PostSync       []HookEntry `toml:"post_sync,omitempty"`
+	PostConfigInit []HookEntry `toml:"post_config_init,omitempty"`
 }
 
 func (c Config) IsZero() bool {
 	return len(c.PreNew) == 0 && len(c.PostNew) == 0 &&
 		len(c.PreRemove) == 0 && len(c.PostRemove) == 0 &&
-		len(c.PreSync) == 0 && len(c.PostSync) == 0
+		len(c.PreSync) == 0 && len(c.PostSync) == 0 &&
+		len(c.PostConfigInit) == 0
 }
 
 func (c Config) For(e Event) []HookEntry {
@@ -75,6 +78,8 @@ func (c Config) For(e Event) []HookEntry {
 		return c.PreSync
 	case PostSync:
 		return c.PostSync
+	case PostConfigInit:
+		return c.PostConfigInit
 	default:
 		return nil
 	}

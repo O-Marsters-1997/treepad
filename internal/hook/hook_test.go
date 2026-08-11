@@ -168,12 +168,13 @@ func TestExecRunnerRun(t *testing.T) {
 func TestConfigFor(t *testing.T) {
 	e := func(cmd string) hook.HookEntry { return hook.HookEntry{Command: cmd} }
 	cfg := hook.Config{
-		PreNew:     []hook.HookEntry{e("a")},
-		PostNew:    []hook.HookEntry{e("b"), e("c")},
-		PreRemove:  []hook.HookEntry{e("d")},
-		PostRemove: []hook.HookEntry{e("e")},
-		PreSync:    []hook.HookEntry{e("f")},
-		PostSync:   []hook.HookEntry{e("g")},
+		PreNew:         []hook.HookEntry{e("a")},
+		PostNew:        []hook.HookEntry{e("b"), e("c")},
+		PreRemove:      []hook.HookEntry{e("d")},
+		PostRemove:     []hook.HookEntry{e("e")},
+		PreSync:        []hook.HookEntry{e("f")},
+		PostSync:       []hook.HookEntry{e("g")},
+		PostConfigInit: []hook.HookEntry{e("h")},
 	}
 
 	tests := []struct {
@@ -186,6 +187,7 @@ func TestConfigFor(t *testing.T) {
 		{hook.PostRemove, 1},
 		{hook.PreSync, 1},
 		{hook.PostSync, 1},
+		{hook.PostConfigInit, 1},
 		{"unknown", 0},
 	}
 	for _, tt := range tests {
@@ -202,5 +204,8 @@ func TestConfigIsZero(t *testing.T) {
 	}
 	if (hook.Config{PreNew: []hook.HookEntry{{Command: "x"}}}).IsZero() {
 		t.Error("non-empty Config.IsZero() = true, want false")
+	}
+	if (hook.Config{PostConfigInit: []hook.HookEntry{{Command: "x"}}}).IsZero() {
+		t.Error("non-empty Config.IsZero() (PostConfigInit) = true, want false")
 	}
 }
