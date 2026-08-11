@@ -50,9 +50,12 @@ command = ["open", "{{.ArtifactPath}}"]
 
 # Commands run at lifecycle events. See docs/hooks.md for the full event
 # list and template variables. post_config_init fires once, right after this
-# file is written by tp config init.
+# file is written by tp config init. Set interactive = true on any entry whose
+# command needs to prompt; without it the command gets no terminal and its
+# output is discarded.
 # [[hooks.post_config_init]]
 # command = "npx skills add code-review tdd"
+# interactive = true
 
 # Configuration for tp from-spec. Resolves a spec body (from --issue or
 # --file), writes PROMPT.md into the worktree, and hands off to an agent.

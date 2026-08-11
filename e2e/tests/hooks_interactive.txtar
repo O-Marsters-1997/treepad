@@ -1,0 +1,25 @@
+tp-init-repo
+
+# --hooks-only re-encodes the global [hooks] section, so this also proves the
+# interactive flag survives the TOML round-trip into .treepad.toml.
+env TREEPAD_CONFIG=$WORK/global.toml
+exec tp config init --inherit --hooks-only
+grep 'interactive = true' .treepad.toml
+
+# An interactive hook inherits tp's stdio, so its output reaches the terminal.
+stdout 'INTERACTIVE-HOOK-OUTPUT'
+
+# A plain hook's stdout is still buffered and discarded.
+! stdout 'QUIET-HOOK-OUTPUT'
+
+# Both ran: each wrote a marker file.
+exists quiet.marker
+exists interactive.marker
+
+-- global.toml --
+[[hooks.post_config_init]]
+command = "echo QUIET-HOOK-OUTPUT; touch quiet.marker"
+
+[[hooks.post_config_init]]
+command = "echo INTERACTIVE-HOOK-OUTPUT; touch interactive.marker"
+interactive = true

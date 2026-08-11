@@ -35,10 +35,16 @@ type Data struct {
 // If Only is non-empty the branch must match at least one pattern.
 // If Except is non-empty the branch must not match any pattern.
 // Both conditions apply when both are set.
+//
+// Interactive gives the command the caller's terminal so it can prompt.
+// Without it the command runs with no TTY and its output is discarded, which
+// makes pickers and confirmation prompts silently fall back to non-interactive
+// mode.
 type HookEntry struct {
-	Command string   `toml:"command"`
-	Only    []string `toml:"only"`
-	Except  []string `toml:"except"`
+	Command     string   `toml:"command"`
+	Only        []string `toml:"only"`
+	Except      []string `toml:"except"`
+	Interactive bool     `toml:"interactive,omitempty"`
 }
 
 // Runner executes a list of hook entries with the provided data.

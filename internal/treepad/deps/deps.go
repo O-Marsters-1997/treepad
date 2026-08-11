@@ -44,7 +44,7 @@ func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
 		Runner:     runner,
 		Syncer:     internalsync.FileSyncer{},
 		Opener:     artifact.ExecOpener{Runner: runner},
-		HookRunner: hook.ExecRunner{Runner: runner},
+		HookRunner: hook.ExecRunner{Runner: runner, TTY: passthrough.OSRunner{}},
 		PTRunner:   passthrough.OSRunner{},
 		Profiler:   profile.Disabled(),
 		Out:        out,
