@@ -31,8 +31,9 @@ func TestConfigInit(t *testing.T) {
 		writeGlobalConfig(t, "[[hooks.post_config_init]]\ncommand = \"marker\"\n")
 
 		hr := &treepadtest.FakeHookRunner{}
+		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 		d := deps.Deps{
-			Runner:     &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.MainWorktreePorcelain(mainPath)}}},
+			Runner:     &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: porcelain}}},
 			HookRunner: hr,
 			Log:        ui.New(&bytes.Buffer{}),
 		}
@@ -58,8 +59,9 @@ func TestConfigInit(t *testing.T) {
 	t.Run("no hooks configured is a no-op", func(t *testing.T) {
 		mainPath := makeMainWorktree(t)
 		hr := &treepadtest.FakeHookRunner{}
+		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 		d := deps.Deps{
-			Runner:     &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.MainWorktreePorcelain(mainPath)}}},
+			Runner:     &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: porcelain}}},
 			HookRunner: hr,
 			Log:        ui.New(&bytes.Buffer{}),
 		}
@@ -78,8 +80,9 @@ func TestConfigInit(t *testing.T) {
 		writeGlobalConfig(t, "[[hooks.post_config_init]]\ncommand = \"fail\"\n")
 
 		var logBuf bytes.Buffer
+		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 		d := deps.Deps{
-			Runner:     &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: treepadtest.MainWorktreePorcelain(mainPath)}}},
+			Runner:     &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: porcelain}}},
 			HookRunner: &treepadtest.FakeHookRunner{Err: errors.New("boom")},
 			Log:        ui.New(&logBuf),
 		}
