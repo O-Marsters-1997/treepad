@@ -78,8 +78,9 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `config.go`
 
 - `configCommand()` — `tp config` command group
-- `configInitCommand()` — `tp config init [--global]`
+- `configInitCommand()` — `tp config init [--global] [--inherit] [--hooks-only] [--force]`
   - Calls `treepad.ConfigInit()` which delegates to `config.WriteDefault()`
+  - Rejects `--hooks-only` without `--inherit`
 - `configShowCommand()` — `tp config show`
   - Calls `treepad.ConfigShow()` which delegates to `config.Show()`
 
@@ -126,11 +127,13 @@ Handles TOML configuration file loading, initialization, and display.
 
 ### `init.go`
 
-- `WriteDefault(dir, global)` — writes annotated TOML config file with defaults
-  - If `global=true`, writes to global config path
-  - If `global=false`, writes `.treepad.toml` to `dir`
+- `InitOptions` struct — `Global`, `Inherit`, `HooksOnly`, `Force`
+- `WriteDefault(dir, InitOptions)` — writes a config file per opts
+  - If `Global`, writes to global config path; otherwise writes `.treepad.toml` to `dir`
+  - Refuses to overwrite an existing file unless `Force`
+  - Content resolved by `initContent(opts)`: built-in `defaultTOML` by default; the global config's raw bytes when `Inherit`; `defaultTOML` + a re-encoded `[hooks]` block lifted from the global config when `Inherit && HooksOnly`
   - Returns path of file written
-  - Writes `defaultTOML` constant: documented TOML with all sections and produces VS Code `.code-workspace` output by default
+  - Writes `defaultTOML` constant: documented TOML with all sections (including a commented `post_config_init` example) and produces VS Code `.code-workspace` output by default
 
 ### `artifact.go`
 
@@ -147,6 +150,7 @@ Handles TOML configuration file loading, initialization, and display.
 - `loadFile(path)` — reads and parses a single `.treepad.toml` file
   - Returns triple: (Config, found bool, error)
   - Handles missing files and parse errors
+  - "found" means at least one section is non-zero (`isZero(cfg)`), not just `sync.include` — a config that only sets `[hooks]` still counts
 
 ## Exec Package (`internal/exec/`)
 
@@ -243,7 +247,10 @@ Business logic entry points. Each public function is a standalone top-level func
 
 ### `config_ops.go`
 
+- `ConfigInitInput` struct — `Global`, `Inherit`, `HooksOnly`, `Force`
 - `ConfigInit(ctx, deps.Deps, ConfigInitInput)` — writes `.treepad.toml` (local or global) via `config.WriteDefault()`
+  - Local path uses `repo.Load()` for `Main`/`Slug`/`OutputDir`, then re-`config.Load()`s the file just written and fires `post_config_init` (warns, does not abort, on failure)
+  - `--global` skips the hook fire — there is no repo to set up
 - `ConfigShow(ctx, deps.Deps, ConfigShowInput)` — prints resolved config and sources via `config.Show()`
 
 ## Treepad Sub-Packages
@@ -391,7 +398,8 @@ Lifecycle hooks defined in `.treepad.toml` and run at specific points in `tp` op
 
 ### `hook.go`
 
-- `Event` type — string constant: `PreNew`, `PostNew`, `PreRemove`, `PostRemove`, `PreSync`, `PostSync`
+- `Event` type — string constant: `PreNew`, `PostNew`, `PreRemove`, `PostRemove`, `PreSync`, `PostSync`, `PostConfigInit`
+  - `PostConfigInit` is the one non-worktree event; fired via `hook.Run` (not `RunSandwich`, no matching pre-event) from `treepad.ConfigInit` after `config.WriteDefault` writes the file
 - `HookEntry` struct — `Command string`, `Only []string`, `Except []string` (glob branch filters)
 - `Config` struct — holds `[]HookEntry` for each event; `IsZero()`, `For(Event) []HookEntry`
 - `Data` struct — template context: `Branch`, `WorktreePath`, `Slug`, `HookType`, `OutputDir`

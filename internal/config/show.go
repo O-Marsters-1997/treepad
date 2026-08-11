@@ -55,8 +55,8 @@ func Show(repoRoot string) (string, error) {
 }
 
 // loadFile reads and parses a single .treepad.toml file.
-// Returns (cfg, true, nil) if found with non-empty sync.include.
-// Returns (zero, false, nil) if missing or sync.include is empty.
+// Returns (cfg, true, nil) if found with at least one non-default section set.
+// Returns (zero, false, nil) if missing or every section is unset.
 // Returns (zero, false, err) if the file exists but cannot be read or parsed.
 func loadFile(path string) (Config, bool, error) {
 	data, err := os.ReadFile(path)
@@ -70,8 +70,20 @@ func loadFile(path string) (Config, bool, error) {
 	if _, err := toml.Decode(string(data), &cfg); err != nil {
 		return Config{}, false, fmt.Errorf("parsing %s: %w", path, err)
 	}
-	if len(cfg.Sync.Include) == 0 {
+	if isZero(cfg) {
 		return Config{}, false, nil
 	}
 	return cfg, true, nil
+}
+
+// isZero reports whether every section of cfg is unset — the same signal
+// Load uses per-section to decide whether the file contributed anything.
+func isZero(cfg Config) bool {
+	return len(cfg.Sync.Include) == 0 &&
+		cfg.Artifact.IsZero() &&
+		cfg.Open.IsZero() &&
+		cfg.Hooks.IsZero() &&
+		cfg.Exec.IsZero() &&
+		cfg.FromSpec.IsZero() &&
+		cfg.Diff.IsZero()
 }

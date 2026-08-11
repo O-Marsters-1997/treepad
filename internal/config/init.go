@@ -1,9 +1,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/BurntSushi/toml"
+
+	"treepad/internal/hook"
 )
 
 // defaultTOML is the content written by config init. It documents every field
@@ -42,6 +48,12 @@ content = """
 [open]
 command = ["open", "{{.ArtifactPath}}"]
 
+# Commands run at lifecycle events. See docs/hooks.md for the full event
+# list and template variables. post_config_init fires once, right after this
+# file is written by tp config init.
+# [[hooks.post_config_init]]
+# command = "npx skills add code-review tdd"
+
 # Configuration for tp from-spec. Resolves a spec body (from --issue or
 # --file), writes PROMPT.md into the worktree, and hands off to an agent.
 # Pass --prompt "..." on the CLI to append custom instructions; otherwise
@@ -53,12 +65,28 @@ skills = []
 agent_command = ["claude", "{{.PromptPath}}"]
 `
 
-// WriteDefault writes a config file populated with documented defaults.
-// If global is true, writes to the global config path (XDG or $TREEPAD_CONFIG).
-// Otherwise writes .treepad.toml in dir. Returns the path written.
-func WriteDefault(dir string, global bool) (string, error) {
+// InitOptions controls what WriteDefault writes and where.
+type InitOptions struct {
+	// Global writes to the global config path (XDG or $TREEPAD_CONFIG) instead
+	// of .treepad.toml in dir.
+	Global bool
+	// Inherit seeds the written config from the global config instead of the
+	// built-in defaults.
+	Inherit bool
+	// HooksOnly, combined with Inherit, keeps the built-in defaults and lifts
+	// only the [hooks] section from the global config. Comments in the global
+	// config are lost on this path; it is re-encoded from parsed structs.
+	HooksOnly bool
+	// Force allows overwriting a file that already exists at the target path.
+	Force bool
+}
+
+// WriteDefault writes a config file to the location described by opts.
+// Returns an error if the target already exists and opts.Force is false.
+// Returns the path written.
+func WriteDefault(dir string, opts InitOptions) (string, error) {
 	var path string
-	if global {
+	if opts.Global {
 		p, err := GlobalConfigPath()
 		if err != nil {
 			return "", err
@@ -68,11 +96,62 @@ func WriteDefault(dir string, global bool) (string, error) {
 		path = filepath.Join(dir, configFileName)
 	}
 
+	if !opts.Force {
+		if _, err := os.Stat(path); err == nil {
+			return "", fmt.Errorf("%s already exists; pass --force to overwrite", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("check %s: %w", path, err)
+		}
+	}
+
+	content, err := initContent(opts)
+	if err != nil {
+		return "", err
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("create config directory: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(defaultTOML), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("write config: %w", err)
 	}
 	return path, nil
+}
+
+// initContent resolves the bytes WriteDefault should write, per opts.Inherit
+// and opts.HooksOnly.
+func initContent(opts InitOptions) (string, error) {
+	if !opts.Inherit {
+		return defaultTOML, nil
+	}
+
+	globalPath, err := GlobalConfigPath()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(globalPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("no global config at %s; run `tp config init --global` first", globalPath)
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", globalPath, err)
+	}
+
+	if !opts.HooksOnly {
+		return string(data), nil
+	}
+
+	var globalCfg Config
+	if _, err := toml.Decode(string(data), &globalCfg); err != nil {
+		return "", fmt.Errorf("parsing %s: %w", globalPath, err)
+	}
+
+	var hooksTOML strings.Builder
+	if err := toml.NewEncoder(&hooksTOML).Encode(struct {
+		Hooks hook.Config `toml:"hooks"`
+	}{globalCfg.Hooks}); err != nil {
+		return "", fmt.Errorf("encode hooks: %w", err)
+	}
+
+	return defaultTOML + "\n" + hooksTOML.String(), nil
 }
