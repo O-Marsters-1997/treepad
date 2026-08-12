@@ -56,12 +56,17 @@ func FromSpec(ctx context.Context, d deps.Deps, in FromSpecInput) (int, error) {
 	// Resolved ahead of CreateWorktreeWithSync so an unresolvable ticket
 	// leaves no worktree behind.
 	resolveDone := p.Stage("ticket.resolve")
-	ticketURL, err := resolveTicketFromRepo(ctx, d, in.OutputDir, in.Ticket)
+	fsCfg, err := loadFromSpecConfig(ctx, d, in.OutputDir)
+	if err != nil {
+		resolveDone()
+		return 0, err
+	}
+	ticketURL, _, err := resolveTicket(fsCfg, in.Ticket)
 	resolveDone()
 	if err != nil {
 		return 0, err
 	}
-	spec := "Read the ticket at:\n" + ticketURL
+	spec := specCitation(ticketURL)
 
 	res, err := lifecycle.CreateWorktreeWithSync(ctx, d, in.Branch, in.Base, in.OutputDir)
 	if err != nil {
@@ -145,20 +150,19 @@ func writePromptFile(d deps.Deps, worktreePath, body string) (string, error) {
 	return promptPath, nil
 }
 
-// resolveTicketFromRepo loads the repo's from_spec config and resolves ticket
-// to a Ticket URL. Loaded independently of lifecycle.CreateWorktreeWithSync so
-// resolution happens, and can fail, before any worktree is created.
-func resolveTicketFromRepo(ctx context.Context, d deps.Deps, outputDir, ticket string) (string, error) {
+// loadFromSpecConfig loads the repo's [from_spec] config. Loaded independently
+// of lifecycle.CreateWorktreeWithSync so ticket resolution happens, and can
+// fail, before any worktree is created.
+func loadFromSpecConfig(ctx context.Context, d deps.Deps, outputDir string) (config.FromSpecConfig, error) {
 	rc, err := repo.Load(ctx, d.Runner, outputDir)
 	if err != nil {
-		return "", err
+		return config.FromSpecConfig{}, err
 	}
 	cfg, err := config.Load(rc.Main.Path)
 	if err != nil {
-		return "", fmt.Errorf("load config: %w", err)
+		return config.FromSpecConfig{}, fmt.Errorf("load config: %w", err)
 	}
-	ticketURL, _, err := resolveTicket(cfg.FromSpec, ticket)
-	return ticketURL, err
+	return cfg.FromSpec, nil
 }
 
 func renderPrompt(tmpl string, data promptData) (string, error) {

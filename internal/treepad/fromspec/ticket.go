@@ -44,6 +44,11 @@ func refOfURL(rawURL string) string {
 	return path.Base(strings.TrimRight(u.Path, "/"))
 }
 
+// specCitation is the ## Spec body: a citation, not the Spec. See ADR 0001.
+func specCitation(ticketURL string) string {
+	return "Read the ticket at:\n" + ticketURL
+}
+
 func renderTicketURL(tmpl, ref string) (string, error) {
 	t, err := template.New("ticket_url").Parse(tmpl)
 	if err != nil {
