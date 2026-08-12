@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,57 +15,6 @@ import (
 	"treepad/internal/treepad/repo"
 	"treepad/internal/treepad/treepadtest"
 )
-
-func TestResolveIssueSpec(t *testing.T) {
-	tests := []struct {
-		name     string
-		issue    int
-		runner   *treepadtest.SeqRunner
-		wantBody string
-		wantErr  string
-	}{
-		{
-			name:  "invokes gh and trims body",
-			issue: 42,
-			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-				{Output: []byte("  implement OAuth flow\n")},
-			}},
-			wantBody: "implement OAuth flow",
-		},
-		{
-			name:    "empty issue body errors",
-			issue:   7,
-			runner:  &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Output: []byte("\n")}}},
-			wantErr: "empty body",
-		},
-		{
-			name:    "gh error propagates",
-			issue:   99,
-			runner:  &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{{Err: errors.New("gh: not authenticated")}}},
-			wantErr: "gh issue view 99",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			d := deps.Deps{Runner: tt.runner}
-			body, err := resolveIssueSpec(context.Background(), d, tt.issue)
-
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if body != tt.wantBody {
-				t.Errorf("body = %q, want %q", body, tt.wantBody)
-			}
-		})
-	}
-}
 
 func TestRenderPrompt(t *testing.T) {
 	tests := []struct {
@@ -224,26 +172,29 @@ agent_command = []
 		}
 	})
 
-	t.Run("issue source invokes gh and renders prompt with issue body", func(t *testing.T) {
+	const ticketURL = "https://github.com/acme/widgets/issues/42"
+
+	t.Run("ticket URL is cited verbatim in PROMPT.md, no gh invoked", func(t *testing.T) {
 		writeTOML(t, mainPath, fromSpecTOML)
 
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: []byte(specBody)}, // gh issue view
-			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add --no-checkout
-			{Output: nil},              // git checkout
+			{Output: porcelain}, // git worktree list (ticket resolve)
+			{Output: porcelain}, // git worktree list (lifecycle)
+			{Output: nil},       // git worktree add --no-checkout
+			{Output: nil},       // git checkout
 		}}}
+		var buf bytes.Buffer
 		deps := deps.Deps{
 			Runner: rr,
 			Syncer: &treepadtest.FakeSyncer{},
 			Opener: &treepadtest.FakeOpener{},
-			Out:    io.Discard,
+			Out:    &buf,
 		}
 		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
-			Issue:     42,
-			Branch:    "feat/oauth",
+			Ticket:    ticketURL,
+			Branch:    "feat/oauth-cite",
 			Base:      "main",
 			OutputDir: outputDir,
 		})
@@ -251,18 +202,19 @@ agent_command = []
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify gh was called with the issue number.
-		var ghFound bool
 		for _, call := range rr.Calls {
 			if len(call) > 0 && call[0] == "gh" {
-				ghFound = true
-				if len(call) < 4 || call[3] != "42" {
-					t.Errorf("gh call args = %v, want issue number 42", call)
-				}
+				t.Errorf("gh should not be invoked; got call %v", call)
 			}
 		}
-		if !ghFound {
-			t.Error("gh was not invoked")
+
+		promptPath := filepath.Join(worktreePathFromCD(t, buf.String()), "PROMPT.md")
+		content, err := os.ReadFile(promptPath)
+		if err != nil {
+			t.Fatalf("read PROMPT.md: %v", err)
+		}
+		if !strings.Contains(string(content), ticketURL) {
+			t.Errorf("PROMPT.md does not cite ticket URL; got: %s", content)
 		}
 	})
 
@@ -270,10 +222,10 @@ agent_command = []
 		writeTOML(t, mainPath, fromSpecTOML)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: []byte(specBody)}, // gh issue view
-			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add --no-checkout
-			{Output: nil},              // git checkout
+			{Output: porcelain}, // git worktree list (ticket resolve)
+			{Output: porcelain}, // git worktree list (lifecycle)
+			{Output: nil},       // git worktree add --no-checkout
+			{Output: nil},       // git checkout
 		}}
 		pt := &treepadtest.FakePassthroughRunner{}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -283,8 +235,8 @@ agent_command = []
 		deps.Out = &logBuf
 
 		code, err := FromSpec(context.Background(), deps, FromSpecInput{
-			Issue:     1,
-			Branch:    "feat/oauth",
+			Ticket:    ticketURL,
+			Branch:    "feat/oauth-empty-agent",
 			Base:      "main",
 			OutputDir: outputDir,
 		})
@@ -303,17 +255,18 @@ agent_command = []
 		writeTOML(t, mainPath, fromSpecTOML)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: []byte(specBody)}, // gh issue view
-			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add --no-checkout
-			{Output: nil},              // git checkout
+			{Output: porcelain}, // git worktree list (ticket resolve)
+			{Output: porcelain}, // git worktree list (lifecycle)
+			{Output: nil},       // git worktree add --no-checkout
+			{Output: nil},       // git checkout
 		}}
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		var buf bytes.Buffer
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf}
 		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
-			Issue:     1,
-			Branch:    "feat/oauth",
+			Ticket:    ticketURL,
+			Branch:    "feat/oauth-prompt",
 			Base:      "main",
 			OutputDir: outputDir,
 			Prompt:    "use the new auth library",
@@ -321,18 +274,16 @@ agent_command = []
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		promptPath := filepath.Join(outputDir, "feat-oauth", "PROMPT.md")
+		promptPath := filepath.Join(worktreePathFromCD(t, buf.String()), "PROMPT.md")
 		content, err := os.ReadFile(promptPath)
 		if err != nil {
-			// fall back: find the worktree dir from deps output
-			t.Logf("note: %v — searching outputDir for PROMPT.md", err)
-		} else {
-			if !strings.Contains(string(content), "use the new auth library") {
-				t.Errorf("prompt does not contain user instructions; got: %s", content)
-			}
-			if strings.Contains(string(content), "Implement the ticket.\n") {
-				t.Errorf("prompt should not contain default ending when --prompt is set; got: %s", content)
-			}
+			t.Fatalf("read PROMPT.md: %v", err)
+		}
+		if !strings.Contains(string(content), "use the new auth library") {
+			t.Errorf("prompt does not contain user instructions; got: %s", content)
+		}
+		if strings.Contains(string(content), "Implement the ticket.\n") {
+			t.Errorf("prompt should not contain default ending when --prompt is set; got: %s", content)
 		}
 	})
 
@@ -358,10 +309,10 @@ agent_command = []
 		writeTOML(t, mainPath, toml)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: []byte(specBody)}, // gh issue view
-			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add --no-checkout
-			{Output: nil},              // git checkout
+			{Output: porcelain}, // git worktree list (ticket resolve)
+			{Output: porcelain}, // git worktree list (lifecycle)
+			{Output: nil},       // git worktree add --no-checkout
+			{Output: nil},       // git checkout
 		}}
 		hr := &treepadtest.FakeHookRunner{}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -369,8 +320,8 @@ agent_command = []
 		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		if _, err := FromSpec(context.Background(), deps, FromSpecInput{
-			Issue:     1,
-			Branch:    "feat/oauth",
+			Ticket:    ticketURL,
+			Branch:    "feat/oauth-hooks",
 			Base:      "main",
 			OutputDir: outputDir,
 		}); err != nil {
@@ -392,8 +343,8 @@ agent_command = []
 		writeTOML(t, mainPath, toml)
 
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: []byte(specBody)}, // gh issue view
-			{Output: porcelain},        // git worktree list
+			{Output: porcelain}, // git worktree list (ticket resolve)
+			{Output: porcelain}, // git worktree list (lifecycle)
 		}}}
 		hr := &treepadtest.FakeHookRunner{Err: errors.New("hook aborted")}
 		deps := deps.Deps{Runner: rr, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -401,8 +352,8 @@ agent_command = []
 		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
-			Issue:     1,
-			Branch:    "feat/oauth",
+			Ticket:    ticketURL,
+			Branch:    "feat/oauth-hook-fail",
 			Base:      "main",
 			OutputDir: outputDir,
 		})
@@ -420,10 +371,10 @@ agent_command = []
 		writeTOML(t, mainPath, fromSpecTOML)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: []byte(specBody)}, // gh issue view
-			{Output: porcelain},        // git worktree list
-			{Output: nil},              // git worktree add --no-checkout
-			{Output: nil},              // git checkout
+			{Output: porcelain}, // git worktree list (ticket resolve)
+			{Output: porcelain}, // git worktree list (lifecycle)
+			{Output: nil},       // git worktree add --no-checkout
+			{Output: nil},       // git checkout
 		}}
 		var buf bytes.Buffer
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -431,8 +382,8 @@ agent_command = []
 		deps.Out = &buf
 
 		if _, err := FromSpec(context.Background(), deps, FromSpecInput{
-			Issue:     1,
-			Branch:    "feat/oauth",
+			Ticket:    ticketURL,
+			Branch:    "feat/oauth-cd",
 			Base:      "main",
 			Current:   false,
 			OutputDir: outputDir,

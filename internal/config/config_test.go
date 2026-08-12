@@ -135,6 +135,7 @@ include = ["a.txt"]
 [from_spec]
 skills = ["go", "testing"]
 agent_command = ["claude", "{{.PromptPath}}"]
+ticket_url = "https://linear.app/acme/issue/{{.Ref}}"
 `)
 		cfg, err := Load(dir)
 		if err != nil {
@@ -145,6 +146,27 @@ agent_command = ["claude", "{{.PromptPath}}"]
 		}
 		if !reflect.DeepEqual(cfg.FromSpec.AgentCommand, []string{"claude", "{{.PromptPath}}"}) {
 			t.Errorf("AgentCommand = %v", cfg.FromSpec.AgentCommand)
+		}
+		if want := "https://linear.app/acme/issue/{{.Ref}}"; cfg.FromSpec.TicketURL != want {
+			t.Errorf("TicketURL = %q, want %q", cfg.FromSpec.TicketURL, want)
+		}
+	})
+
+	t.Run("from_spec section with only ticket_url survives Load", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
+[from_spec]
+ticket_url = "https://linear.app/acme/issue/{{.Ref}}"
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if want := "https://linear.app/acme/issue/{{.Ref}}"; cfg.FromSpec.TicketURL != want {
+			t.Errorf("TicketURL = %q, want %q", cfg.FromSpec.TicketURL, want)
+		}
+		if cfg.FromSpec.IsZero() {
+			t.Error("IsZero() = true, want false when only ticket_url is set")
 		}
 	})
 
