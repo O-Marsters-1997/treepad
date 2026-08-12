@@ -56,7 +56,7 @@ npm install -g @anthropic-ai/claude-code
 # <branch>
 
 ## Spec
-<issue body or file contents>
+<issue body>
 
 ## Skills
 - /skill-name-1
@@ -110,7 +110,7 @@ Each element of `agent_command` is rendered as a Go `text/template` string befor
 | `{{.WorktreePath}}`| Absolute path to the new worktree directory                  |
 | `{{.Branch}}`      | Branch name as passed to `tp from-spec`                      |
 | `{{.Slug}}`        | Repository slug (sanitized repo directory name)              |
-| `{{.Spec}}`        | Raw spec body (issue or file contents)                       |
+| `{{.Spec}}`        | Raw spec body (issue contents)                               |
 | `{{.Skills}}`      | Slice of skill names from config (same as `from_spec.skills`)|
 | `{{.Prompt}}`      | Fully rendered prompt body (the text written to `PROMPT.md`) |
 
