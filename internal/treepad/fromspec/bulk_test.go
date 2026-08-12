@@ -15,50 +15,64 @@ import (
 const bulkTOML = `
 [from_spec]
 agent_command = []
+ticket_url = "https://linear.app/acme/issue/{{.Ref}}"
 `
 
-// issueJSON builds a fake gh issue view JSON response.
-func fakeIssueJSON(title, body string) []byte {
-	return []byte(`{"title":"` + title + `","body":"` + body + `"}`)
-}
-
-// bulkSeqResponses builds seqRunner responses for N happy-path issues.
-// Per issue: gh response, git worktree list, git worktree add --no-checkout, git checkout.
-func bulkSeqResponses(mainPath string, issues []struct{ title, body string }) []treepadtest.RunResponse {
+// bulkSeqResponses builds seqRunner responses for the up-front config load
+// plus N happy-path tickets. Per ticket: git worktree list, git worktree add
+// --no-checkout, git checkout.
+func bulkSeqResponses(mainPath string, n int) []treepadtest.RunResponse {
 	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
-	var responses []treepadtest.RunResponse
-	for _, issue := range issues {
+	responses := []treepadtest.RunResponse{{Output: porcelain}} // up-front config load
+	for range n {
 		responses = append(responses,
-			treepadtest.RunResponse{Output: fakeIssueJSON(issue.title, issue.body)},
-			treepadtest.RunResponse{Output: porcelain},
-			treepadtest.RunResponse{Output: nil}, // git worktree add --no-checkout
-			treepadtest.RunResponse{Output: nil}, // git checkout
+			treepadtest.RunResponse{Output: porcelain}, // git worktree list (lifecycle)
+			treepadtest.RunResponse{Output: nil},       // git worktree add --no-checkout
+			treepadtest.RunResponse{Output: nil},       // git checkout
 		)
 	}
 	return responses
+}
+
+func TestDeriveBranch(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+		ref    string
+		want   string
+	}{
+		{name: "prefix with bare ref", prefix: "feat/", ref: "ENG-123", want: "feat/eng-123"},
+		{name: "no prefix", prefix: "", ref: "42", want: "42"},
+		{name: "prefix with title slug ref", prefix: "feat/", ref: "silent-refresh", want: "feat/silent-refresh"},
+		{name: "duplicate refs derive the same branch", prefix: "feat/", ref: "ENG-123", want: "feat/eng-123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := deriveBranch(tt.prefix, tt.ref); got != tt.want {
+				t.Errorf("deriveBranch(%q, %q) = %q, want %q", tt.prefix, tt.ref, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestFromSpecBulk(t *testing.T) {
 	mainPath := makeMainWorktree(t)
 	outputDir := t.TempDir()
 
-	t.Run("happy path: 3 issues creates 3 worktrees with PROMPT.md", func(t *testing.T) {
+	t.Run("happy path: 3 tickets creates 3 worktrees with PROMPT.md", func(t *testing.T) {
 		writeTOML(t, mainPath, bulkTOML)
 
-		issues := []struct{ title, body string }{
-			{"Add retry to sync", "implement retry logic"},
-			{"Cache cleanup", "remove stale cache"},
-			{"Fix auth flow", "patch oauth handler"},
-		}
-		runner := &treepadtest.SeqRunner{Responses: bulkSeqResponses(mainPath, issues)}
+		tickets := []string{"ENG-12", "ENG-14", "https://github.com/acme/widgets/issues/19"}
+		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: bulkSeqResponses(mainPath, 3)}}
 		pt := &treepadtest.FakePassthroughRunner{}
 		var logBuf bytes.Buffer
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+		deps := deps.Deps{Runner: rr, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		deps.PTRunner = pt
 		deps.Log = treepadtest.NewPrinter(&logBuf)
 
 		results, failed, err := FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
-			Issues:       []int{12, 14, 19},
+			Tickets:      tickets,
 			BranchPrefix: "feat/",
 			Base:         "main",
 			OutputDir:    outputDir,
@@ -79,21 +93,30 @@ func TestFromSpecBulk(t *testing.T) {
 			}
 			if r.PromptPath == "" {
 				t.Errorf("results[%d].PromptPath is empty", i)
-			} else {
-				content, err := os.ReadFile(r.PromptPath)
-				if err != nil {
-					t.Errorf("results[%d]: read PROMPT.md: %v", i, err)
-				}
-				if !strings.Contains(string(content), issues[i].body) {
-					t.Errorf("results[%d]: PROMPT.md does not contain spec body", i)
-				}
-				if !strings.Contains(string(content), "Implement the ticket") {
-					t.Errorf("results[%d]: PROMPT.md does not contain default ending", i)
-				}
+				continue
+			}
+			content, err := os.ReadFile(r.PromptPath)
+			if err != nil {
+				t.Errorf("results[%d]: read PROMPT.md: %v", i, err)
+			}
+			if !strings.Contains(string(content), r.TicketURL) {
+				t.Errorf("results[%d]: PROMPT.md does not cite its own ticket URL %q; got: %s", i, r.TicketURL, content)
+			}
+			if !strings.Contains(string(content), "Implement the ticket") {
+				t.Errorf("results[%d]: PROMPT.md does not contain default ending", i)
 			}
 		}
-		if !strings.Contains(results[0].Branch, "add-retry-to-sync") {
-			t.Errorf("branch[0] = %q, want to contain add-retry-to-sync", results[0].Branch)
+		if results[0].Branch != "feat/eng-12" {
+			t.Errorf("branch[0] = %q, want feat/eng-12", results[0].Branch)
+		}
+		if results[2].Branch != "feat/19" {
+			t.Errorf("branch[2] = %q, want feat/19", results[2].Branch)
+		}
+
+		for _, call := range rr.Calls {
+			if len(call) > 0 && call[0] == "gh" {
+				t.Errorf("gh should not be invoked; got call %v", call)
+			}
 		}
 
 		// No agent invoked.
@@ -101,27 +124,32 @@ func TestFromSpecBulk(t *testing.T) {
 			t.Errorf("PTRunner called %d times, want 0", len(pt.Calls))
 		}
 
-		// Summary printed.
+		// Summary printed, no leftover issue-number formatting.
 		summary := logBuf.String()
 		if !strings.Contains(summary, "3 succeeded") {
 			t.Errorf("summary missing '3 succeeded'; got: %s", summary)
 		}
+		if strings.Contains(summary, "#") {
+			t.Errorf("summary should not contain '#'; got: %s", summary)
+		}
 	})
 
-	t.Run("middle issue has empty body: continues, records failure", func(t *testing.T) {
-		writeTOML(t, mainPath, bulkTOML)
+	t.Run("middle ticket is unresolvable: continues, records failure", func(t *testing.T) {
+		writeTOML(t, mainPath, `
+[from_spec]
+agent_command = []
+`) // no ticket_url configured: a bare ref cannot resolve
 		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: fakeIssueJSON("Add retry", "implement retry")},
-			{Output: porcelain},
-			{Output: nil}, // git worktree add --no-checkout
-			{Output: nil}, // git checkout
-			{Output: fakeIssueJSON("Empty issue", "")}, // empty body — no worktree created
-			{Output: fakeIssueJSON("Fix auth", "patch oauth")},
-			{Output: porcelain},
-			{Output: nil}, // git worktree add --no-checkout
-			{Output: nil}, // git checkout
+			{Output: porcelain}, // up-front config load
+			{Output: porcelain}, // git worktree list for ticket 1
+			{Output: nil},       // git worktree add --no-checkout
+			{Output: nil},       // git checkout
+			// ticket 2 fails resolution before any runner call
+			{Output: porcelain}, // git worktree list for ticket 3
+			{Output: nil},       // git worktree add --no-checkout
+			{Output: nil},       // git checkout
 		}}
 		var logBuf bytes.Buffer
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -129,7 +157,11 @@ func TestFromSpecBulk(t *testing.T) {
 		deps.Log = treepadtest.NewPrinter(&logBuf)
 
 		results, failed, err := FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
-			Issues:    []int{12, 14, 19},
+			Tickets: []string{
+				"https://github.com/acme/widgets/issues/12",
+				"ENG-14",
+				"https://github.com/acme/widgets/issues/19",
+			},
 			Base:      "main",
 			OutputDir: outputDir,
 		})
@@ -140,109 +172,28 @@ func TestFromSpecBulk(t *testing.T) {
 		if failed != 1 {
 			t.Errorf("failed = %d, want 1", failed)
 		}
-		if results[1].Err == nil || !strings.Contains(results[1].Err.Error(), "empty body") {
-			t.Errorf("results[1].Err = %v, want empty body error", results[1].Err)
+		if results[1].Err == nil || !strings.Contains(results[1].Err.Error(), "no ticket_url configured") {
+			t.Errorf("results[1].Err = %v, want no ticket_url configured error", results[1].Err)
 		}
 		if results[0].Err != nil || results[2].Err != nil {
-			t.Errorf("expected surrounding issues to succeed")
+			t.Errorf("expected surrounding tickets to succeed")
 		}
 		if !strings.Contains(logBuf.String(), "1 failed") {
 			t.Errorf("summary missing '1 failed'")
 		}
 	})
 
-	t.Run("middle issue gh exits non-zero: continues, records failure", func(t *testing.T) {
-		writeTOML(t, mainPath, bulkTOML)
-		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
-
-		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: fakeIssueJSON("Add retry", "implement retry")},
-			{Output: porcelain},
-			{Output: nil}, // git worktree add --no-checkout
-			{Output: nil}, // git checkout
-			{Output: nil, Err: treepadtest.ErrExitNonZero}, // gh issue view fails
-			{Output: fakeIssueJSON("Fix auth", "patch oauth")},
-			{Output: porcelain},
-			{Output: nil}, // git worktree add --no-checkout
-			{Output: nil}, // git checkout
-		}}
-		var logBuf bytes.Buffer
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
-		deps.Log = ui.New(&logBuf)
-
-		results, failed, err := FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
-			Issues:    []int{12, 14, 19},
-			Base:      "main",
-			OutputDir: outputDir,
-		})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if failed != 1 {
-			t.Errorf("failed = %d, want 1", failed)
-		}
-		if results[1].Err == nil || !strings.Contains(results[1].Err.Error(), "gh issue view 14") {
-			t.Errorf("results[1].Err = %v, want gh error for issue 14", results[1].Err)
-		}
-	})
-
-	t.Run("branch name collision: second issue gets -N suffix", func(t *testing.T) {
-		writeTOML(t, mainPath, bulkTOML)
-		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
-
-		// Both issues have the same title.
-		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: fakeIssueJSON("Duplicate Title", "spec body one")},
-			{Output: porcelain},
-			{Output: nil}, // git worktree add --no-checkout
-			{Output: nil}, // git checkout
-			{Output: fakeIssueJSON("Duplicate Title", "spec body two")},
-			{Output: porcelain},
-			{Output: nil}, // git worktree add --no-checkout
-			{Output: nil}, // git checkout
-		}}
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
-		var logBuf bytes.Buffer
-		deps.Log = ui.New(&logBuf)
-
-		results, failed, err := FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
-			Issues:    []int{10, 11},
-			Base:      "main",
-			OutputDir: outputDir,
-		})
-
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if failed != 0 {
-			t.Errorf("failed = %d, want 0", failed)
-		}
-		if results[0].Branch == results[1].Branch {
-			t.Errorf("branch names should be distinct; both are %q", results[0].Branch)
-		}
-		if !strings.HasSuffix(results[1].Branch, "-11") {
-			t.Errorf("second branch %q should end with -11", results[1].Branch)
-		}
-	})
-
 	t.Run("no agent is ever invoked", func(t *testing.T) {
 		writeTOML(t, mainPath, bulkTOML)
-		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
-		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: fakeIssueJSON("Some feature", "do the thing")},
-			{Output: porcelain},
-			{Output: nil}, // git worktree add --no-checkout
-			{Output: nil}, // git checkout
-		}}
+		runner := &treepadtest.SeqRunner{Responses: bulkSeqResponses(mainPath, 1)}
 		pt := &treepadtest.FakePassthroughRunner{}
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
 		deps.PTRunner = pt
 		deps.Log = ui.New(&bytes.Buffer{})
 
 		_, _, _ = FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
-			Issues:    []int{42},
+			Tickets:   []string{"ENG-42"},
 			Base:      "main",
 			OutputDir: outputDir,
 		})
@@ -254,14 +205,8 @@ func TestFromSpecBulk(t *testing.T) {
 
 	t.Run("__TREEPAD_CD__ never emitted", func(t *testing.T) {
 		writeTOML(t, mainPath, bulkTOML)
-		porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
-		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: fakeIssueJSON("Some feature", "do the thing")},
-			{Output: porcelain},
-			{Output: nil}, // git worktree add --no-checkout
-			{Output: nil}, // git checkout
-		}}
+		runner := &treepadtest.SeqRunner{Responses: bulkSeqResponses(mainPath, 1)}
 		var stdout bytes.Buffer
 		var logBuf bytes.Buffer
 		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -270,7 +215,7 @@ func TestFromSpecBulk(t *testing.T) {
 		deps.Log = ui.New(&logBuf)
 
 		_, _, _ = FromSpecBulk(context.Background(), deps, FromSpecBulkInput{
-			Issues:    []int{42},
+			Tickets:   []string{"ENG-42"},
 			Base:      "main",
 			OutputDir: outputDir,
 		})

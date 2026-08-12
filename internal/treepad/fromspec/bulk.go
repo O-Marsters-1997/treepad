@@ -2,10 +2,7 @@ package fromspec
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"treepad/internal/profile"
 	"treepad/internal/slug"
@@ -15,7 +12,7 @@ import (
 
 // FromSpecBulkInput parameterises a tp from-spec-bulk invocation.
 type FromSpecBulkInput struct {
-	Issues       []int
+	Tickets      []string
 	BranchPrefix string
 	Base         string
 	OutputDir    string
@@ -23,46 +20,48 @@ type FromSpecBulkInput struct {
 	Prompt string
 }
 
-// BulkResult records the outcome for one issue in a bulk run.
+// BulkResult records the outcome for one ticket in a bulk run.
 type BulkResult struct {
-	Issue        int
+	Ticket       string
+	TicketURL    string
 	Branch       string
 	WorktreePath string
 	PromptPath   string
 	Err          error
 }
 
-type issueJSON struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
-}
-
-// FromSpecBulk creates one worktree per issue, writing PROMPT.md into each.
+// FromSpecBulk creates one worktree per ticket, writing PROMPT.md into each.
 // It never launches an agent and never emits __TREEPAD_CD__. On partial
-// failure it continues to the next issue and records the error in the result.
-// Returns the per-issue results, a count of failures, and any fatal setup error.
+// failure it continues to the next ticket and records the error in the result.
+// Returns the per-ticket results, a count of failures, and any fatal setup error.
 func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]BulkResult, int, error) {
 	p := profile.OrDisabled(d.Profiler)
 
-	results := make([]BulkResult, 0, len(in.Issues))
-	usedBranches := make(map[string]bool)
+	// Loaded once, ahead of the loop: deriveBranch needs each ticket's Ref,
+	// which comes from resolveTicket, which needs this config.
+	fsCfg, err := loadFromSpecConfig(ctx, d, in.OutputDir)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	results := make([]BulkResult, 0, len(in.Tickets))
 	failed := 0
 
-	for _, issueNum := range in.Issues {
-		res := BulkResult{Issue: issueNum}
+	for _, ticket := range in.Tickets {
+		res := BulkResult{Ticket: ticket}
 
-		issueDone := p.Stage("gh.issue_view")
-		title, body, err := fetchIssue(ctx, d, issueNum)
-		issueDone()
+		resolveDone := p.Stage("ticket.resolve")
+		ticketURL, ref, err := resolveTicket(fsCfg, ticket)
+		resolveDone()
 		if err != nil {
 			res.Err = err
 			results = append(results, res)
 			failed++
 			continue
 		}
+		res.TicketURL = ticketURL
 
-		branch := deriveBranch(in.BranchPrefix, title, issueNum, usedBranches)
-		usedBranches[branch] = true
+		branch := deriveBranch(in.BranchPrefix, ref)
 		res.Branch = branch
 
 		wtRes, err := lifecycle.CreateWorktreeWithSync(ctx, d, branch, in.Base, in.OutputDir)
@@ -74,7 +73,7 @@ func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]Bul
 		}
 		res.WorktreePath = wtRes.WorktreePath
 
-		promptBody := buildPrompt(wtRes.Cfg.FromSpec, branch, body, in.Prompt)
+		promptBody := buildPrompt(wtRes.Cfg.FromSpec, branch, specCitation(ticketURL), in.Prompt)
 		promptDone := p.Stage("prompt.write")
 		promptPath, err := writePromptFile(d, wtRes.WorktreePath, promptBody)
 		promptDone()
@@ -93,31 +92,12 @@ func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]Bul
 	return results, failed, nil
 }
 
-func fetchIssue(ctx context.Context, d deps.Deps, issue int) (title, body string, err error) {
-	out, err := d.Runner.Run(ctx, "gh", "issue", "view", strconv.Itoa(issue), "--json", "title,body")
-	if err != nil {
-		return "", "", fmt.Errorf("gh issue view %d: %w", issue, err)
-	}
-	var data issueJSON
-	if err := json.Unmarshal(out, &data); err != nil {
-		return "", "", fmt.Errorf("parse issue %d: %w", issue, err)
-	}
-	data.Title = strings.TrimSpace(data.Title)
-	data.Body = strings.TrimSpace(data.Body)
-	if data.Body == "" {
-		return "", "", fmt.Errorf("issue %d has an empty body", issue)
-	}
-	return data.Title, data.Body, nil
-}
-
-// deriveBranch computes a unique branch name from prefix + slug(title).
-// If the result collides with an already-used branch, appends -<issueNum>.
-func deriveBranch(prefix, title string, issueNum int, used map[string]bool) string {
-	base := prefix + slug.Slug(title)
-	if !used[base] {
-		return base
-	}
-	return base + "-" + strconv.Itoa(issueNum)
+// deriveBranch computes a branch name from prefix + slug(ref). Refs are
+// unique within a Tracker, so no collision suffix is needed.
+// ponytail: a Linear ref is a title slug (feat/silent-refresh), a GitHub ref
+// is bare digits (feat/42) — readability trade-off accepted in ADR 0001.
+func deriveBranch(prefix, ref string) string {
+	return prefix + slug.Slug(ref)
 }
 
 func printBulkSummary(d deps.Deps, results []BulkResult) {
@@ -132,9 +112,9 @@ func printBulkSummary(d deps.Deps, results []BulkResult) {
 	d.Log.Step("RESULTS")
 	for _, r := range results {
 		if r.Err == nil {
-			d.Log.OK("  #%d  %s   %s", r.Issue, r.Branch, r.WorktreePath)
+			d.Log.OK("  %s  %s   %s", r.Ticket, r.Branch, r.WorktreePath)
 		} else {
-			d.Log.Warn("  #%d  %s", r.Issue, r.Err)
+			d.Log.Warn("  %s  %s", r.Ticket, r.Err)
 		}
 	}
 	d.Log.Info("%d succeeded, %d failed", succeeded, failed)
