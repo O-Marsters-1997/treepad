@@ -93,7 +93,7 @@ tp new my-branch -c
 
 ## from-spec
 
-Create a worktree from a spec (GitHub issue or file), write `PROMPT.md`, and hand off to an agent.
+Create a worktree from a spec (GitHub issue), write `PROMPT.md`, and hand off to an agent.
 
 ```
 tp from-spec [options] <branch>

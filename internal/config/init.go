@@ -57,8 +57,8 @@ command = ["open", "{{.ArtifactPath}}"]
 # command = "npx skills add code-review tdd"
 # interactive = true
 
-# Configuration for tp from-spec. Resolves a spec body (from --issue or
-# --file), writes PROMPT.md into the worktree, and hands off to an agent.
+# Configuration for tp from-spec. Resolves a spec body from --issue, writes
+# PROMPT.md into the worktree, and hands off to an agent.
 # Pass --prompt "..." on the CLI to append custom instructions; otherwise
 # the default body ends with "Implement the ticket."
 # agent_command elements are text/template strings with data:
