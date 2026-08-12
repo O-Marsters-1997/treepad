@@ -99,10 +99,13 @@ type FromSpecConfig struct {
 	// text/template string. Empty means write the prompt and exit 0.
 	// Available template data: .Spec, .Skills, .Branch, .Slug, .WorktreePath, .PromptPath, .Prompt.
 	AgentCommand []string `toml:"agent_command"`
+	// TicketURL expands a bare Ref into a Ticket URL. Empty means only full
+	// URLs are accepted. Template data: .Ref
+	TicketURL string `toml:"ticket_url"`
 }
 
 func (f FromSpecConfig) IsZero() bool {
-	return len(f.Skills) == 0 && len(f.AgentCommand) == 0
+	return len(f.Skills) == 0 && len(f.AgentCommand) == 0 && f.TicketURL == ""
 }
 
 type Config struct {

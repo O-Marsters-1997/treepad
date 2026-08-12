@@ -12,13 +12,13 @@ import (
 func fromSpecCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "from-spec",
-		Usage:     "create a worktree from a GitHub issue, render a prompt, and hand off to an agent",
+		Usage:     "create a worktree from a ticket, render a prompt, and hand off to an agent",
 		ArgsUsage: "<branch>",
 		Flags: []cli.Flag{
-			&cli.IntFlag{
-				Name:    "issue",
-				Aliases: []string{"i"},
-				Usage:   "GitHub issue `number` to use as the spec",
+			&cli.StringFlag{
+				Name:    "ticket",
+				Aliases: []string{"t"},
+				Usage:   "ticket URL, or a bare ref when [from_spec] ticket_url is configured",
 			},
 			&cli.StringFlag{
 				Name:    "base",
@@ -47,14 +47,14 @@ func runFromSpec(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	issue := int(cmd.Int("issue"))
-	if issue == 0 {
-		return fmt.Errorf("--issue is required")
+	ticket := cmd.String("ticket")
+	if ticket == "" {
+		return fmt.Errorf("--ticket is required")
 	}
 
 	d := commandDeps(cmd)
 	code, err := fromspec.FromSpec(ctx, d, fromspec.FromSpecInput{
-		Issue:   issue,
+		Ticket:  ticket,
 		Branch:  branch,
 		Base:    cmd.String("base"),
 		Current: cmd.Bool("current"),

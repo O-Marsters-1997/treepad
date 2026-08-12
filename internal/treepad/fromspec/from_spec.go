@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"text/template"
 
@@ -16,12 +15,13 @@ import (
 	"treepad/internal/treepad/cd"
 	"treepad/internal/treepad/deps"
 	"treepad/internal/treepad/lifecycle"
+	"treepad/internal/treepad/repo"
 )
 
 // FromSpecInput parameterises a tp from-spec invocation.
-// Issue must be set to a valid GitHub issue number.
+// Ticket must be set to a Ticket URL or, when the repo configures ticket_url, a bare Ref.
 type FromSpecInput struct {
-	Issue     int
+	Ticket    string
 	Branch    string
 	Base      string
 	Current   bool
@@ -43,22 +43,25 @@ type promptData struct {
 	Prompt string
 }
 
-// FromSpec creates a worktree seeded from a GitHub issue,
+// FromSpec creates a worktree seeded from a Ticket,
 // writes PROMPT.md into the worktree, and hands off to a configured agent.
 // Returns the agent's exit code (0 when no agent_command is configured).
 func FromSpec(ctx context.Context, d deps.Deps, in FromSpecInput) (int, error) {
 	p := profile.OrDisabled(d.Profiler)
 
-	if in.Issue == 0 {
-		return 0, errors.New("issue is required")
+	if in.Ticket == "" {
+		return 0, errors.New("ticket is required")
 	}
 
-	issueDone := p.Stage("gh.issue_view")
-	spec, err := resolveIssueSpec(ctx, d, in.Issue)
-	issueDone()
+	// Resolved ahead of CreateWorktreeWithSync so an unresolvable ticket
+	// leaves no worktree behind.
+	resolveDone := p.Stage("ticket.resolve")
+	ticketURL, err := resolveTicketFromRepo(ctx, d, in.OutputDir, in.Ticket)
+	resolveDone()
 	if err != nil {
 		return 0, err
 	}
+	spec := "Read the ticket at:\n" + ticketURL
 
 	res, err := lifecycle.CreateWorktreeWithSync(ctx, d, in.Branch, in.Base, in.OutputDir)
 	if err != nil {
@@ -142,16 +145,20 @@ func writePromptFile(d deps.Deps, worktreePath, body string) (string, error) {
 	return promptPath, nil
 }
 
-func resolveIssueSpec(ctx context.Context, d deps.Deps, issue int) (string, error) {
-	out, err := d.Runner.Run(ctx, "gh", "issue", "view", strconv.Itoa(issue), "--json", "body", "-q", ".body")
+// resolveTicketFromRepo loads the repo's from_spec config and resolves ticket
+// to a Ticket URL. Loaded independently of lifecycle.CreateWorktreeWithSync so
+// resolution happens, and can fail, before any worktree is created.
+func resolveTicketFromRepo(ctx context.Context, d deps.Deps, outputDir, ticket string) (string, error) {
+	rc, err := repo.Load(ctx, d.Runner, outputDir)
 	if err != nil {
-		return "", fmt.Errorf("gh issue view %d: %w", issue, err)
+		return "", err
 	}
-	body := strings.TrimSpace(string(out))
-	if body == "" {
-		return "", fmt.Errorf("issue %d has an empty body", issue)
+	cfg, err := config.Load(rc.Main.Path)
+	if err != nil {
+		return "", fmt.Errorf("load config: %w", err)
 	}
-	return body, nil
+	ticketURL, _, err := resolveTicket(cfg.FromSpec, ticket)
+	return ticketURL, err
 }
 
 func renderPrompt(tmpl string, data promptData) (string, error) {
