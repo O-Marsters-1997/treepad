@@ -49,6 +49,15 @@ tp config init
 
 Run `tp config show` to confirm which config is active.
 
+### Agent skill (without installing `tp`)
+
+If you already have `tp`, `tp skill install` sets up the skill for whichever agent harness you use — see below. Without `tp`, Claude Code users can install it as a plugin instead, since the repo also doubles as a Claude Code plugin marketplace:
+
+```
+/plugin marketplace add O-Marsters-1997/treepad
+/plugin install treepad@treepad
+```
+
 ## Configuration
 
 `tp` works with zero configuration. See [docs/configuration.md](docs/configuration.md) for more info on how to configure it and what the defaults are.
@@ -293,6 +302,16 @@ tp config init --global
 tp config show
 ```
 
+**`skill`** — Manage treepad's agent skills:
+
+```bash
+# Install every skill to ~/.agents/skills (and link ~/.claude/skills if present)
+tp skill install
+
+# Install into the repo instead, so it's committed and shared
+tp skill install --local
+```
+
 See [docs/commands.md](docs/commands.md) for the full command reference.
 
 ### All commands
@@ -313,9 +332,12 @@ tp [--verbose] <command>
 ├── diff [options] <branch> [-- <git-diff-args>...]
 ├── doctor [options]
 ├── shell-init
-└── config
-    ├── init [--global]
-    └── show
+├── config
+│   ├── init [--global]
+│   └── show
+└── skill
+    ├── install [name...] [--local] [--force]
+    └── list
 ```
 
 ## Testing

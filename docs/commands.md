@@ -793,3 +793,53 @@ The `diff` command executes `git diff` inside the target worktree. This means it
 - Diff algorithms (`diff.algorithm`)
 
 If the target worktree has `delta` or `diff-so-fancy` configured, `tp diff` will use it automatically.
+
+## skill
+
+Manage the agent skills treepad ships.
+
+```
+tp skill <subcommand>
+```
+
+### skill install
+
+Install treepad's agent skills onto disk.
+
+```
+tp skill install [name...] [--local] [--force]
+```
+
+By default, installs every skill treepad embeds into `~/.agents/skills` — the shared, per-user location read natively by Codex, Cursor, Gemini CLI, Copilot CLI, and opencode (see [agentskills.io](https://agentskills.io)). Pass one or more names to install only those. Refuses to overwrite an existing skill directory unless `--force` is passed.
+
+Claude Code doesn't read `~/.agents/skills` yet, so when a `.claude` directory is detected alongside the install target, `tp` also creates a symlink at `.claude/skills/<name>` pointing back at the canonical copy. No other harness needs this — they read `.agents/skills` directly.
+
+Use `--local` to install into the main worktree instead of the user's home directory — useful when the skill should be committed and shared with the rest of the team. `.agents/` is a default `[sync] include` pattern, so a local install (and any `.claude` compat symlink) is carried into every worktree `tp new` creates.
+
+#### Flags
+
+| Flag        | Short | Description                                                                |
+| ----------- | ----- | --------------------------------------------------------------------------- |
+| `--local`   | `-l`  | Install into the repo instead of the user's home directory                  |
+| `--force`   | `-f`  | Overwrite a skill directory (or compat symlink) that already exists         |
+
+#### Examples
+
+```bash
+# Install every skill to ~/.agents/skills (and link ~/.claude/skills if present)
+tp skill install
+
+# Install into the repo instead, so it's committed and shared
+tp skill install --local
+
+# Reinstall to pick up an updated skill
+tp skill install --force
+```
+
+### skill list
+
+List the agent skills treepad ships.
+
+```
+tp skill list
+```

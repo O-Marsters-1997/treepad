@@ -1,0 +1,11 @@
+{
+  "name": "treepad",
+  "version": "0.1.0",
+  "description": "A CLI for managing git worktrees, built for parallelising Claude Code sessions.",
+  "author": {
+    "name": "O-Marsters-1997"
+  },
+  "homepage": "https://github.com/O-Marsters-1997/treepad",
+  "repository": "https://github.com/O-Marsters-1997/treepad",
+  "license": "MIT"
+}

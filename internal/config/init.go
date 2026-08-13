@@ -18,6 +18,7 @@ const defaultTOML = `# Files copied from the source worktree into newly-created 
 [sync]
 include = [
   ".claude/settings.local.json",
+  ".agents/skills/",
   ".env",
   ".env.docker-compose",
   ".vscode/settings.json",

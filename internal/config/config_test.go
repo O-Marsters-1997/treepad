@@ -195,10 +195,10 @@ agent_command = ["claude", "{{.PromptPath}}"]
 
 func TestDefaultSyncInclude(t *testing.T) {
 	patterns := defaultSyncInclude()
-	if len(patterns) != 9 {
-		t.Errorf("len(defaultSyncInclude()) = %d, want 9", len(patterns))
+	if len(patterns) != 10 {
+		t.Errorf("len(defaultSyncInclude()) = %d, want 10", len(patterns))
 	}
-	for _, want := range []string{".claude/", "node_modules/", ".env", ".vscode/settings.json"} {
+	for _, want := range []string{".claude/", ".agents/", "node_modules/", ".env", ".vscode/settings.json"} {
 		if !slices.Contains(patterns, want) {
 			t.Errorf("defaultSyncInclude() missing %q", want)
 		}
