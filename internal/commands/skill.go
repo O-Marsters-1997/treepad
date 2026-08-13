@@ -22,7 +22,7 @@ func skillCommand() *cli.Command {
 func skillInstallCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "install",
-		Usage:     "install treepad's agent skills into ~/.agents/skills, linking any detected agent harness that needs its own copy",
+		Usage:     "install treepad's agent skills into ~/.agents/skills, linking any harness that needs its own copy",
 		ArgsUsage: "[name...]",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
