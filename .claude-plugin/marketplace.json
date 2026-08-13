@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "treepad",
+  "description": "Agent skills for the treepad (tp) CLI, a git worktree manager for parallelising Claude Code sessions.",
+  "owner": {
+    "name": "O-Marsters-1997"
+  },
+  "plugins": [
+    {
+      "name": "treepad",
+      "description": "A CLI for managing git worktrees, built for parallelising Claude Code sessions.",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}

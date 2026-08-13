@@ -35,6 +35,7 @@ When `sync.include` is set, it **replaces** the defaults entirely. Use the `--in
 **Default patterns** (used when no `[sync]` section or empty `include` array):
 
 - `.claude/`
+- `.agents/`
 - `node_modules/`
 - `.env`
 - `.env.docker-compose`
@@ -222,6 +223,7 @@ This is the default configuration. It generates `.code-workspace` files that int
 [sync]
 files = [
   ".claude/settings.local.json",
+  ".agents/skills/",
   ".env",
   ".env.docker-compose",
   ".vscode/settings.json",
@@ -258,6 +260,7 @@ JetBrains IDEs store workspace configuration in `.idea/`, so skip artifact gener
 [sync]
 files = [
   ".claude/settings.local.json",
+  ".agents/skills/",
   ".env",
   ".env.docker-compose",
 ]
@@ -276,6 +279,7 @@ Zed supports multi-root workspaces via `.zed/workspaces.json`. Skip artifact gen
 [sync]
 files = [
   ".claude/settings.local.json",
+  ".agents/skills/",
   ".env",
   ".env.docker-compose",
 ]
@@ -292,6 +296,7 @@ Neovim doesn't require workspace files. Sync configs and open the directory or a
 [sync]
 files = [
   ".claude/settings.local.json",
+  ".agents/skills/",
   ".env",
   ".env.docker-compose",
 ]
@@ -310,6 +315,7 @@ Similar to Neovim, Helix doesn't need workspace files.
 [sync]
 files = [
   ".claude/settings.local.json",
+  ".agents/skills/",
   ".env",
   ".env.docker-compose",
 ]
@@ -326,6 +332,7 @@ Sublime Text uses `.sublime-project` files for workspace configuration.
 [sync]
 files = [
   ".claude/settings.local.json",
+  ".agents/skills/",
   ".env",
   ".env.docker-compose",
 ]
@@ -355,6 +362,7 @@ To skip artifact generation and only sync files (useful for terminal-based workf
 [sync]
 files = [
   ".claude/settings.local.json",
+  ".agents/skills/",
   ".env",
   ".env.docker-compose",
 ]

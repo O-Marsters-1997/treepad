@@ -1,0 +1,33 @@
+tp-init-repo
+mkdir .claude
+
+exec tp skill list
+stdout 'treepad'
+
+exec tp skill install --local
+stderr '\[OK\].*installed skill treepad'
+stderr '\[OK\].*linked skill treepad for claude-code'
+exists .agents/skills/treepad/SKILL.md
+exists .claude/skills/treepad/SKILL.md
+
+! exec tp skill install --local
+stderr 'already exists; pass --force'
+
+exec tp skill install --local --force
+stderr '\[OK\].*installed skill treepad'
+
+mkdir $HOME/.claude
+exec tp skill install
+stderr '\[OK\].*installed skill treepad'
+stderr '\[OK\].*linked skill treepad for claude-code'
+exists $HOME/.agents/skills/treepad/SKILL.md
+exists $HOME/.claude/skills/treepad/SKILL.md
+
+! exec tp skill install nope
+stderr 'unknown skill'
+
+# A --local install is a repo file like any other: tp new must sync it (and
+# the still-valid compat symlink) into every new worktree.
+exec tp new feature-x
+exists ../repo-feature-x/.agents/skills/treepad/SKILL.md
+exists ../repo-feature-x/.claude/skills/treepad/SKILL.md

@@ -37,6 +37,7 @@ const defaultArtifactContentTemplate = `{
 func defaultSyncInclude() []string {
 	return []string{
 		".claude/",
+		".agents/",
 		"node_modules/",
 		".env",
 		".env.docker-compose",
