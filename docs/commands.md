@@ -93,13 +93,15 @@ tp new my-branch -c
 
 ## from-spec
 
-Create a worktree from a spec (GitHub issue), write `PROMPT.md`, and hand off to an agent.
+Create a worktree from a Ticket, write `PROMPT.md`, and hand off to an agent.
 
 ```
 tp from-spec [options] <branch>
 ```
 
-Creates a new worktree, loads a spec from either a GitHub issue or a local markdown file, writes `PROMPT.md` into the worktree root, and hands off to the configured `agent_command`. By default, cd's into the new worktree when invoked via the shell wrapper.
+Creates a new worktree, resolves the Ticket to a Ticket URL, writes `PROMPT.md` into the worktree root, and hands off to the configured `agent_command`. By default, cd's into the new worktree when invoked via the shell wrapper.
+
+`tp` does not read the Tracker: it cites the Ticket URL and the agent retrieves the Spec itself. See [ADR 0001](adr/0001-treepad-does-not-read-trackers.md).
 
 **Prompt body** — always structured as:
 
@@ -107,7 +109,8 @@ Creates a new worktree, loads a spec from either a GitHub issue or a local markd
 # <branch>
 
 ## Spec
-<spec body>
+Read the ticket at:
+<ticket-url>
 
 ## Skills          ← only when skills are configured
 - /skill-name
@@ -125,11 +128,13 @@ Implement the ticket according to the following instructions:
 
 If `PROMPT.md` already exists in the worktree, it is used as-is and no new prompt is generated.
 
-**Spec source resolution:**
+**Ticket resolution:**
 
-- `--issue`: GitHub issue number (requires internet access and GitHub permissions)
+- Input starting with `http://` or `https://` is used verbatim as the Ticket URL
+- Anything else is a Ref, rendered through `[from_spec] ticket_url` with `{{.Ref}}`
+- A bare Ref with no `ticket_url` configured is an error naming both fixes
 
-`--issue` is required.
+`--ticket` is required.
 
 **Hooks fired:** Same as `new` command: `pre_new` (before `git worktree add`), `pre_sync`/`post_sync` (around file sync), `post_new` (after artifact write). See [hooks.md](hooks.md).
 
@@ -137,7 +142,7 @@ If `PROMPT.md` already exists in the worktree, it is used as-is and no new promp
 
 | Flag        | Short | Description                                                                             |
 | ----------- | ----- | --------------------------------------------------------------------------------------- |
-| `--issue`   | `-i`  | GitHub issue `number` to use as the spec (required)                                     |
+| `--ticket`  | `-t`  | Ticket URL, or a bare Ref when `[from_spec] ticket_url` is configured (required)         |
 | `--base`    | `-b`  | Ref to branch the new worktree from (default: `main`)                                   |
 | `--current` | `-c`  | Stay in the current directory instead of cd-ing into the new worktree                   |
 | `--prompt`  | `-p`  | Instructions appended to the prompt body instead of the default "Implement the ticket." |
@@ -145,30 +150,33 @@ If `PROMPT.md` already exists in the worktree, it is used as-is and no new promp
 ### Examples
 
 ```bash
-# Create a worktree from a GitHub issue spec
-tp from-spec feature-x --issue 42
+# Create a worktree from a Ticket, using a bare Ref against the configured ticket_url
+tp from-spec feature-x --ticket ENG-42
+
+# Pass a full Ticket URL — no ticket_url needed, and it overrides one if set
+tp from-spec feature-x --ticket https://github.com/acme/api/issues/42
 
 # Append custom instructions to the prompt
-tp from-spec feature-z --issue 42 --prompt "use redis for caching"
+tp from-spec feature-z --ticket ENG-42 --prompt "use redis for caching"
 
 # Branch from a non-default base
-tp from-spec bugfix-z --issue 10 --base develop
+tp from-spec bugfix-z --ticket ENG-10 --base develop
 
 # Stay in current directory after creation
-tp from-spec feature-a --issue 99 --current
+tp from-spec feature-a --ticket ENG-99 --current
 ```
 
 ## from-spec-bulk
 
-Create worktrees from multiple GitHub issues, writing `PROMPT.md` into each. Does not launch agents — after the command completes, open each worktree in its own terminal and run `claude PROMPT.md` (or whatever your `agent_command` is) manually.
+Create worktrees from multiple Tickets, writing `PROMPT.md` into each. Does not launch agents — after the command completes, open each worktree in its own terminal and run `claude PROMPT.md` (or whatever your `agent_command` is) manually.
 
 ```
 tp from-spec-bulk [options]
 ```
 
-For each issue number: fetches the issue title and body from GitHub, derives a branch name (`--branch-prefix` + slugified title), creates a worktree via `createWorktreeWithSync` (same as `tp from-spec`), and writes `PROMPT.md` with the same prompt body structure as `from-spec`. On completion, prints a summary table showing the status, branch, and path for every issue.
+For each Ticket: resolves it to a Ticket URL, derives a branch name (`--branch-prefix` + slugified Ref), creates a worktree the same way `tp from-spec` does, and writes `PROMPT.md` with the same prompt body structure. On completion, prints a summary table showing the status, branch, and path for every Ticket.
 
-Partial failures are non-fatal: if one issue fails (bad number, empty body, worktree creation error), the rest of the batch continues. The command exits with status `1` if any issue failed.
+Partial failures are non-fatal: if one Ticket fails (unresolvable Ref, worktree creation error), the rest of the batch continues. The command exits with status `1` if any Ticket failed.
 
 **Hooks fired per worktree:** `pre_new`, `pre_sync`/`post_sync`, `post_new`. Same as `tp from-spec`. See [hooks.md](hooks.md).
 
@@ -176,35 +184,35 @@ Partial failures are non-fatal: if one issue fails (bad number, empty body, work
 
 | Flag              | Short | Description                                                                              |
 | ----------------- | ----- | ---------------------------------------------------------------------------------------- |
-| `--issues`        | `-i`  | Comma-separated issue numbers, e.g. `"12,14,19"` (required)                              |
-| `--branch-prefix` |       | Prefix prepended to the slugified issue title (default: empty)                           |
+| `--tickets`       | `-t`  | Comma-separated Ticket URLs or Refs, e.g. `"ENG-12,ENG-14"` (required)                   |
+| `--branch-prefix` |       | Prefix prepended to the slugified Ref (default: empty)                                   |
 | `--base`          | `-b`  | Ref to branch every worktree from (default: `main`)                                      |
 | `--prompt`        | `-p`  | Instructions appended to each prompt body instead of the default "Implement the ticket." |
 
 ### Examples
 
 ```bash
-# Create worktrees for issues 12, 14, and 19
-tp from-spec-bulk --issues 12,14,19
+# Create worktrees for three tickets
+tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19
 
 # Use a branch prefix
-tp from-spec-bulk --issues 12,14,19 --branch-prefix feat/
+tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19 --branch-prefix feat/
 
 # Branch from a non-default base
-tp from-spec-bulk --issues 22,23 --branch-prefix fix/ --base develop
+tp from-spec-bulk --tickets ENG-22,ENG-23 --branch-prefix fix/ --base develop
 ```
 
 ### Output
 
 ```
 [STEP] RESULTS
-[OK]     #12  feat/add-retry-to-sync   /Users/olly/code/treepad-feat-add-retry-to-sync
-[WARN]   #14  gh issue view 14: json: cannot unmarshal ...
-[OK]     #19  feat/cache-cleanup       /Users/olly/code/treepad-feat-cache-cleanup
+[OK]     ENG-12  feat/eng-12   /Users/olly/code/treepad-feat-eng-12
+[WARN]   ENG-14  no ticket_url configured: cannot resolve "ENG-14"
+[OK]     ENG-19  feat/eng-19   /Users/olly/code/treepad-feat-eng-19
 [INFO] 2 succeeded, 1 failed
 ```
 
-Branch names are slugified from the issue title. If two issues slug to the same name, the second gets `-<issueNumber>` appended to avoid collision.
+Branch names are slugified from the Ref. If two Tickets slug to the same name, the second gets the Ref appended to avoid collision.
 
 The shell `cd` directive (`__TREEPAD_CD__`) is never emitted — there is no single worktree to navigate to. After the command, `cd` into any of the printed paths and start your agent.
 

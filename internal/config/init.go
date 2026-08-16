@@ -58,8 +58,12 @@ command = ["open", "{{.ArtifactPath}}"]
 # command = "npx skills add code-review tdd"
 # interactive = true
 
-# Configuration for tp from-spec. Resolves a spec body from --issue, writes
-# PROMPT.md into the worktree, and hands off to an agent.
+# Configuration for tp from-spec. Resolves --ticket to a ticket URL, writes
+# PROMPT.md citing it into the worktree, and hands off to an agent. treepad
+# never reads the tracker; the agent fetches the ticket body itself.
+# Set ticket_url to accept bare refs, e.g.
+# ticket_url = "https://linear.app/acme/issue/{{.Ref}}"
+# Without it, only full ticket URLs resolve.
 # Pass --prompt "..." on the CLI to append custom instructions; otherwise
 # the default body ends with "Implement the ticket."
 # agent_command elements are text/template strings with data:
