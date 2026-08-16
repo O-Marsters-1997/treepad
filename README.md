@@ -125,27 +125,32 @@ tp new feature-z -c
 > eval "$(tp shell-init)"
 > ```
 
-**`from-spec`** — Create a worktree from a GitHub issue, render a prompt, and hand off to an agent:
+**`from-spec`** — Create a worktree from a ticket, render a prompt, and hand off to an agent:
 
 ```bash
-# Create a worktree from a GitHub issue spec
-tp from-spec feature-x --issue 42
+# Create a worktree from a ticket, using a bare ref against the configured ticket_url
+tp from-spec feature-x --ticket ENG-42
+
+# A full ticket URL works with no config, and overrides ticket_url when set
+tp from-spec feature-x --ticket https://github.com/acme/api/issues/42
 
 # Create a worktree from a different base ref
-tp from-spec bugfix-z --issue 10 --base develop
+tp from-spec bugfix-z --ticket ENG-10 --base develop
 ```
 
-**`from-spec-bulk`** — Create multiple worktrees from GitHub issues with rendered prompts:
+`tp` does not read your tracker — it cites the ticket URL in `PROMPT.md` and the agent fetches the body itself. Set `[from_spec] ticket_url` in `.treepad.toml` to use bare refs. See [docs/from-spec.md](docs/from-spec.md).
+
+**`from-spec-bulk`** — Create multiple worktrees from tickets with rendered prompts:
 
 ```bash
-# Create worktrees for issues 12, 14, and 19
-tp from-spec-bulk --issues 12,14,19
+# Create worktrees for three tickets
+tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19
 
 # Use a branch prefix
-tp from-spec-bulk --issues 12,14,19 --branch-prefix feat/
+tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19 --branch-prefix feat/
 
 # Branch from a non-default base
-tp from-spec-bulk --issues 22,23 --branch-prefix fix/ --base develop
+tp from-spec-bulk --tickets ENG-22,ENG-23 --branch-prefix fix/ --base develop
 ```
 
 **`remove`** — Remove a git worktree and its associated files:

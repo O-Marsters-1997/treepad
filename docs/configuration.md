@@ -47,7 +47,9 @@ When `sync.include` is set, it **replaces** the defaults entirely. Use the `--in
 
 ### `[artifact]` section
 
-Per-worktree file to generate (e.g., VS Code `.code-workspace` files, JetBrains `.idea` config, etc.). Both fields are Go text/template strings evaluated against the template context. Leave the `[artifact]` section out entirely to skip artifact generation.
+Per-worktree file to generate (e.g., VS Code `.code-workspace` files, JetBrains `.idea` config, etc.). Both fields are Go text/template strings evaluated against the template context.
+
+Leaving the section out does **not** skip generation — an absent or empty `[artifact]` section falls back to the built-in VS Code defaults below. To generate something other than a `.code-workspace`, override `filename` and `content`; to skip generation for a single run, use `tp sync --sync-only`.
 
 | Field      | Type   | Description                                                       |
 | ---------- | ------ | ----------------------------------------------------------------- |
@@ -138,10 +140,11 @@ base = "develop"
 
 ### `[from_spec]` section
 
-Configuration for the `tp from-spec` command, which creates worktrees from GitHub issues and hands off to agents.
+Configuration for the `tp from-spec` command, which creates worktrees from Tickets and hands off to agents. See [from-spec.md](from-spec.md) for the full workflow.
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `ticket_url` | string | Go text/template expanding a bare Ref into a Ticket URL, with `{{.Ref}}` as the only variable — e.g. `"https://linear.app/acme/issue/{{.Ref}}"`. No default: when empty, only full Ticket URLs resolve |
 | `skills` | string[] | Skill names included in the generated `PROMPT.md` under a `## Skills` section. Omitted when empty |
 | `agent_command` | string[] | Command to invoke after the prompt is written. Each element is a Go text/template string. Available variables: `.Spec`, `.Skills`, `.Branch`, `.Slug`, `.WorktreePath`, `.PromptPath`, `.Prompt`. Empty or absent means write the prompt and exit |
 
@@ -151,13 +154,16 @@ Configuration for the `tp from-spec` command, which creates worktrees from GitHu
 # <branch>
 
 ## Spec
-<spec body>
+Read the ticket at:
+<ticket-url>
 
 ## Skills          ← omitted when skills = []
 - /skill-name
 
 Implement the ticket.
 ```
+
+`## Spec` cites the Ticket rather than carrying it: `tp` never reads the Tracker, so the agent retrieves the Spec itself. See [ADR 0001](adr/0001-treepad-does-not-read-trackers.md).
 
 Pass `--prompt "..."` on the CLI to replace the default closing line with custom instructions:
 
@@ -171,6 +177,7 @@ Implement the ticket according to the following instructions:
 
 ```toml
 [from_spec]
+ticket_url = ""
 skills = []
 agent_command = ["claude", "{{.PromptPath}}"]
 ```
