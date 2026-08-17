@@ -93,7 +93,6 @@ func TestFromSpecBulk(t *testing.T) {
 			}
 		}
 
-		// No agent invoked.
 		if len(pt.Calls) != 0 {
 			t.Errorf("PTRunner called %d times, want 0", len(pt.Calls))
 		}
