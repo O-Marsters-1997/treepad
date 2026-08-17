@@ -80,8 +80,6 @@ EOF
 
 The body is written **verbatim**: treepad composes nothing and interpolates nothing. Then name the Playbook on the Ticket:
 
-For guidance on what to write, when to write one, and common mistakes, see [playbooks.md](playbooks.md).
-
 ```
 Playbook: task-dashboard
 ```
@@ -89,6 +87,8 @@ Playbook: task-dashboard
 The agent already reads the Ticket, so it picks the name up for free. The designation is durable — it survives a re-run, works for `tp from-spec-bulk` without per-Ticket flags, and is visible and editable in the Tracker.
 
 Playbooks propagate through the existing `[sync]` machinery. The built-in default already includes `.claude/`; a config that narrows it needs an explicit `".claude/playbooks/**"` entry.
+
+For guidance on what to write, when to write one, and common mistakes, see [playbooks.md](playbooks.md).
 
 ## Configuration
 
