@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"treepad/internal/treepad/cd"
-	"treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/cd"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 )
 
 var (

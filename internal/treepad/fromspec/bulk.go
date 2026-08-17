@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"treepad/internal/profile"
-	"treepad/internal/slug"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/lifecycle"
+	"github.com/O-Marsters-1997/treepad/internal/profile"
+	"github.com/O-Marsters-1997/treepad/internal/slug"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
 )
 
 // FromSpecBulkInput parameterises a tp from-spec-bulk invocation.

@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"treepad/internal/artifact"
+	"github.com/O-Marsters-1997/treepad/internal/artifact"
 )
 
 // Spec converts ArtifactConfig to an artifact.Spec.

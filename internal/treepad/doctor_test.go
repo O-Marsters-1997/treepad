@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
 )
 
 // recentCommitOutput returns a git log line for a commit made 1 minute ago.

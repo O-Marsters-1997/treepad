@@ -1,4 +1,4 @@
-module treepad
+module github.com/O-Marsters-1997/treepad
 
 go 1.26.1
 

@@ -16,16 +16,16 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"treepad/internal/artifact"
-	"treepad/internal/config"
-	"treepad/internal/hook"
-	"treepad/internal/profile"
-	"treepad/internal/slug"
-	internalsync "treepad/internal/sync"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/repo"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/artifact"
+	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/hook"
+	"github.com/O-Marsters-1997/treepad/internal/profile"
+	"github.com/O-Marsters-1997/treepad/internal/slug"
+	internalsync "github.com/O-Marsters-1997/treepad/internal/sync"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/ui"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 // CreateResult holds the output of a successful worktree creation.

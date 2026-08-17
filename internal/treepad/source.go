@@ -1,8 +1,8 @@
 package treepad
 
 import (
-	"treepad/internal/treepad/repo"
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 // ResolveSourceDir is a pure function — no I/O.

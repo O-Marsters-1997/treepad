@@ -6,13 +6,13 @@ import (
 	"io"
 	"path/filepath"
 
-	"treepad/internal/config"
-	tpexec "treepad/internal/exec"
-	"treepad/internal/passthrough"
-	"treepad/internal/treepad/cwd"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/repo"
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/config"
+	tpexec "github.com/O-Marsters-1997/treepad/internal/exec"
+	"github.com/O-Marsters-1997/treepad/internal/passthrough"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/cwd"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 // PassthroughRunner is an alias for passthrough.Runner kept for existing callers.

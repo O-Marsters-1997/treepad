@@ -11,10 +11,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"treepad/internal/artifact"
-	"treepad/internal/treepad/cd"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/artifact"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/cd"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
 )
 
 func TestUI(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"treepad/internal/worktree"
-	"treepad/internal/worktree/worktreetest"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/worktree/worktreetest"
 )
 
 func TestWriteBranches(t *testing.T) {

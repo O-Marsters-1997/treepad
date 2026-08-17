@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"treepad/internal/treepad"
-	"treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 )
 
 func TestParseKeyScript(t *testing.T) {

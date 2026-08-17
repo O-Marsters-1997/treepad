@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"treepad/internal/passthrough"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/treepadtest"
-	"treepad/internal/ui"
+	"github.com/O-Marsters-1997/treepad/internal/passthrough"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/ui"
 )
 
 func TestExec_unknownBranch(t *testing.T) {

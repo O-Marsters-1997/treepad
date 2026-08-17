@@ -10,11 +10,11 @@ import (
 	"io"
 	"sync"
 
-	"treepad/internal/artifact"
-	"treepad/internal/hook"
-	internalsync "treepad/internal/sync"
-	"treepad/internal/ui"
-	"treepad/internal/worktree/worktreetest"
+	"github.com/O-Marsters-1997/treepad/internal/artifact"
+	"github.com/O-Marsters-1997/treepad/internal/hook"
+	internalsync "github.com/O-Marsters-1997/treepad/internal/sync"
+	"github.com/O-Marsters-1997/treepad/internal/ui"
+	"github.com/O-Marsters-1997/treepad/internal/worktree/worktreetest"
 )
 
 // StaticRunner is re-exported from worktreetest for callers that only need a

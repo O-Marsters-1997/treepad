@@ -7,9 +7,9 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/profile"
-	"treepad/internal/treepad/cd"
-	"treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/profile"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/cd"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 )
 
 func commandDeps(cmd *cli.Command) deps.Deps {

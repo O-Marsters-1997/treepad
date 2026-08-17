@@ -3,7 +3,7 @@ package treepad
 import (
 	"testing"
 
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 func TestResolveSourceDir(t *testing.T) {

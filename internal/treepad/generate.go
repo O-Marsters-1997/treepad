@@ -7,12 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"treepad/internal/artifact"
-	"treepad/internal/config"
-	"treepad/internal/slug"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/lifecycle"
-	"treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/artifact"
+	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/slug"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
 )
 
 type GenerateInput struct {

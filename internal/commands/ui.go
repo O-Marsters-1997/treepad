@@ -6,8 +6,8 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/treepad"
-	"treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 )
 
 var uiScriptHandler func(context.Context, deps.Deps, treepad.StatusInput, string) error

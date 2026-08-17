@@ -1,8 +1,8 @@
 package cd
 
 import (
-	"treepad/internal/treepad/cdshell"
-	"treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/cdshell"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 )
 
 // cdshellDeps maps treepad.Deps to cdshell.Deps.

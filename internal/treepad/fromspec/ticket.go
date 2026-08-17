@@ -8,7 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	"treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/config"
 )
 
 const noTicketURLHint = "set [from_spec] ticket_url in .treepad.toml, or pass the full ticket URL."
