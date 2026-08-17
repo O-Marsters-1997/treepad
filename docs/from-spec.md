@@ -88,6 +88,8 @@ The agent already reads the Ticket, so it picks the name up for free. The design
 
 Playbooks propagate through the existing `[sync]` machinery. The built-in default already includes `.claude/`; a config that narrows it needs an explicit `".claude/playbooks/**"` entry.
 
+For guidance on what to write, when to write one, and common mistakes, see [playbooks.md](playbooks.md).
+
 ## Configuration
 
 Ticket-driven behaviour is controlled by the `[from_spec]` section in `.treepad.toml`:
