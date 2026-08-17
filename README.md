@@ -125,22 +125,30 @@ tp new feature-z -c
 > eval "$(tp shell-init)"
 > ```
 
-**`from-spec`** — Create a worktree from a ticket, render a prompt, and hand off to an agent:
+**`new --ticket`** — Create a worktree from a ticket and hand off to an agent:
 
 ```bash
 # Create a worktree from a ticket, using a bare ref against the configured ticket_url
-tp from-spec feature-x --ticket ENG-42
+tp new feature-x --ticket ENG-42
 
 # A full ticket URL works with no config, and overrides ticket_url when set
-tp from-spec feature-x --ticket https://github.com/acme/api/issues/42
+tp new feature-x --ticket https://github.com/acme/api/issues/42
 
 # Create a worktree from a different base ref
-tp from-spec bugfix-z --ticket ENG-10 --base develop
+tp new bugfix-z --ticket ENG-10 --base develop
 ```
 
-`tp` does not read your tracker — it cites the ticket URL in `PROMPT.md` and the agent fetches the body itself. Set `[from_spec] ticket_url` in `.treepad.toml` to use bare refs. See [docs/from-spec.md](docs/from-spec.md).
+`tp` does not read your tracker and writes no prompt — it hands the ticket URL to `[from_spec] agent_command` and the agent fetches the body itself. Set `[from_spec] ticket_url` in `.treepad.toml` to use bare refs. See [docs/from-spec.md](docs/from-spec.md).
 
-**`from-spec-bulk`** — Create multiple worktrees from tickets with rendered prompts:
+**`playbook new`** — Write a playbook saying which skills a recurring shape of work should use:
+
+```bash
+tp playbook new task-dashboard < playbook.md
+```
+
+The body is written verbatim to `.claude/playbooks/task-dashboard.md` in the main worktree and propagated by `[sync]`. Name it on the ticket (`Playbook: task-dashboard`) and the agent picks it up when it reads the ticket. See [ADR 0002](docs/adr/0002-treepad-writes-playbooks-not-prompts.md).
+
+**`from-spec-bulk`** — Create multiple worktrees from tickets:
 
 ```bash
 # Create worktrees for three tickets
@@ -325,7 +333,6 @@ See [docs/commands.md](docs/commands.md) for the full command reference.
 tp [--verbose] <command>
 ├── sync [options] [source-path]
 ├── new [options] <branch>
-├── from-spec [options] <branch>
 ├── from-spec-bulk [options]
 ├── remove <branch>
 ├── prune [options]
@@ -340,9 +347,11 @@ tp [--verbose] <command>
 ├── config
 │   ├── init [--global]
 │   └── show
-└── skill
-    ├── install [name...] [--local] [--force]
-    └── list
+├── skill
+│   ├── install [name...] [--local] [--force]
+│   └── list
+└── playbook
+    └── new <name> [--force]
 ```
 
 ## Testing

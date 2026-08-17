@@ -32,6 +32,8 @@ Patterns use gitignore syntax: `**` matches across directories, a trailing `/` m
 
 When `sync.include` is set, it **replaces** the defaults entirely. Use the `--include` flag to append additional patterns to whatever `sync.include` resolves to.
 
+Playbooks live at `.claude/playbooks/**` and are propagated by this mechanism — the default `.claude/` pattern already covers them, but a config that narrows `.claude/` must add `".claude/playbooks/**"` explicitly.
+
 **Default patterns** (used when no `[sync]` section or empty `include` array):
 
 - `.claude/`
@@ -140,49 +142,24 @@ base = "develop"
 
 ### `[from_spec]` section
 
-Configuration for the `tp from-spec` command, which creates worktrees from Tickets and hands off to agents. See [from-spec.md](from-spec.md) for the full workflow.
+Configuration for ticket-driven worktrees — `tp new --ticket` and `tp from-spec-bulk`. See [from-spec.md](from-spec.md) for the full workflow.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `ticket_url` | string | Go text/template expanding a bare Ref into a Ticket URL, with `{{.Ref}}` as the only variable — e.g. `"https://linear.app/acme/issue/{{.Ref}}"`. No default: when empty, only full Ticket URLs resolve |
-| `skills` | string[] | Skill names included in the generated `PROMPT.md` under a `## Skills` section. Omitted when empty |
-| `agent_command` | string[] | Command to invoke after the prompt is written. Each element is a Go text/template string. Available variables: `.Spec`, `.Skills`, `.Branch`, `.Slug`, `.WorktreePath`, `.PromptPath`, `.Prompt`. Empty or absent means write the prompt and exit |
+| `agent_command` | string[] | Command to invoke once the worktree exists. Each element is a Go text/template string. Available variables: `.Branch`, `.Slug`, `.WorktreePath`, `.TicketURL`. Empty or absent means create the worktree and exit |
 
-`tp from-spec` always writes `PROMPT.md` into the new worktree. The prompt body is:
-
-```
-# <branch>
-
-## Spec
-Read the ticket at:
-<ticket-url>
-
-## Skills          ← omitted when skills = []
-- /skill-name
-
-Implement the ticket.
-```
-
-`## Spec` cites the Ticket rather than carrying it: `tp` never reads the Tracker, so the agent retrieves the Spec itself. See [ADR 0001](adr/0001-treepad-does-not-read-trackers.md).
-
-Pass `--prompt "..."` on the CLI to replace the default closing line with custom instructions:
-
-```
-Implement the ticket according to the following instructions:
-
-<your --prompt text>
-```
+Treepad hands the agent the Ticket URL and nothing else: it never reads the Tracker, so the agent retrieves the Spec itself. See [ADR 0001](adr/0001-treepad-does-not-read-trackers.md) and [ADR 0002](adr/0002-treepad-writes-playbooks-not-prompts.md).
 
 **Default** (when no `[from_spec]` section is present):
 
 ```toml
 [from_spec]
 ticket_url = ""
-skills = []
-agent_command = ["claude", "{{.PromptPath}}"]
+agent_command = ["claude", "{{.TicketURL}}"]
 ```
 
-If `agent_command` is not configured, `tp from-spec` creates the worktree, writes `PROMPT.md`, and exits so you can invoke an agent manually.
+If `agent_command` is not configured, `tp new --ticket` creates the worktree and exits so you can invoke an agent manually.
 
 ## Template Context
 

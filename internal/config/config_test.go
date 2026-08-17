@@ -133,18 +133,14 @@ include = ["a.txt"]
 		dir := t.TempDir()
 		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
 [from_spec]
-skills = ["go", "testing"]
-agent_command = ["claude", "{{.PromptPath}}"]
+agent_command = ["claude", "{{.TicketURL}}"]
 ticket_url = "https://linear.app/acme/issue/{{.Ref}}"
 `)
 		cfg, err := Load(dir)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !reflect.DeepEqual(cfg.FromSpec.Skills, []string{"go", "testing"}) {
-			t.Errorf("Skills = %v, want [go testing]", cfg.FromSpec.Skills)
-		}
-		if !reflect.DeepEqual(cfg.FromSpec.AgentCommand, []string{"claude", "{{.PromptPath}}"}) {
+		if !reflect.DeepEqual(cfg.FromSpec.AgentCommand, []string{"claude", "{{.TicketURL}}"}) {
 			t.Errorf("AgentCommand = %v", cfg.FromSpec.AgentCommand)
 		}
 		if want := "https://linear.app/acme/issue/{{.Ref}}"; cfg.FromSpec.TicketURL != want {

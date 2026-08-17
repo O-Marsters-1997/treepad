@@ -62,8 +62,9 @@ anything, so use `git -C "$WT"` or `cd "$WT" && ...` there instead.
 | Intent | Command |
 | --- | --- |
 | Start work on a new branch | `tp new <branch>` (`--base <ref>` to branch off something other than `main`) |
-| Start work from a ticket, with `PROMPT.md` written and an agent launched | `tp from-spec <branch> --ticket <url-or-ref>` |
+| Start work from a ticket, with the ticket URL handed to an agent | `tp new <branch> --ticket <url-or-ref>` |
 | Fan several tickets out into their own worktrees at once | `tp from-spec-bulk --tickets ENG-12,ENG-14 --branch-prefix feat/` |
+| Record which Skills a recurring shape of work should use | `tp playbook new <name> < playbook.md` |
 | Find where a branch's worktree lives | `tp status --json` + `jq` |
 | Run a build/test/command in another worktree | `tp exec <branch> [--] <command>` |
 | Review what a branch changed | `tp diff <branch>` (three-dot vs `origin/main`, matches the PR view) |
@@ -122,8 +123,8 @@ Read the one that matches the task rather than all of them:
   resolution order, artifact templates, and lifecycle hooks. Go here when changing what
   gets synced, what artifact is generated, or what runs at a lifecycle event.
 - **[references/from-spec.md](references/from-spec.md)** — ticket-driven worktrees: ticket
-  URL resolution, `PROMPT.md` structure, agent handoff, bulk fan-out. Go here whenever a
-  ticket, issue, or spec is the starting point.
+  URL resolution, agent handoff, Playbooks, bulk fan-out. Go here whenever a ticket, issue,
+  or spec is the starting point.
 - **[references/troubleshooting.md](references/troubleshooting.md)** — error messages mapped
   to cause and fix. Go here the moment a `tp` command fails instead of guessing.
 

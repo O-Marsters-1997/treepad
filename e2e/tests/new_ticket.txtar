@@ -1,0 +1,13 @@
+tp-init-repo
+
+exec sh -c 'printf "[from_spec]\nagent_command = [\"sh\", \"-c\", \"echo {{.TicketURL}} > ticket.txt\"]\nticket_url = \"https://linear.app/acme/issue/{{.Ref}}\"\n" > .treepad.toml'
+
+# A full Ticket URL reaches agent_command verbatim, regardless of ticket_url.
+exec tp new feat-url --ticket https://github.com/acme/widgets/issues/42 --current
+grep 'https://github.com/acme/widgets/issues/42' ../repo-feat-url/ticket.txt
+! exists ../repo-feat-url/PROMPT.md
+
+# A bare Ref is rendered through ticket_url.
+exec tp new feat-ref --ticket ENG-123 --current
+grep 'https://linear.app/acme/issue/ENG-123' ../repo-feat-ref/ticket.txt
+! exists ../repo-feat-ref/PROMPT.md

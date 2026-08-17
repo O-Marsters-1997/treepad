@@ -1,0 +1,22 @@
+tp-init-repo
+
+stdin ../body.md
+exec tp playbook new task-dashboard
+exists .claude/playbooks/task-dashboard.md
+
+# Verbatim: the file on disk is byte-identical to what was piped in.
+cmp .claude/playbooks/task-dashboard.md ../body.md
+
+stdin ../body.md
+! exec tp playbook new task-dashboard
+stderr 'already exists; pass --force'
+
+stdin ../body.md
+exec tp playbook new task-dashboard --force
+stderr '\[OK\].*wrote playbook to'
+
+-- body.md --
+# Task dashboard
+
+  Use /impeccable for the visual layer, because {{.Ref}} is dashboard work.
+

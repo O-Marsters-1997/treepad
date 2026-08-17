@@ -19,7 +19,7 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 
 ### `router.go`
 
-- `Router()` — returns `[]*cli.Command` with all top-level commands registered: sync, config, new, shell-init, remove, prune, status, ui, cd, base, doctor, exec, diff, from-spec, from-spec-bulk
+- `Router()` — returns `[]*cli.Command` with all top-level commands registered: sync, config, new, shell-init, remove, prune, status, ui, cd, base, doctor, exec, diff, from-spec-bulk, skill, playbook
 
 ### `base.go`
 
@@ -54,8 +54,14 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `new.go`
 
 - `newCommand()` — `tp new [options] <branch>` command definition
-  - Flags: `--base` / `-b` (default: "main"), `--open` / `-o`, `--current` / `-c`
-- `runNew(ctx, cmd)` — calls `lifecycle.New()` with parsed flags
+  - Flags: `--base` / `-b` (default: "main"), `--open` / `-o`, `--current` / `-c`, `--ticket` / `-t`
+- `runNew(ctx, cmd)` — calls `lifecycle.New()`, or `runNewTicket` when `--ticket` is set; `--ticket` with `--open` is an error
+- `runNewTicket(ctx, cmd, branch, ticket)` — calls `fromspec.FromSpec()` and propagates the agent's exit code via `cli.Exit`
+
+### `playbook.go`
+
+- `playbookCommand()` — `tp playbook <subcommand>` command definition
+- `playbookNewCommand()` — `tp playbook new <name> [--force]`; calls `treepad.PlaybookNew()` with the body on stdin
 
 ### `remove.go`
 
@@ -116,8 +122,8 @@ Handles TOML configuration file loading, initialization, and display.
   - `IsZero()` — reports whether diff configuration is present
 - `ExecConfig` struct — contains `Runner` (string; valid values: just, npm, pnpm, yarn, bun, make, pip, poetry, uv)
   - `IsZero()` — reports whether exec runner is explicitly configured
-- `FromSpecConfig` struct — contains `Skills`, `AgentCommand`
-  - `IsZero()` — reports whether from-spec configuration is present
+- `FromSpecConfig` struct — contains `AgentCommand`, `TicketURL`
+  - `IsZero()` — reports whether `[from_spec]` configuration is present
 - `GlobalConfigPath()` — resolves global config path
   - Resolution order: `$TREEPAD_CONFIG` → `$XDG_CONFIG_HOME/treepad/config.toml` → `~/.config/treepad/config.toml`
 - `Load(repoRoot)` — loads `.treepad.toml` from repo, falls back to defaults
@@ -187,6 +193,11 @@ Business logic entry points. Each public function is a standalone top-level func
   - Builds `[]lifecycle.SyncTarget` from all worktrees except source
   - If `Branch` is set, filters targets to the single named branch
   - Calls `lifecycle.LoadAndSync()` then iterates worktrees to call `artifact.Write()` (skipped if `SyncOnly`)
+
+### `playbook_ops.go`
+
+- `PlaybookNewInput` struct — `Name`, `Force`
+- `PlaybookNew(ctx, deps.Deps, PlaybookNewInput) error` — writes `d.In` verbatim to `<main>/.claude/playbooks/<name>.md`; rejects a name containing a path separator and an empty body; reuses `ensureClear` (in `skill_ops.go`) for the force/exists guard. Treepad composes nothing — see ADR 0002.
 
 ### `exec.go`
 
@@ -301,12 +312,29 @@ Owns the `__TREEPAD_CD__` shell-bridge protocol.
 
 ### `internal/treepad/fromspec/`
 
-- `FromSpecInput` struct — `Issue`, `Branch`, `Base`, `Current`, `OutputDir`, `Prompt`
-- `FromSpec(ctx, deps.Deps, FromSpecInput) (exitCode int, error)` — fetches GitHub issue body, calls `CreateWorktreeWithSync`, writes `PROMPT.md`, runs `agent_command` via `PTRunner`; emits cd sentinel unless `Current=true`
-  - Re-uses existing `PROMPT.md` if already present in the worktree
-- `FromSpecBulkInput` struct — `Issues []int`, `BranchPrefix`, `Base`, `OutputDir`, `Prompt`
-- `BulkResult` struct — per-issue outcome record
-- `FromSpecBulk(ctx, deps.Deps, FromSpecBulkInput) ([]BulkResult, failedCount int, error)` — creates one worktree per issue; never launches an agent, never emits cd sentinel; partial failures are non-fatal; prints summary on completion
+Backs `tp new --ticket` and `tp from-spec-bulk`. Treepad never reads the Tracker (ADR 0001) and authors no prompt (ADR 0002).
+
+`from_spec.go`:
+
+- `FromSpecInput` struct — `Ticket`, `Branch`, `Base`, `Current`, `OutputDir`
+- `agentData` struct — the `agent_command` template context: `Branch`, `Slug`, `WorktreePath`, `TicketURL`
+- `FromSpec(ctx, deps.Deps, FromSpecInput) (exitCode int, error)` — resolves the Ticket (before creating anything), calls `CreateWorktreeWithSync`, runs `agent_command` via `PTRunner`; emits cd sentinel unless `Current=true`
+- `renderTemplate(tmpl string, agentData) (string, error)` — renders one `agent_command` element; a retired field such as `.PromptPath` fails with `execute agent_command template`
+- `runAgent(ctx, deps.Deps, cmdTmpls []string, agentData) (int, error)` — returns 0 without invoking `PTRunner` when `agent_command` is empty
+- `loadFromSpecConfig(ctx, deps.Deps, outputDir) (config.FromSpecConfig, error)` — loads `[from_spec]` ahead of worktree creation
+
+`ticket.go`:
+
+- `resolveTicket(config.FromSpecConfig, input) (ticketURL, ref string, err error)` — a `http(s)://` input is used verbatim; anything else is a Ref rendered through `ticket_url`
+- `refOfURL(rawURL) string` — last non-empty path segment
+- `renderTicketURL(tmpl, ref) (string, error)` — renders `ticket_url` with `{{.Ref}}`
+
+`bulk.go`:
+
+- `FromSpecBulkInput` struct — `Tickets []string`, `BranchPrefix`, `Base`, `OutputDir`
+- `BulkResult` struct — per-ticket outcome record: `Ticket`, `TicketURL`, `Branch`, `WorktreePath`, `Err`
+- `FromSpecBulk(ctx, deps.Deps, FromSpecBulkInput) ([]BulkResult, failedCount int, error)` — creates one worktree per ticket; never launches an agent, never emits cd sentinel; partial failures are non-fatal; prints summary on completion
+- `deriveBranch(prefix, ref) string` — `prefix + slug.Slug(ref)`
 
 ### `internal/treepad/repo/`
 
@@ -470,17 +498,12 @@ tp [--verbose] <command>
 ├── new [options] <branch>
 │   ├── --base (-b, default: main)
 │   ├── --open (-o)
-│   └── --current (-c)
-├── from-spec [options] <branch>
-│   ├── --issue (-i, required)
-│   ├── --base (-b, default: main)
 │   ├── --current (-c)
-│   └── --prompt (-p)
+│   └── --ticket (-t, mutually exclusive with --open)
 ├── from-spec-bulk [options]
-│   ├── --issues (-i, required, comma-separated)
+│   ├── --tickets (-t, required, comma-separated)
 │   ├── --branch-prefix
-│   ├── --base (-b, default: main)
-│   └── --prompt (-p)
+│   └── --base (-b, default: main)
 ├── shell-init
 ├── remove <branch>
 ├── prune [options]
@@ -506,9 +529,11 @@ tp [--verbose] <command>
 │   ├── --base (-b, default: main)
 │   ├── --offline
 │   └── --strict
-└── config
-    ├── init [--global (-g)]
-    └── show
+├── config
+│   ├── init [--global (-g)]
+│   └── show
+└── playbook
+    └── new <name> [--force (-f)]   (body on stdin)
 ```
 
 ## Key Design Decisions

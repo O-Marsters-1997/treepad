@@ -4,36 +4,32 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
+	"io"
 	"strings"
 	"testing"
 
-	"github.com/O-Marsters-1997/treepad/internal/config"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
-	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
-	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
 )
 
-func TestRenderPrompt(t *testing.T) {
+func TestRenderTemplate(t *testing.T) {
 	tests := []struct {
 		name    string
 		tmpl    string
-		data    promptData
+		data    agentData
 		want    string
 		wantErr string
 	}{
 		{
-			name: "renders Spec Skills Branch PromptPath",
-			tmpl: "branch={{.Branch}} spec={{.Spec}} path={{.PromptPath}} skills={{range .Skills}}{{.}},{{end}}",
-			data: promptData{
-				Branch:     "feat/login",
-				Spec:       "add login",
-				PromptPath: "/repo/PROMPT.md",
-				Skills:     []string{"go", "testing"},
+			name: "renders Branch TicketURL WorktreePath",
+			tmpl: "branch={{.Branch}} url={{.TicketURL}} wt={{.WorktreePath}}",
+			data: agentData{
+				Branch:       "feat/login",
+				TicketURL:    "https://github.com/acme/widgets/issues/42",
+				WorktreePath: "/wt",
+				Slug:         "widgets",
 			},
-			want: "branch=feat/login spec=add login path=/repo/PROMPT.md skills=go,testing,",
+			want: "branch=feat/login url=https://github.com/acme/widgets/issues/42 wt=/wt",
 		},
 		{
 			name:    "parse error wraps agent_command template",
@@ -41,15 +37,20 @@ func TestRenderPrompt(t *testing.T) {
 			wantErr: "parse agent_command template",
 		},
 		{
-			name:    "execute error wraps agent_command template",
-			tmpl:    "{{.NoSuchField}}",
+			name:    "retired PromptPath fails loudly",
+			tmpl:    "{{.PromptPath}}",
+			wantErr: "execute agent_command template",
+		},
+		{
+			name:    "retired Skills fails loudly",
+			tmpl:    "{{.Skills}}",
 			wantErr: "execute agent_command template",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := renderPrompt(tt.tmpl, tt.data)
+			got, err := renderTemplate(tt.tmpl, tt.data)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Errorf("got error %v, want error containing %q", err, tt.wantErr)
@@ -72,7 +73,7 @@ func TestRunAgent(t *testing.T) {
 	t.Run("empty agent_command returns 0 and skips PTRunner", func(t *testing.T) {
 		pt := &treepadtest.FakePassthroughRunner{}
 		d := deps.Deps{PTRunner: pt, Out: &bytes.Buffer{}}
-		code, err := runAgent(ctx, d, nil, promptData{PromptPath: "/p"})
+		code, err := runAgent(ctx, d, nil, agentData{WorktreePath: "/wt"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -87,8 +88,8 @@ func TestRunAgent(t *testing.T) {
 	t.Run("renders each element and invokes PTRunner with worktree dir", func(t *testing.T) {
 		pt := &treepadtest.FakePassthroughRunner{}
 		d := deps.Deps{PTRunner: pt}
-		data := promptData{WorktreePath: "/wt", PromptPath: "/wt/PROMPT.md", Prompt: "do the thing"}
-		code, err := runAgent(ctx, d, []string{"claude", "{{.PromptPath}}"}, data)
+		data := agentData{WorktreePath: "/wt", TicketURL: "https://github.com/acme/widgets/issues/42"}
+		code, err := runAgent(ctx, d, []string{"claude", "{{.TicketURL}}"}, data)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -104,14 +105,14 @@ func TestRunAgent(t *testing.T) {
 		if pt.Calls[0].Name != "claude" {
 			t.Errorf("name = %q, want claude", pt.Calls[0].Name)
 		}
-		if len(pt.Calls[0].Args) != 1 || pt.Calls[0].Args[0] != "/wt/PROMPT.md" {
-			t.Errorf("args = %v, want [/wt/PROMPT.md]", pt.Calls[0].Args)
+		if len(pt.Calls[0].Args) != 1 || pt.Calls[0].Args[0] != data.TicketURL {
+			t.Errorf("args = %v, want [%s]", pt.Calls[0].Args, data.TicketURL)
 		}
 	})
 
 	t.Run("template error surfaces with index", func(t *testing.T) {
 		d := deps.Deps{PTRunner: &treepadtest.FakePassthroughRunner{}}
-		_, err := runAgent(ctx, d, []string{"ok", "{{.NoSuchField}}"}, promptData{})
+		_, err := runAgent(ctx, d, []string{"ok", "{{.NoSuchField}}"}, agentData{})
 		if err == nil || !strings.Contains(err.Error(), "agent_command[1]") {
 			t.Errorf("got error %v, want error containing agent_command[1]", err)
 		}
@@ -120,7 +121,7 @@ func TestRunAgent(t *testing.T) {
 	t.Run("propagates PTRunner exit code", func(t *testing.T) {
 		pt := &treepadtest.FakePassthroughRunner{ExitCode: 42}
 		d := deps.Deps{PTRunner: pt}
-		code, err := runAgent(ctx, d, []string{"claude"}, promptData{})
+		code, err := runAgent(ctx, d, []string{"claude"}, agentData{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -135,47 +136,18 @@ func TestFromSpec(t *testing.T) {
 	outputDir := t.TempDir()
 	porcelain := treepadtest.MainWorktreePorcelain(mainPath)
 
-	const specBody = "implement OAuth flow"
 	const fromSpecTOML = `
 [from_spec]
 agent_command = []
 `
 
-	t.Run("uses existing PROMPT.md from worktree without rendering template", func(t *testing.T) {
-		wt := t.TempDir()
-		existingContent := "my custom prompt"
-		promptFilePath := filepath.Join(wt, "PROMPT.md")
-		if err := os.WriteFile(promptFilePath, []byte(existingContent), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-
-		res := lifecycle.CreateResult{
-			WorktreePath: wt,
-			RC:           repo.Context{Slug: "treepad"},
-			Cfg:          config.Config{FromSpec: config.FromSpecConfig{}},
-		}
-		deps := deps.Deps{
-			Runner: &treepadtest.SeqRunner{},
-			Syncer: &treepadtest.FakeSyncer{},
-			Opener: &treepadtest.FakeOpener{},
-		}
-
-		path, rendered, err := resolveOrBuildPrompt(deps, res, "feat/test", specBody, "")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if path != promptFilePath {
-			t.Errorf("path = %q, want %q", path, promptFilePath)
-		}
-		if rendered != existingContent {
-			t.Errorf("rendered = %q, want existing file content %q", rendered, existingContent)
-		}
-	})
-
 	const ticketURL = "https://github.com/acme/widgets/issues/42"
 
-	t.Run("ticket URL is cited verbatim in PROMPT.md, no gh invoked", func(t *testing.T) {
-		writeTOML(t, mainPath, fromSpecTOML)
+	t.Run("ticket URL reaches agent_command, no gh invoked", func(t *testing.T) {
+		writeTOML(t, mainPath, `
+[from_spec]
+agent_command = ["echo", "{{.TicketURL}}"]
+`)
 
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain}, // git worktree list (ticket resolve)
@@ -183,14 +155,19 @@ agent_command = []
 			{Output: nil},       // git worktree add --no-checkout
 			{Output: nil},       // git checkout
 		}}}
+		pt := &treepadtest.FakePassthroughRunner{}
 		var buf bytes.Buffer
 		deps := deps.Deps{
 			Runner: rr,
 			Syncer: &treepadtest.FakeSyncer{},
 			Opener: &treepadtest.FakeOpener{},
 			Out:    &buf,
+			Log:    treepadtest.NewPrinter(&bytes.Buffer{}),
+			// A configured agent_command reaches MaybeWarnStaleWrapper, which
+			// dereferences IsTerminal.
+			IsTerminal: func(io.Writer) bool { return true },
 		}
-		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
+		deps.PTRunner = pt
 
 		_, err := FromSpec(context.Background(), deps, FromSpecInput{
 			Ticket:    ticketURL,
@@ -208,17 +185,15 @@ agent_command = []
 			}
 		}
 
-		promptPath := filepath.Join(worktreePathFromCD(t, buf.String()), "PROMPT.md")
-		content, err := os.ReadFile(promptPath)
-		if err != nil {
-			t.Fatalf("read PROMPT.md: %v", err)
+		if len(pt.Calls) != 1 {
+			t.Fatalf("PTRunner called %d times, want 1", len(pt.Calls))
 		}
-		if !strings.Contains(string(content), ticketURL) {
-			t.Errorf("PROMPT.md does not cite ticket URL; got: %s", content)
+		if got := pt.Calls[0].Args; len(got) != 1 || got[0] != ticketURL {
+			t.Errorf("args = %v, want [%s]", got, ticketURL)
 		}
 	})
 
-	t.Run("empty agent_command skips passthrough but writes PROMPT.md", func(t *testing.T) {
+	t.Run("empty agent_command skips passthrough", func(t *testing.T) {
 		writeTOML(t, mainPath, fromSpecTOML)
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
@@ -248,57 +223,6 @@ agent_command = []
 		}
 		if len(pt.Calls) != 0 {
 			t.Errorf("PTRunner called %d times, want 0", len(pt.Calls))
-		}
-	})
-
-	t.Run("--prompt flag appends user instructions to body", func(t *testing.T) {
-		writeTOML(t, mainPath, fromSpecTOML)
-
-		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
-			{Output: porcelain}, // git worktree list (ticket resolve)
-			{Output: porcelain}, // git worktree list (lifecycle)
-			{Output: nil},       // git worktree add --no-checkout
-			{Output: nil},       // git checkout
-		}}
-		var buf bytes.Buffer
-		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf}
-		deps.PTRunner = &treepadtest.FakePassthroughRunner{}
-
-		_, err := FromSpec(context.Background(), deps, FromSpecInput{
-			Ticket:    ticketURL,
-			Branch:    "feat/oauth-prompt",
-			Base:      "main",
-			OutputDir: outputDir,
-			Prompt:    "use the new auth library",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		promptPath := filepath.Join(worktreePathFromCD(t, buf.String()), "PROMPT.md")
-		content, err := os.ReadFile(promptPath)
-		if err != nil {
-			t.Fatalf("read PROMPT.md: %v", err)
-		}
-		if !strings.Contains(string(content), "use the new auth library") {
-			t.Errorf("prompt does not contain user instructions; got: %s", content)
-		}
-		if strings.Contains(string(content), "Implement the ticket.\n") {
-			t.Errorf("prompt should not contain default ending when --prompt is set; got: %s", content)
-		}
-	})
-
-	t.Run("empty skills produces no Skills section", func(t *testing.T) {
-		res := lifecycle.CreateResult{
-			WorktreePath: t.TempDir(),
-			RC:           repo.Context{Slug: "treepad"},
-			Cfg:          config.Config{FromSpec: config.FromSpecConfig{Skills: nil}},
-		}
-		body := buildPrompt(res.Cfg.FromSpec, "feat/test", specBody, "")
-		if strings.Contains(body, "## Skills") {
-			t.Errorf("body should not contain '## Skills' when skills is empty; got: %s", body)
-		}
-		if !strings.Contains(body, "Implement the ticket.") {
-			t.Errorf("body should contain default ending; got: %s", body)
 		}
 	})
 
