@@ -1,0 +1,48 @@
+tp-init-repo
+
+exec sh -c 'printf "[from_spec]\nticket_url = \"https://linear.app/acme/issue/{{.Ref}}\"\n" > .treepad.toml'
+
+exec sh -c 'mkdir -p .git/treepad/batches'
+exec sh -c 'printf "name = \"silent-refresh\"\nbranch_prefix = \"feat/\"\nbase = \"main\"\n\n[[chain]]\ntickets = [\"ENG-12\", \"ENG-13\"]\n\n[[chain]]\ntickets = [\"ENG-14\"]\n" > .git/treepad/batches/silent-refresh.toml'
+
+# --dry-run touches nothing
+exec tp batch sync --dry-run
+stdout 'would-create'
+! exists ../repo-feat-eng-12
+! exists ../repo-feat-eng-13
+! exists ../repo-feat-eng-14
+
+exec tp batch sync --dry-run --json
+stdout '"action":"would-create"'
+! exists ../repo-feat-eng-12
+
+# the real run creates three worktrees, one per Member
+exec tp batch sync --json
+stdout '"action":"created"'
+stdout '"branch":"feat/eng-12"'
+stdout '"branch":"feat/eng-13"'
+stdout '"branch":"feat/eng-14"'
+exists ../repo-feat-eng-12
+exists ../repo-feat-eng-13
+exists ../repo-feat-eng-14
+
+# feat/eng-13 is genuinely stacked on feat/eng-12's tip, not a sibling of main
+exec sh -c 'test "$(git -C ../repo-feat-eng-13 merge-base feat/eng-12 feat/eng-13)" = "$(git -C ../repo-feat-eng-13 rev-parse feat/eng-12)"'
+
+# re-running is idempotent: creates nothing and exits 0
+exec tp batch sync --json
+stdout '"action":"skipped"'
+! stdout '"action":"created"'
+
+# --batch narrows to one Manifest
+exec sh -c 'printf "name = \"other\"\n\n[[chain]]\ntickets = [\"ENG-99\"]\n" > .git/treepad/batches/other.toml'
+
+exec tp batch sync --batch silent-refresh --json
+! stdout '"ticket":"ENG-99"'
+! exists ../repo-feat-eng-99
+
+exec tp batch sync --batch other --json
+stdout '"ticket":"ENG-99"'
+exists ../repo-feat-eng-99
+
+! stdout '__TREEPAD_CD__'

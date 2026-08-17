@@ -14,6 +14,7 @@ func batchCommand() *cli.Command {
 		Usage: "manage Batch orchestration: Manifests, Chains, and the fleet they materialise",
 		Commands: []*cli.Command{
 			batchListCommand(),
+			batchSyncCommand(),
 		},
 	}
 }
@@ -30,4 +31,35 @@ func batchListCommand() *cli.Command {
 func runBatchList(ctx context.Context, cmd *cli.Command) error {
 	d := commandDeps(cmd)
 	return treepad.BatchList(ctx, d, treepad.BatchListInput{JSON: cmd.Bool("json")})
+}
+
+func batchSyncCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "sync",
+		Usage: "reconcile every Batch: materialise each Chain into a stacked worktree per member",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "json", Aliases: []string{"j"}, Usage: "emit the Report as JSON"},
+			&cli.BoolFlag{
+				Name: "dry-run", Aliases: []string{"n"},
+				Usage: "print what would be created without touching anything",
+			},
+			&cli.StringFlag{Name: "batch", Usage: "narrow to one Manifest by name"},
+		},
+		Action: runBatchSync,
+	}
+}
+
+func runBatchSync(ctx context.Context, cmd *cli.Command) error {
+	failed, err := treepad.BatchSync(ctx, commandDeps(cmd), treepad.BatchSyncInput{
+		JSON:   cmd.Bool("json"),
+		DryRun: cmd.Bool("dry-run"),
+		Batch:  cmd.String("batch"),
+	})
+	if err != nil {
+		return err
+	}
+	if failed > 0 {
+		return cli.Exit("", 1)
+	}
+	return nil
 }
