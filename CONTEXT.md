@@ -25,8 +25,9 @@ The canonical web address of a Ticket, from which its Tracker and Ref are both d
 The Tracker-local identifier of a Ticket — `42` on GitHub, `ENG-123` on Linear. Opaque to treepad.
 _Avoid_: issue number, ID
 
-**Prompt**:
-The rendered `PROMPT.md` a worktree is seeded with: Spec, Skills, and closing instructions.
+**Playbook**:
+A plain Markdown document at `.claude/playbooks/<name>.md` saying which Skills a recurring shape of work should use, and why. Named on the Ticket, written verbatim by `tp playbook new`, propagated by `[sync]`. Treepad never reads one.
+_Avoid_: prompt, template, preset
 
 ### Batch orchestration
 
@@ -62,7 +63,8 @@ _Avoid_: heartbeat, pidfile, lockfile
 - A **Ticket URL** always overrides the declared **Tracker**, so a repo can pull a one-off **Ticket** from elsewhere
 - A **Ticket** carries exactly one **Spec**
 - Treepad resolves a **Ticket** to a **Ticket URL**; the agent resolves the **Ticket URL** to a **Spec**
-- A **Prompt** cites exactly one **Ticket URL** and seeds exactly one worktree
+- A **Ticket** names at most one **Playbook**; the designation travels with the work, not with the invocation
+- Treepad writes and propagates **Playbooks** and reads none — the agent reads the Ticket, picks up the name, and loads the Playbook itself
 - A **Manifest** declares exactly one **Batch**; a repo may hold several Manifests and treepad reads them all
 - A **Batch** holds one or more **Chains**; Chains have no ordering between them and run in parallel
 - A **Chain** holds one or more **Tickets** in a fixed order, and seeds one worktree per Ticket
@@ -92,4 +94,5 @@ _Avoid_: heartbeat, pidfile, lockfile
 - "tracker" names a real-world system but is deliberately *not* a treepad concept — treepad only knows **Ticket URLs** and the template that produces them. See [ADR 0001](./docs/adr/0001-treepad-does-not-read-trackers.md).
 - "stack" was used for both the treepad-side ordering and GitHub's object — resolved: the plan is a **Chain**, GitHub's linked pull requests are a **Stack**, and a Chain *becomes* a Stack when linked. The ideas doc's "Stacks" feature name predates this split.
 - "blocked" means two different things and only one is modelled — a **Ticket** below another in a **Chain** waits for that Ticket's *pull request to exist*, not for it to merge. Merge-gated dependencies are not expressible in a Manifest; they are the author's job to linearise away.
+- "Prompt" is retired. It named the rendered `PROMPT.md` treepad seeded a worktree with — [ADR 0002](./docs/adr/0002-treepad-writes-playbooks-not-prompts.md) deleted that rendering, and the routing half of the job it did is now a **Playbook**. Treepad authors no prose.
 - A **Batch** is not a Tracker project, cycle, or milestone. It is whatever collection of **Tickets** a Manifest names, and treepad has no way to check it against the Tracker.

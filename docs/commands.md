@@ -74,6 +74,19 @@ Creates a new worktree branched from a specified ref (default: `main`), syncs ed
 | `--base`    | `-b`  | Ref to branch the new worktree from (default: `main`)                              |
 | `--open`    | `-o`  | Open the generated artifact file (using the command specified in `[open].command`) |
 | `--current` | `-c`  | Stay in the current directory instead of cd-ing into the new worktree              |
+| `--ticket`  | `-t`  | Ticket URL, or a bare Ref when `[from_spec] ticket_url` is configured              |
+
+### Ticket-driven creation
+
+With `--ticket`, `tp new` resolves the Ticket to a Ticket URL and hands that URL to the configured `[from_spec] agent_command` once the worktree exists. Treepad writes no prompt: it passes the URL and the agent retrieves the Spec itself. See [ADR 0001](adr/0001-treepad-does-not-read-trackers.md) and [ADR 0002](adr/0002-treepad-writes-playbooks-not-prompts.md).
+
+Resolution happens *before* the worktree is created, so an unresolvable Ticket leaves no worktree behind:
+
+- Input starting with `http://` or `https://` is used verbatim as the Ticket URL
+- Anything else is a Ref, rendered through `[from_spec] ticket_url` with `{{.Ref}}`
+- A bare Ref with no `ticket_url` configured is an error naming both fixes
+
+`--ticket` cannot be combined with `--open`.
 
 ### Examples
 
@@ -89,105 +102,35 @@ tp new feature-z --open
 
 # Stay in the current directory instead of cd-ing in
 tp new my-branch -c
-```
 
-## from-spec
-
-Create a worktree from a Ticket, write `PROMPT.md`, and hand off to an agent.
-
-```
-tp from-spec [options] <branch>
-```
-
-Creates a new worktree, resolves the Ticket to a Ticket URL, writes `PROMPT.md` into the worktree root, and hands off to the configured `agent_command`. By default, cd's into the new worktree when invoked via the shell wrapper.
-
-`tp` does not read the Tracker: it cites the Ticket URL and the agent retrieves the Spec itself. See [ADR 0001](adr/0001-treepad-does-not-read-trackers.md).
-
-**Prompt body** — always structured as:
-
-```
-# <branch>
-
-## Spec
-Read the ticket at:
-<ticket-url>
-
-## Skills          ← only when skills are configured
-- /skill-name
-
-Implement the ticket.
-```
-
-Use `--prompt` to replace the closing line with your own instructions:
-
-```
-Implement the ticket according to the following instructions:
-
-<your --prompt text>
-```
-
-If `PROMPT.md` already exists in the worktree, it is used as-is and no new prompt is generated.
-
-**Ticket resolution:**
-
-- Input starting with `http://` or `https://` is used verbatim as the Ticket URL
-- Anything else is a Ref, rendered through `[from_spec] ticket_url` with `{{.Ref}}`
-- A bare Ref with no `ticket_url` configured is an error naming both fixes
-
-`--ticket` is required.
-
-**Hooks fired:** Same as `new` command: `pre_new` (before `git worktree add`), `pre_sync`/`post_sync` (around file sync), `post_new` (after artifact write). See [hooks.md](hooks.md).
-
-### Flags
-
-| Flag        | Short | Description                                                                             |
-| ----------- | ----- | --------------------------------------------------------------------------------------- |
-| `--ticket`  | `-t`  | Ticket URL, or a bare Ref when `[from_spec] ticket_url` is configured (required)         |
-| `--base`    | `-b`  | Ref to branch the new worktree from (default: `main`)                                   |
-| `--current` | `-c`  | Stay in the current directory instead of cd-ing into the new worktree                   |
-| `--prompt`  | `-p`  | Instructions appended to the prompt body instead of the default "Implement the ticket." |
-
-### Examples
-
-```bash
 # Create a worktree from a Ticket, using a bare Ref against the configured ticket_url
-tp from-spec feature-x --ticket ENG-42
+tp new feature-a --ticket ENG-42
 
 # Pass a full Ticket URL — no ticket_url needed, and it overrides one if set
-tp from-spec feature-x --ticket https://github.com/acme/api/issues/42
-
-# Append custom instructions to the prompt
-tp from-spec feature-z --ticket ENG-42 --prompt "use redis for caching"
-
-# Branch from a non-default base
-tp from-spec bugfix-z --ticket ENG-10 --base develop
-
-# Stay in current directory after creation
-tp from-spec feature-a --ticket ENG-99 --current
+tp new feature-b --ticket https://github.com/acme/api/issues/42
 ```
 
 ## from-spec-bulk
 
-Create worktrees from multiple Tickets, writing `PROMPT.md` into each. Does not launch agents — after the command completes, open each worktree in its own terminal and run `claude PROMPT.md` (or whatever your `agent_command` is) manually.
+Create worktrees from multiple Tickets. Does not launch agents — after the command completes, open each worktree in its own terminal and start your agent there.
 
 ```
 tp from-spec-bulk [options]
 ```
 
-For each Ticket: resolves it to a Ticket URL, derives a branch name (`--branch-prefix` + slugified Ref), creates a worktree the same way `tp from-spec` does, and writes `PROMPT.md` with the same prompt body structure. On completion, prints a summary table showing the status, branch, and path for every Ticket.
+For each Ticket: resolves it to a Ticket URL, derives a branch name (`--branch-prefix` + slugified Ref), and creates a worktree the same way `tp new` does. On completion, prints a summary table showing the status, branch, and path for every Ticket.
 
 Partial failures are non-fatal: if one Ticket fails (unresolvable Ref, worktree creation error), the rest of the batch continues. The command exits with status `1` if any Ticket failed.
 
-**Hooks fired per worktree:** `pre_new`, `pre_sync`/`post_sync`, `post_new`. Same as `tp from-spec`. See [hooks.md](hooks.md).
+**Hooks fired per worktree:** `pre_new`, `pre_sync`/`post_sync`, `post_new`. Same as `tp new`. See [hooks.md](hooks.md).
 
 ### Flags
 
-| Flag              | Short | Description                                                                              |
-| ----------------- | ----- | ---------------------------------------------------------------------------------------- |
-| `--tickets`       | `-t`  | Comma-separated Ticket URLs or Refs, e.g. `"ENG-12,ENG-14"` (required)                   |
-| `--branch-prefix` |       | Prefix prepended to the slugified Ref (default: empty)                                   |
-| `--base`          | `-b`  | Ref to branch every worktree from (default: `main`)                                      |
-| `--prompt`        | `-p`  | Instructions appended to each prompt body instead of the default "Implement the ticket." |
+| Flag              | Short | Description                                                            |
+| ----------------- | ----- | ------------------------------------------------------------------------ |
+| `--tickets`       | `-t`  | Comma-separated Ticket URLs or Refs, e.g. `"ENG-12,ENG-14"` (required) |
+| `--branch-prefix` |       | Prefix prepended to the slugified Ref (default: empty)                 |
+| `--base`          | `-b`  | Ref to branch every worktree from (default: `main`)                    |
 
 ### Examples
 
@@ -850,4 +793,45 @@ List the agent skills treepad ships.
 
 ```
 tp skill list
+```
+
+## playbook
+
+Manage the repo's Playbooks.
+
+```
+tp playbook <subcommand>
+```
+
+### playbook new
+
+Write a Playbook to `.claude/playbooks/<name>.md` in the main worktree.
+
+```
+tp playbook new <name> [--force] < body.md
+```
+
+The body comes from stdin and is written **verbatim** — treepad composes nothing, interpolates nothing, and appends nothing. A Playbook is prose saying which Skills a recurring shape of work should use and why; the Ticket names it, and the agent picks the name up when it reads the Ticket. See [ADR 0002](adr/0002-treepad-writes-playbooks-not-prompts.md) for the design rationale, and [playbooks.md](playbooks.md) for best practices on what to write.
+
+Refuses to overwrite an existing Playbook unless `--force` is passed. An empty body is an error. Add `".claude/playbooks/**"` to `[sync] include` so Playbooks reach every worktree — the built-in default already covers `.claude/`.
+
+#### Flags
+
+| Flag      | Short | Description                                    |
+| --------- | ----- | ---------------------------------------------- |
+| `--force` | `-f`  | Overwrite a Playbook that already exists       |
+
+#### Examples
+
+```bash
+# Write a Playbook from a file
+tp playbook new task-dashboard < playbook.md
+
+# Or from a heredoc
+tp playbook new task-dashboard <<'EOF'
+Use /impeccable for the visual layer — this is dashboard work.
+EOF
+
+# Replace an existing Playbook
+tp playbook new task-dashboard --force < playbook.md
 ```

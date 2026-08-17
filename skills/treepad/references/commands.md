@@ -6,12 +6,12 @@ file if they ever disagree.
 ## Contents
 
 - Global flags
-- Creating: `new`, `from-spec`, `from-spec-bulk`
+- Creating: `new` (with and without `--ticket`), `from-spec-bulk`
 - Navigating: `cd`, `base`, `shell-init`
 - Inspecting: `status`, `doctor`, `diff`, `ui`
 - Operating: `exec`, `sync`
 - Removing: `remove`, `prune`
-- Setup: `config`, `skill`
+- Setup: `config`, `skill`, `playbook`
 - Exit codes
 
 ## Global flags
@@ -37,6 +37,7 @@ file, and emits a cd directive. Hooks: `pre_new`, `pre_sync`/`post_sync`, `post_
 | `--base` / `-b` | Ref to branch from (default `main`) |
 | `--open` / `-o` | Open the artifact via `[open] command` after creation |
 | `--current` / `-c` | Do not emit the cd directive |
+| `--ticket` / `-t` | Ticket URL, or a bare ref when `[from_spec] ticket_url` is configured |
 
 Worktree paths are siblings of the main worktree, named `<repo-slug>-<slugified-branch>`.
 Capture the exact path rather than reconstructing it:
@@ -45,31 +46,20 @@ Capture the exact path rather than reconstructing it:
 WT=$(TREEPAD_CD_FD=3 tp new feat/x 3>&1 1>&2)
 ```
 
-### `tp from-spec [options] <branch>`
-
-Same creation path as `new`, plus: resolves a ticket to its spec, writes `PROMPT.md` into
-the worktree, and runs `[from_spec] agent_command`. If `PROMPT.md` already exists it is
-reused as-is. See [from-spec.md](from-spec.md).
-
-| Flag | Description |
-| --- | --- |
-| `--ticket` / `-t` | Ticket URL, or a bare ref when `[from_spec] ticket_url` is configured (required) |
-| `--base` / `-b` | Ref to branch from (default `main`) |
-| `--current` / `-c` | Do not emit the cd directive |
-| `--prompt` / `-p` | Instructions replacing the default closing "Implement the ticket." |
+With `--ticket`, `tp new` also resolves the ticket to a Ticket URL (before creating anything)
+and runs `[from_spec] agent_command` with that URL. It writes no prompt. `--ticket` cannot be
+combined with `--open`. See [from-spec.md](from-spec.md).
 
 ### `tp from-spec-bulk [options]`
 
-One worktree per ticket, each with its own `PROMPT.md`. Never launches an agent and never
-emits a cd directive — there is no single destination. Branch names are the slugified ref
-with `--branch-prefix` prepended; a collision gets the ref appended.
+One worktree per ticket. Never launches an agent and never emits a cd directive — there is no
+single destination. Branch names are the slugified ref with `--branch-prefix` prepended.
 
 | Flag | Description |
 | --- | --- |
 | `--tickets` / `-t` | Comma-separated ticket URLs or refs, e.g. `"ENG-12,ENG-14"` (required) |
 | `--branch-prefix` | Prepended to each derived branch name, e.g. `feat/` |
 | `--base` / `-b` | Ref every worktree branches from (default `main`) |
-| `--prompt` / `-p` | Instructions appended to every prompt body |
 
 Partial failures are non-fatal: bad tickets are reported in the summary table and the rest
 of the batch continues. Exit code is 1 if any ticket failed.
@@ -256,6 +246,19 @@ when a `.claude` directory sits alongside the target, `tp` also symlinks
 `--local` installs into the repo instead of `$HOME`, so the skill is committed and shared;
 `.agents/` is a default sync pattern, so a local install propagates into every worktree
 `tp new` creates afterwards.
+
+### `tp playbook new <name> [--force]`
+
+Writes **stdin, verbatim** to `.claude/playbooks/<name>.md` in the main worktree. Treepad
+composes nothing and interpolates nothing. `--force` / `-f` overwrites an existing Playbook;
+an empty body is an error, as is a name containing a path separator.
+
+```bash
+tp playbook new task-dashboard < playbook.md
+```
+
+Name the Playbook on the Ticket (`Playbook: task-dashboard`) so the agent picks it up when it
+reads the Ticket. See [from-spec.md](from-spec.md).
 
 ## Exit codes
 

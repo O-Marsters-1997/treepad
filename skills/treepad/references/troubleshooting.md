@@ -127,8 +127,13 @@ command by hand to see why it failed.
 `[from_spec] ticket_url` in `.treepad.toml`. Pass the full ticket URL instead, or add the
 template.
 
-**`--ticket is required`** — `from-spec` will not guess. `from-spec-bulk` uses `--tickets`
-(plural, comma-separated) — the two flags are not interchangeable.
+**`--open is not supported with --ticket`** — there is no artifact-open path for a
+ticket-driven run; drop one of the two flags. `from-spec-bulk` uses `--tickets` (plural,
+comma-separated) — it is not interchangeable with `tp new --ticket`.
+
+**`execute agent_command template`** — the config references a field that no longer exists.
+`{{.PromptPath}}`, `{{.Skills}}`, `{{.Spec}}` and `{{.Prompt}}` were deleted by ADR 0002.
+The available data is `.TicketURL`, `.Branch`, `.Slug`, `.WorktreePath`.
 
 **`from-spec-bulk` exited 1 but some worktrees exist.** That is the designed behaviour:
 per-ticket failures are non-fatal and the exit code only reports that at least one failed.

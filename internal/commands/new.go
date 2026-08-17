@@ -2,9 +2,11 @@ package commands
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/O-Marsters-1997/treepad/internal/treepad/fromspec"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
 )
 
@@ -30,6 +32,11 @@ func newCommand() *cli.Command {
 				Aliases: []string{"c"},
 				Usage:   "stay in the current directory instead of cd-ing into the new worktree",
 			},
+			&cli.StringFlag{
+				Name:    "ticket",
+				Aliases: []string{"t"},
+				Usage:   "ticket URL, or a bare ref when [from_spec] ticket_url is configured; handed to agent_command",
+			},
 		},
 		Action: runNew,
 	}
@@ -40,6 +47,12 @@ func runNew(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	if ticket := cmd.String("ticket"); ticket != "" {
+		if cmd.Bool("open") {
+			return fmt.Errorf("--open is not supported with --ticket")
+		}
+		return runNewTicket(ctx, cmd, branch, ticket)
+	}
 	_, err = lifecycle.New(ctx, commandDeps(cmd), lifecycle.NewInput{
 		Branch:    branch,
 		Base:      cmd.String("base"),
@@ -49,6 +62,23 @@ func runNew(ctx context.Context, cmd *cli.Command) error {
 	})
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func runNewTicket(ctx context.Context, cmd *cli.Command, branch, ticket string) error {
+	code, err := fromspec.FromSpec(ctx, commandDeps(cmd), fromspec.FromSpecInput{
+		Ticket:    ticket,
+		Branch:    branch,
+		Base:      cmd.String("base"),
+		Current:   cmd.Bool("current"),
+		OutputDir: cmd.String("output-dir"),
+	})
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return cli.Exit("", code)
 	}
 	return nil
 }

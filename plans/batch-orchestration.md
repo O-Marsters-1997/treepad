@@ -39,6 +39,13 @@ One thing this feature *resolves* for 0002: its open question *"a bulk-created w
 record of its Ticket beyond the branch name."* The Manifest is that record, and it lives in the
 common dir where every worktree can read it.
 
+### The module path must resolve first
+
+`go.mod` declares `module treepad`, which is not a resolvable path — so no package is importable
+from outside this module, and the README's `go install` line is broken today. Fixed by #146, which
+is mechanical and independent of everything else here. It lands before Phase 1 so `batch` can be
+created at its final path rather than renamed later.
+
 ### External dependency: `to-tickets` must learn to write the Manifest
 
 The Manifest is written by an agent that read the Tracker — never by treepad, never by hand
@@ -111,7 +118,7 @@ Stack.
 ### Key models
 
 ```go
-// internal/batch
+// batch
 type Manifest struct {
     Name         string
     BranchPrefix string
@@ -135,41 +142,50 @@ type Member struct {
 
 Branch derivation is the load-bearing link between "a Manifest names Tickets" and "the fleet has
 branches": `deriveBranch(prefix, ref)` (currently `internal/treepad/fromspec/bulk.go:99`) moves to
-`internal/batch` and becomes shared. It must stay deterministic and total — reconcile re-derives
+`batch` and becomes shared. It must stay deterministic and total — reconcile re-derives
 every branch name on every tick and stores none.
 
 ### Module boundaries
 
 | Module | Owns | Exposes |
 |---|---|---|
-| `internal/batch` | Manifest parsing, Chain→Member resolution, branch derivation, **and every scheduling predicate as a pure function** | `Load`, `Resolve`, `ReadyToMaterialise`, `LinkArgs`, `RestackAction` |
+| `batch` | Manifest parsing, Chain→Member resolution, branch derivation, the `PR` data type, **and every scheduling predicate as a pure function** | `Load`, `Resolve`, `ReadyToMaterialise`, `LinkArgs`, `RestackAction` |
 | `internal/gh` | The two `gh` calls and nothing else | `PRList`, `StackLink`, `Available` |
 | `internal/launcher` | Detached spawn, Activity file creation and mtime reads | `Launch`, `Activity` |
 | `internal/treepad` (`batch.go`) | The reconcile orchestrator — the only module that does I/O in a loop | `Reconcile`, `BatchSync` |
 
-`internal/batch` is the deep module: substantial scheduling logic behind a pure, table-testable
+`batch` is the deep module: substantial scheduling logic behind a pure, table-testable
 interface with no `context.Context`, no runner, and no filesystem beyond `Load`. **Every decision
 this feature can get dangerously wrong is a pure function in here.**
+
+It is treepad's importable surface — the only one that is deliberate. (`skills` also sits outside
+`internal/`, but only as an `embed.FS` for `tp skill install`; it becomes importable as a side
+effect of #146, not as a designed API.)
+Chain resolution and restack decisions are the part no fleet tool has an equivalent for; the rest —
+spawning, `gh` invocation, the reconcile loop — is implementation that an embedder should supply or
+drive itself, so it stays internal. Two consequences: the module path must resolve (#146), and no
+exported identifier in `batch` may name a type declared under `internal/...`, which is why `PR` is
+declared here rather than in `internal/gh`.
 
 ### Interface contracts
 
 ```go
-// internal/batch — pure, no I/O.
+// batch — pure, no I/O.
 func Resolve(m Manifest, ticketURLTmpl string) ([][]Member, error)
 
 // Position 0 is always ready. Position i is ready when member i-1's branch has an OPEN PR.
-func ReadyToMaterialise(chain []Member, existing map[string]bool, prs map[string]gh.PR) []Member
+func ReadyToMaterialise(chain []Member, existing map[string]bool, prs map[string]PR) []Member
 
 // The longest PREFIX of chain whose branches all have an open PR, in stack order,
 // bottom to top. Returns nil for fewer than two members.
-func LinkArgs(chain []Member, prs map[string]gh.PR) []string
+func LinkArgs(chain []Member, prs map[string]PR) []string
 
 type RestackAction int // RestackNone, RestackFastForward, RestackReset, RestackStale
 func RestackDecision(clean bool, ahead, behind int, patchEquivalent bool) RestackAction
 ```
 
 ```go
-// internal/gh — the ONLY gh surface. Two commands, both keyed by the git remote.
+// batch — plain data, no gh knowledge, because the predicates above take it.
 type PR struct {
     Number      int
     HeadRefName string
@@ -177,8 +193,10 @@ type PR struct {
     State       string // OPEN | MERGED | CLOSED
     URL         string
 }
+
+// internal/gh — the ONLY gh surface. Two commands, both keyed by the git remote.
 func Available(ctx context.Context, r worktree.CommandRunner) bool
-func PRList(ctx context.Context, r worktree.CommandRunner) (map[string]PR, error) // keyed by head branch
+func PRList(ctx context.Context, r worktree.CommandRunner) (map[string]batch.PR, error) // keyed by head branch
 func StackLink(ctx context.Context, r worktree.CommandRunner, branches []string) error
 ```
 
@@ -325,7 +343,7 @@ branched from the one before it.
 
 ### What to build
 
-`internal/batch` with the Manifest type, `Load` (glob `<common-dir>/treepad/batches/*.toml` via
+`batch` with the Manifest type, `Load` (glob `<common-dir>/treepad/batches/*.toml` via
 BurntSushi/toml, already a dependency; union every file; filename stem as the default name), and
 `Resolve` turning Chains into `[]Member` — resolving each Ticket through the repo's
 `[from_spec] ticket_url` template to a Ticket URL and a Ref, deriving the branch from
@@ -549,7 +567,7 @@ blank, matching `doctor --offline`.
 ### What to build
 
 Delete `internal/commands/from_spec_bulk.go`, `internal/treepad/fromspec/bulk.go` and their tests;
-drop `fromSpecBulkCommand()` from `router.go`. `deriveBranch` has already moved to `internal/batch`
+drop `fromSpecBulkCommand()` from `router.go`. `deriveBranch` has already moved to `batch`
 in Phase 1. `tp from-spec-bulk` exits non-zero with a message naming the Manifest as the replacement
 — a removed verb that fails silently is worse than one that explains itself.
 

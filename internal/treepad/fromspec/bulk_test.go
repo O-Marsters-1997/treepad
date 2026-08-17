@@ -3,7 +3,6 @@ package fromspec
 import (
 	"bytes"
 	"context"
-	"os"
 	"strings"
 	"testing"
 
@@ -38,7 +37,7 @@ func TestFromSpecBulk(t *testing.T) {
 	mainPath := makeMainWorktree(t)
 	outputDir := t.TempDir()
 
-	t.Run("happy path: 3 tickets creates 3 worktrees with PROMPT.md", func(t *testing.T) {
+	t.Run("happy path: 3 tickets creates 3 worktrees", func(t *testing.T) {
 		writeTOML(t, mainPath, bulkTOML)
 
 		tickets := []string{"ENG-12", "ENG-14", "https://github.com/acme/widgets/issues/19"}
@@ -65,23 +64,20 @@ func TestFromSpecBulk(t *testing.T) {
 		if len(results) != 3 {
 			t.Fatalf("len(results) = %d, want 3", len(results))
 		}
+		wantURLs := []string{
+			"https://linear.app/acme/issue/ENG-12",
+			"https://linear.app/acme/issue/ENG-14",
+			"https://github.com/acme/widgets/issues/19",
+		}
 		for i, r := range results {
 			if r.Err != nil {
 				t.Errorf("results[%d].Err = %v, want nil", i, r.Err)
 			}
-			if r.PromptPath == "" {
-				t.Errorf("results[%d].PromptPath is empty", i)
-				continue
+			if r.WorktreePath == "" {
+				t.Errorf("results[%d].WorktreePath is empty", i)
 			}
-			content, err := os.ReadFile(r.PromptPath)
-			if err != nil {
-				t.Errorf("results[%d]: read PROMPT.md: %v", i, err)
-			}
-			if !strings.Contains(string(content), r.TicketURL) {
-				t.Errorf("results[%d]: PROMPT.md does not cite its own ticket URL %q; got: %s", i, r.TicketURL, content)
-			}
-			if !strings.Contains(string(content), "Implement the ticket") {
-				t.Errorf("results[%d]: PROMPT.md does not contain default ending", i)
+			if r.TicketURL != wantURLs[i] {
+				t.Errorf("results[%d].TicketURL = %q, want %q", i, r.TicketURL, wantURLs[i])
 			}
 		}
 		if results[0].Branch != "feat/eng-12" {

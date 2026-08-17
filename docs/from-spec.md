@@ -1,24 +1,23 @@
-# from-spec
+# Ticket-driven worktrees (`tp new --ticket`)
 
-`tp from-spec` automates the full setup for an agentic coding session. Given a Ticket, it creates a worktree, writes a structured `PROMPT.md` into it, and hands off to a configured agent command. When you run it, your agent is already inside a clean branch with the right files synced and the prompt ready.
+`tp new --ticket` automates the full setup for an agentic coding session. Given a Ticket, it creates a worktree and hands the Ticket URL to a configured agent command. When you run it, your agent is already inside a clean branch with the right files synced.
 
 ```
-tp from-spec [options] <branch>
+tp new [options] --ticket <ticket> <branch>
 ```
 
-Terminology follows [CONTEXT.md](../CONTEXT.md): a **Ticket** is the unit of tracked work, a **Ref** is its Tracker-local identifier (`42`, `ENG-123`), a **Ticket URL** is its canonical web address, and the **Spec** is the body it carries.
+Terminology follows [CONTEXT.md](../CONTEXT.md): a **Ticket** is the unit of tracked work, a **Ref** is its Tracker-local identifier (`42`, `ENG-123`), a **Ticket URL** is its canonical web address, the **Spec** is the body it carries, and a **Playbook** is the prose saying which Skills the work should use.
 
 ## What it does
 
 1. **Resolves the Ticket to a Ticket URL** — a URL is used verbatim; a bare Ref is rendered through `[from_spec] ticket_url`. This happens before anything is created, so an unresolvable Ticket leaves no orphan worktree behind.
-2. **Creates a worktree** — runs `git worktree add -b <branch> <path> <base>`, syncs editor configs from the main worktree, and writes an artifact file (same as `tp new`).
-3. **Writes `PROMPT.md`** — assembles a structured prompt citing the Ticket URL, any configured skills, and optional custom instructions, then writes it to the worktree root.
-4. **Runs the agent** — executes the configured `agent_command` inside the new worktree (default: `claude PROMPT.md`).
-5. **Navigates into the worktree** — emits a `__TREEPAD_CD__` directive so the shell wrapper cd's you in automatically (skipped with `--current`).
+2. **Creates a worktree** — runs `git worktree add -b <branch> <path> <base>`, syncs editor configs from the main worktree, and writes an artifact file (same as a plain `tp new`).
+3. **Runs the agent** — executes the configured `agent_command` inside the new worktree (default: `claude {{.TicketURL}}`).
+4. **Navigates into the worktree** — emits a `__TREEPAD_CD__` directive so the shell wrapper cd's you in automatically (skipped with `--current`).
 
-If `PROMPT.md` already exists in the target worktree, it is used as-is and step 3 is skipped.
+**`tp` never reads the Tracker.** It holds no API token, makes no HTTP call, and shells out to no `gh`. It passes the Ticket URL and the agent retrieves the Spec itself. See [ADR 0001](adr/0001-treepad-does-not-read-trackers.md) for why.
 
-**`tp` never reads the Tracker.** It holds no API token, makes no HTTP call, and shells out to no `gh`. `PROMPT.md` cites the Ticket URL and the agent retrieves the Spec itself. See [ADR 0001](adr/0001-treepad-does-not-read-trackers.md) for why.
+**`tp` authors no prompt.** It composes no text, interpolates nothing into the work, and appends no instructions. See [ADR 0002](adr/0002-treepad-writes-playbooks-not-prompts.md).
 
 ## Prerequisites
 
@@ -40,14 +39,13 @@ npm install -g @anthropic-ai/claude-code
 
 ## Flags
 
-| Flag        | Short | Description                                                                          |
-| ----------- | ----- | ------------------------------------------------------------------------------------ |
-| `--ticket`  | `-t`  | Ticket URL, or a bare Ref when `[from_spec] ticket_url` is configured (required)     |
-| `--base`    | `-b`  | Ref to branch the new worktree from (default: `main`)                                |
-| `--current` | `-c`  | Stay in the current directory instead of cd-ing into the new worktree                |
-| `--prompt`  | `-p`  | Custom instructions appended to the prompt body (replaces "Implement the ticket.") |
+| Flag        | Short | Description                                                                      |
+| ----------- | ----- | ---------------------------------------------------------------------------------- |
+| `--ticket`  | `-t`  | Ticket URL, or a bare Ref when `[from_spec] ticket_url` is configured             |
+| `--base`    | `-b`  | Ref to branch the new worktree from (default: `main`)                            |
+| `--current` | `-c`  | Stay in the current directory instead of cd-ing into the new worktree            |
 
-`--ticket` is required.
+`--ticket` cannot be combined with `--open`.
 
 ## Ticket resolution
 
@@ -67,43 +65,39 @@ no ticket_url configured: cannot resolve "ENG-123".
   set [from_spec] ticket_url in .treepad.toml, or pass the full ticket URL.
 ```
 
-## Prompt structure
+## Playbooks
 
-`PROMPT.md` always follows this shape:
+Skill routing — deciding which Skills a given unit of work should load, and saying why — is a Playbook's job, not a prompt's.
 
-```markdown
-# <branch>
+A **Playbook** is a plain Markdown document at `.claude/playbooks/<name>.md`. Write one with `tp playbook new`:
 
-## Spec
-Read the ticket at:
-<ticket-url>
-
-## Skills
-- /skill-name-1
-- /skill-name-2
-
-Implement the ticket.
+```sh
+tp playbook new task-dashboard <<'EOF'
+Use /impeccable for the visual layer — this is dashboard work, and the
+default styling pass is not enough. Use /dataviz before writing any chart.
+EOF
 ```
 
-The `## Spec` section is a citation, not the Spec — retrieving the body is the agent's job. The `## Skills` section is omitted when no skills are configured.
+The body is written **verbatim**: treepad composes nothing and interpolates nothing. Then name the Playbook on the Ticket:
 
-When `--prompt` is supplied, the closing line becomes:
-
-```markdown
-Implement the ticket according to the following instructions:
-
-<your --prompt text>
 ```
+Playbook: task-dashboard
+```
+
+The agent already reads the Ticket, so it picks the name up for free. The designation is durable — it survives a re-run, works for `tp from-spec-bulk` without per-Ticket flags, and is visible and editable in the Tracker.
+
+Playbooks propagate through the existing `[sync]` machinery. The built-in default already includes `.claude/`; a config that narrows it needs an explicit `".claude/playbooks/**"` entry.
+
+For guidance on what to write, when to write one, and common mistakes, see [playbooks.md](playbooks.md).
 
 ## Configuration
 
-`from-spec` behavior is controlled by the `[from_spec]` section in `.treepad.toml`:
+Ticket-driven behaviour is controlled by the `[from_spec]` section in `.treepad.toml`:
 
 ```toml
 [from_spec]
 ticket_url    = "https://linear.app/acme/issue/{{.Ref}}"
-skills        = ["golang-patterns", "golang-testing"]
-agent_command = ["claude", "{{.PromptPath}}"]
+agent_command = ["claude", "{{.TicketURL}}"]
 ```
 
 ### Fields
@@ -111,35 +105,32 @@ agent_command = ["claude", "{{.PromptPath}}"]
 | Field           | Type     | Description                                                                                          |
 | --------------- | -------- | ---------------------------------------------------------------------------------------------------- |
 | `ticket_url`    | string   | Go `text/template` expanding a bare Ref into a Ticket URL, with `{{.Ref}}` as the only variable. No default — when empty, only full Ticket URLs resolve. |
-| `skills`        | string[] | Skill names written into `PROMPT.md` under `## Skills`. Omitted when empty.                         |
-| `agent_command` | string[] | Command to run after `PROMPT.md` is written. Each element is a Go `text/template` string. When absent or empty, `tp from-spec` writes `PROMPT.md` and exits — useful for inspecting the prompt before running an agent. |
+| `agent_command` | string[] | Command to run once the worktree exists. Each element is a Go `text/template` string. When absent or empty, `tp new --ticket` creates the worktree and exits — useful for starting the agent by hand. |
 
 **Default** (when no `[from_spec]` section is present):
 
 ```toml
 [from_spec]
 ticket_url    = ""
-skills        = []
-agent_command = ["claude", "{{.PromptPath}}"]
+agent_command = ["claude", "{{.TicketURL}}"]
 ```
 
 ### Template variables in `agent_command`
 
 Each element of `agent_command` is rendered as a Go `text/template` string before the command is executed:
 
-| Variable           | Description                                                  |
-| ------------------ | ------------------------------------------------------------ |
-| `{{.PromptPath}}`  | Absolute path to `PROMPT.md` in the new worktree             |
-| `{{.WorktreePath}}`| Absolute path to the new worktree directory                  |
-| `{{.Branch}}`      | Branch name as passed to `tp from-spec`                      |
-| `{{.Slug}}`        | Repository slug (sanitized repo directory name)              |
-| `{{.Spec}}`        | The `## Spec` body — the Ticket URL citation, not the Spec itself |
-| `{{.Skills}}`      | Slice of skill names from config (same as `from_spec.skills`)|
-| `{{.Prompt}}`      | Fully rendered prompt body (the text written to `PROMPT.md`) |
+| Variable            | Description                                     |
+| ------------------- | ----------------------------------------------- |
+| `{{.TicketURL}}`    | The resolved Ticket URL                         |
+| `{{.WorktreePath}}` | Absolute path to the new worktree directory     |
+| `{{.Branch}}`       | Branch name as passed to `tp new`               |
+| `{{.Slug}}`         | Repository slug (sanitized repo directory name) |
+
+A template referencing anything else — including the retired `{{.PromptPath}}` and `{{.Skills}}` — fails loudly with `execute agent_command template`.
 
 ## Hooks
 
-`from-spec` fires the same hooks as `tp new`:
+`tp new --ticket` fires the same hooks as a plain `tp new`:
 
 | Event       | When                                    |
 | ----------- | --------------------------------------- |
@@ -154,19 +145,16 @@ The agent is launched after all hooks have run. See [hooks.md](hooks.md) for the
 
 ```bash
 # Create a worktree from a Linear ticket and launch the agent
-tp from-spec feat/auth-refresh --ticket ENG-217
+tp new feat/auth-refresh --ticket ENG-217
 
 # Pass a full Ticket URL — works with no ticket_url configured, and overrides it when there is one
-tp from-spec feat/auth-refresh --ticket https://github.com/acme/api/issues/42
-
-# Append custom instructions (overrides "Implement the ticket.")
-tp from-spec fix/rate-limiter --ticket ENG-88 --prompt "focus on the Redis path, ignore the in-memory fallback"
+tp new feat/auth-refresh --ticket https://github.com/acme/api/issues/42
 
 # Branch from a non-default base
-tp from-spec feat/new-thing --ticket ENG-99 --base develop
+tp new feat/new-thing --ticket ENG-99 --base develop
 
 # Stay in the current directory (don't cd in)
-tp from-spec feat/background --ticket ENG-12 --current
+tp new feat/background --ticket ENG-12 --current
 ```
 
 ## Walkthrough: shipping a ticket end to end
@@ -187,15 +175,12 @@ include = [
 
 [from_spec]
 ticket_url    = "https://linear.app/acme/issue/{{.Ref}}"
-skills        = ["golang-patterns", "golang-testing"]
-agent_command = ["claude", "{{.PromptPath}}"]
+agent_command = ["claude", "{{.TicketURL}}"]
 ```
 
 `ticket_url` declares this repo's Tracker by giving the URL shape its Refs expand into. That one line is all `tp` knows about Linear — swap it for `https://github.com/acme/api/issues/{{.Ref}}` and the same repo tracks work on GitHub instead.
 
-`skills` tells `tp from-spec` to include `/golang-patterns` and `/golang-testing` in every generated prompt. The agent will invoke those skills automatically when it reads the prompt.
-
-`agent_command` launches `claude` with `PROMPT.md` as its initial input, which is the standard way to hand off a fully-formed prompt to Claude Code.
+`agent_command` launches `claude` with the Ticket URL as its initial input.
 
 ### 2. Write a spec on your Tracker
 
@@ -210,82 +195,50 @@ Add a `/health` endpoint to the HTTP server.
 - Use the short commit SHA from `git rev-parse --short HEAD`
 - Endpoint must respond in < 5ms under no load (add a benchmark)
 - Wire it up in `server.go`, not a separate file
+
+Playbook: go-service
 ```
 
 Say this was filed as `ENG-57`.
 
-### 3. Run `tp from-spec`
+### 3. Run `tp new --ticket`
 
 ```sh
-tp from-spec feat/health-endpoint --ticket ENG-57
+tp new feat/health-endpoint --ticket ENG-57
 ```
 
 `tp` will:
 
 1. Resolve `ENG-57` to `https://linear.app/acme/issue/ENG-57`
 2. Create worktree at `../myrepo-feat-health-endpoint` branched from `main`
-3. Sync `.claude/`, `.env`, and `.vscode/settings.json` into it
-4. Write `PROMPT.md`:
+3. Sync `.claude/`, `.env`, and `.vscode/settings.json` into it — including `.claude/playbooks/go-service.md`
+4. Run `claude https://linear.app/acme/issue/ENG-57` inside the new worktree
+5. cd your shell into `../myrepo-feat-health-endpoint`
 
-   ```markdown
-   # feat/health-endpoint
+Claude Code fetches `ENG-57` through its Linear connection, reads the `Playbook: go-service` line, loads `.claude/playbooks/go-service.md`, and implements the ticket.
 
-   ## Spec
-   Read the ticket at:
-   https://linear.app/acme/issue/ENG-57
+### 4. Steer the agent
 
-   ## Skills
-   - /golang-patterns
-   - /golang-testing
+To add constraints, edit the Ticket or the Playbook — both are durable and both survive a re-run. `tp` offers no flag for one-off prose, deliberately: instructions typed at the CLI are lost the moment the shell history rolls over.
 
-   Implement the ticket.
-   ```
+### 5. Start the agent by hand
 
-5. Run `claude PROMPT.md` inside the new worktree
-6. cd your shell into `../myrepo-feat-health-endpoint`
-
-Claude Code reads `PROMPT.md`, fetches `ENG-57` through its Linear connection, invokes `/golang-patterns` and `/golang-testing` (which load domain-specific guidance about idiomatic Go and table-driven tests), then implements the ticket.
-
-### 4. Steer the agent with `--prompt`
-
-If you want to add constraints without editing the Ticket, pass them via `--prompt`:
-
-```sh
-tp from-spec feat/health-endpoint --ticket ENG-57 \
-  --prompt "the version field must come from a build-time ldflags injection, not runtime git"
-```
-
-The generated closing block becomes:
-
-```markdown
-Implement the ticket according to the following instructions:
-
-the version field must come from a build-time ldflags injection, not runtime git
-```
-
-### 5. Inspect the prompt before running the agent
-
-Set `agent_command = []` (or omit it entirely) to write `PROMPT.md` without launching an agent:
+Set `agent_command = []` (or omit it entirely) to create the worktree without launching an agent:
 
 ```toml
 [from_spec]
 ticket_url    = "https://linear.app/acme/issue/{{.Ref}}"
-skills        = ["golang-patterns", "golang-testing"]
 agent_command = []
 ```
 
 Then:
 
 ```sh
-tp from-spec feat/health-endpoint --ticket ENG-57
-# tp creates the worktree and writes PROMPT.md, then exits
-cat ../myrepo-feat-health-endpoint/PROMPT.md
-# review it, then:
+tp new feat/health-endpoint --ticket ENG-57
+# tp creates the worktree and exits
 cd ../myrepo-feat-health-endpoint
-claude PROMPT.md
+claude https://linear.app/acme/issue/ENG-57
 ```
-
-What you are reviewing is the branch name, the skills list, your `--prompt` instructions, and which Ticket is cited — not the Spec, which lives on the Tracker. Hand-editing `PROMPT.md` at this point is supported: an existing `PROMPT.md` is used as-is, so you can paste the Spec inline yourself and re-run without losing the edit.
 
 ### 6. Use a custom agent command
 
@@ -296,7 +249,7 @@ What you are reviewing is the branch name, the skills list, your `--prompt` inst
 # Run claude in a new tmux window, not inline
 agent_command = [
   "tmux", "new-window", "-c", "{{.WorktreePath}}",
-  "claude {{.PromptPath}}",
+  "claude {{.TicketURL}}",
 ]
 ```
 
@@ -304,7 +257,7 @@ Or pass additional Claude Code flags:
 
 ```toml
 [from_spec]
-agent_command = ["claude", "--allowedTools", "Edit,Write,Bash", "{{.PromptPath}}"]
+agent_command = ["claude", "--allowedTools", "Edit,Write,Bash", "{{.TicketURL}}"]
 ```
 
 ### 7. Skip the agent for bulk prep
