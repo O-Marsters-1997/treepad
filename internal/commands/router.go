@@ -20,5 +20,6 @@ func Router() []*cli.Command {
 		fromSpecCommand(),
 		fromSpecBulkCommand(),
 		skillCommand(),
+		batchCommand(),
 	}
 }

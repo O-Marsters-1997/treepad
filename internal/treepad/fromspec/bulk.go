@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/profile"
-	"github.com/O-Marsters-1997/treepad/internal/slug"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
 )
@@ -37,8 +37,8 @@ type BulkResult struct {
 func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]BulkResult, int, error) {
 	p := profile.OrDisabled(d.Profiler)
 
-	// Loaded once, ahead of the loop: deriveBranch needs each ticket's Ref,
-	// which comes from resolveTicket, which needs this config.
+	// Loaded once, ahead of the loop: batch.DeriveBranch needs each ticket's
+	// Ref, which comes from batch.ResolveTicket, which needs this config.
 	fsCfg, err := loadFromSpecConfig(ctx, d, in.OutputDir)
 	if err != nil {
 		return nil, 0, err
@@ -51,7 +51,7 @@ func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]Bul
 		res := BulkResult{Ticket: ticket}
 
 		resolveDone := p.Stage("ticket.resolve")
-		ticketURL, ref, err := resolveTicket(fsCfg, ticket)
+		ticketURL, ref, err := batch.ResolveTicket(fsCfg.TicketURL, ticket)
 		resolveDone()
 		if err != nil {
 			res.Err = err
@@ -61,7 +61,7 @@ func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]Bul
 		}
 		res.TicketURL = ticketURL
 
-		branch := deriveBranch(in.BranchPrefix, ref)
+		branch := batch.DeriveBranch(in.BranchPrefix, ref)
 		res.Branch = branch
 
 		wtRes, err := lifecycle.CreateWorktreeWithSync(ctx, d, branch, in.Base, in.OutputDir)
@@ -90,14 +90,6 @@ func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]Bul
 
 	printBulkSummary(d, results)
 	return results, failed, nil
-}
-
-// deriveBranch computes a branch name from prefix + slug(ref). Refs are
-// unique within a Tracker, so no collision suffix is needed.
-// ponytail: a Linear ref is a title slug (feat/silent-refresh), a GitHub ref
-// is bare digits (feat/42) — readability trade-off accepted in ADR 0001.
-func deriveBranch(prefix, ref string) string {
-	return prefix + slug.Slug(ref)
 }
 
 func printBulkSummary(d deps.Deps, results []BulkResult) {

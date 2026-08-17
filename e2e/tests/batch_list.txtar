@@ -1,0 +1,23 @@
+tp-init-repo
+
+exec sh -c 'printf "[from_spec]\nticket_url = \"https://linear.app/acme/issue/{{.Ref}}\"\n" > .treepad.toml'
+
+exec sh -c 'mkdir -p .git/treepad/batches'
+exec sh -c 'printf "name = \"silent-refresh\"\nbranch_prefix = \"feat/\"\nbase = \"main\"\n\n[[chain]]\ntickets = [\"ENG-12\", \"ENG-13\"]\n\n[[chain]]\ntickets = [\"ENG-14\"]\n" > .git/treepad/batches/silent-refresh.toml'
+
+exec tp batch list
+stdout 'silent-refresh'
+stdout 'ENG-12.*ENG-12.*feat/eng-12.*main'
+stdout 'ENG-13.*ENG-13.*feat/eng-13.*feat/eng-12'
+stdout 'ENG-14.*ENG-14.*feat/eng-14.*main'
+
+exec tp batch list --json
+stdout '"ticket":"ENG-12"'
+stdout '"ticket":"ENG-13"'
+stdout '"branch":"feat/eng-13"'
+stdout '"base":"feat/eng-12"'
+stdout '"ticket":"ENG-14"'
+
+# No worktrees are created — this is the read half only.
+! exists ../repo-feat-eng-12
+! stdout '__TREEPAD_CD__'
