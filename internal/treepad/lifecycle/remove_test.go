@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"treepad/internal/slug"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/slug"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
 )
 
 func TestRemove(t *testing.T) {

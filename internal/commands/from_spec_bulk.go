@@ -7,7 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/treepad/fromspec"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/fromspec"
 )
 
 func fromSpecBulkCommand() *cli.Command {

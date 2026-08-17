@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"treepad/internal/hook"
-	"treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/hook"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
 )
 
 var testData = hook.Data{

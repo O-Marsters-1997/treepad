@@ -1,8 +1,8 @@
 package register
 
 import (
-	"treepad/e2e/script"
-	"treepad/internal/commands"
+	"github.com/O-Marsters-1997/treepad/e2e/script"
+	"github.com/O-Marsters-1997/treepad/internal/commands"
 )
 
 func init() {

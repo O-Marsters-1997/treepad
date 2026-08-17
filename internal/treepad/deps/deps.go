@@ -6,13 +6,13 @@ import (
 
 	"golang.org/x/term"
 
-	"treepad/internal/artifact"
-	"treepad/internal/hook"
-	"treepad/internal/passthrough"
-	"treepad/internal/profile"
-	internalsync "treepad/internal/sync"
-	"treepad/internal/ui"
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/artifact"
+	"github.com/O-Marsters-1997/treepad/internal/hook"
+	"github.com/O-Marsters-1997/treepad/internal/passthrough"
+	"github.com/O-Marsters-1997/treepad/internal/profile"
+	internalsync "github.com/O-Marsters-1997/treepad/internal/sync"
+	"github.com/O-Marsters-1997/treepad/internal/ui"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 // Deps bundles the dependencies every treepad operation needs.

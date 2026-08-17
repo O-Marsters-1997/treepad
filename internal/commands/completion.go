@@ -7,7 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 func completeWorktreeBranch(ctx context.Context, cmd *cli.Command) {

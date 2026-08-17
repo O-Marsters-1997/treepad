@@ -15,9 +15,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"treepad/internal/treepad/cwd"
-	"treepad/internal/treepad/repo"
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/cwd"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 // Deps are the external dependencies cdshell needs.

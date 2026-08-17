@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"treepad/internal/slug"
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/slug"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 // Context captures the values derived from listing worktrees at the

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
 )
 
 func TestCD(t *testing.T) {

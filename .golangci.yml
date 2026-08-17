@@ -23,7 +23,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - treepad
+        - github.com/O-Marsters-1997/treepad
 
 issues:
   max-issues-per-linter: 0

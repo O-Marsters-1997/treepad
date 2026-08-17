@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/term"
 
-	"treepad/internal/tty"
+	"github.com/O-Marsters-1997/treepad/internal/tty"
 )
 
 // Runner executes a command in dir with stdio inherited from the calling

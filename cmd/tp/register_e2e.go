@@ -2,4 +2,4 @@
 
 package main
 
-import _ "treepad/e2e/register"
+import _ "github.com/O-Marsters-1997/treepad/e2e/register"

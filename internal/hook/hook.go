@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"treepad/internal/profile"
+	"github.com/O-Marsters-1997/treepad/internal/profile"
 )
 
 // Event identifies a lifecycle point in a treepad operation.

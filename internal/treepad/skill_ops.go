@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"slices"
 
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
 
-	"treepad/skills"
+	"github.com/O-Marsters-1997/treepad/skills"
 )
 
 type SkillInstallInput struct {

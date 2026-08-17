@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/treepadtest"
-	"treepad/internal/ui"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/ui"
 )
 
 // makeMainWorktree creates a temp dir with a .git subdirectory so that

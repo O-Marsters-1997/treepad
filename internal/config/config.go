@@ -11,7 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"treepad/internal/hook"
+	"github.com/O-Marsters-1997/treepad/internal/hook"
 )
 
 const configFileName = ".treepad.toml"

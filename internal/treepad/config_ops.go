@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"treepad/internal/config"
-	"treepad/internal/hook"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/repo"
-	"treepad/internal/worktree"
+	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/hook"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 type ConfigInitInput struct {

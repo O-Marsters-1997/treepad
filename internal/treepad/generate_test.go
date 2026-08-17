@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	internalsync "treepad/internal/sync"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/treepadtest"
-	"treepad/internal/worktree"
+	internalsync "github.com/O-Marsters-1997/treepad/internal/sync"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 func TestGenerate(t *testing.T) {

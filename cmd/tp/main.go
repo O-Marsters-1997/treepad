@@ -9,9 +9,9 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"treepad/internal/commands"
-	"treepad/internal/profile"
-	"treepad/internal/ui"
+	"github.com/O-Marsters-1997/treepad/internal/commands"
+	"github.com/O-Marsters-1997/treepad/internal/profile"
+	"github.com/O-Marsters-1997/treepad/internal/ui"
 )
 
 // Set at build time via linker flags:

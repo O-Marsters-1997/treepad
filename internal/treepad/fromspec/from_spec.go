@@ -10,12 +10,12 @@ import (
 	"strings"
 	"text/template"
 
-	"treepad/internal/config"
-	"treepad/internal/profile"
-	"treepad/internal/treepad/cd"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/lifecycle"
-	"treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/profile"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/cd"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
 )
 
 // FromSpecInput parameterises a tp from-spec invocation.

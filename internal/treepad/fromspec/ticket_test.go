@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/config"
 )
 
 func TestResolveTicket(t *testing.T) {

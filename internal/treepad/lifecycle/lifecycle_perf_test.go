@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	internalsync "treepad/internal/sync"
-	"treepad/internal/treepad/deps"
-	"treepad/internal/treepad/treepadtest"
+	internalsync "github.com/O-Marsters-1997/treepad/internal/sync"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
 )
 
 // slowSyncer sleeps for the configured duration to simulate a heavy file sync.
