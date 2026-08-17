@@ -16,8 +16,6 @@ type FromSpecBulkInput struct {
 	BranchPrefix string
 	Base         string
 	OutputDir    string
-	// Prompt is optional user-supplied instructions appended to each prompt body.
-	Prompt string
 }
 
 // BulkResult records the outcome for one ticket in a bulk run.
@@ -26,11 +24,10 @@ type BulkResult struct {
 	TicketURL    string
 	Branch       string
 	WorktreePath string
-	PromptPath   string
 	Err          error
 }
 
-// FromSpecBulk creates one worktree per ticket, writing PROMPT.md into each.
+// FromSpecBulk creates one worktree per ticket.
 // It never launches an agent and never emits __TREEPAD_CD__. On partial
 // failure it continues to the next ticket and records the error in the result.
 // Returns the per-ticket results, a count of failures, and any fatal setup error.
@@ -72,18 +69,6 @@ func FromSpecBulk(ctx context.Context, d deps.Deps, in FromSpecBulkInput) ([]Bul
 			continue
 		}
 		res.WorktreePath = wtRes.WorktreePath
-
-		promptBody := buildPrompt(wtRes.Cfg.FromSpec, branch, specCitation(ticketURL), in.Prompt)
-		promptDone := p.Stage("prompt.write")
-		promptPath, err := writePromptFile(d, wtRes.WorktreePath, promptBody)
-		promptDone()
-		if err != nil {
-			res.Err = fmt.Errorf("render prompt: %w", err)
-			results = append(results, res)
-			failed++
-			continue
-		}
-		res.PromptPath = promptPath
 
 		results = append(results, res)
 	}

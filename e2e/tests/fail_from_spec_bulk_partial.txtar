@@ -6,5 +6,5 @@ exec sh -c 'printf "[from_spec]\nagent_command = []\n" > .treepad.toml'
 ! exec tp from-spec-bulk --tickets 'https://github.com/acme/widgets/issues/99,ENG-20' --branch-prefix feat/
 stderr 'no ticket_url configured'
 stderr '1 succeeded, 1 failed'
-exists ../repo-feat-99/PROMPT.md
+exists ../repo-feat-99/
 ! exists ../repo-feat-eng-20

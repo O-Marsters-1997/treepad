@@ -94,11 +94,9 @@ func (e ExecConfig) IsZero() bool {
 }
 
 type FromSpecConfig struct {
-	// Skills is a list of skill names included in the generated prompt.
-	Skills []string `toml:"skills"`
-	// AgentCommand is invoked after the prompt is written. Each element is a
-	// text/template string. Empty means write the prompt and exit 0.
-	// Available template data: .Spec, .Skills, .Branch, .Slug, .WorktreePath, .PromptPath, .Prompt.
+	// AgentCommand is invoked once the worktree exists. Each element is a
+	// text/template string. Empty means create the worktree and exit 0.
+	// Available template data: .Branch, .Slug, .WorktreePath, .TicketURL.
 	AgentCommand []string `toml:"agent_command"`
 	// TicketURL expands a bare Ref into a Ticket URL. Empty means only full
 	// URLs are accepted. Template data: .Ref
@@ -106,7 +104,7 @@ type FromSpecConfig struct {
 }
 
 func (f FromSpecConfig) IsZero() bool {
-	return len(f.Skills) == 0 && len(f.AgentCommand) == 0 && f.TicketURL == ""
+	return len(f.AgentCommand) == 0 && f.TicketURL == ""
 }
 
 type Config struct {

@@ -1,6 +1,6 @@
 tp-init-repo
 
 # No [from_spec] section: a bare Ref cannot be resolved and no worktree is created.
-! exec tp from-spec feat-y --ticket ENG-123
+! exec tp new feat-y --ticket ENG-123
 stderr 'no ticket_url configured'
 ! exists ../repo-feat-y

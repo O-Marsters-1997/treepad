@@ -1,15 +1,15 @@
 # Ticket-driven worktrees
 
-`tp from-spec` seeds a worktree from a ticket so an agent can start immediately, and
+`tp new --ticket` seeds a worktree from a ticket so an agent can start immediately, and
 `tp from-spec-bulk` fans several tickets out at once.
 
 ## Contents
 
 - Vocabulary
-- What `from-spec` actually does
+- What `tp new --ticket` actually does
 - Ticket resolution
-- The generated `PROMPT.md`
 - Agent handoff
+- Playbooks
 - Bulk fan-out
 - Configuration
 
@@ -25,33 +25,36 @@ conversations about the config ambiguous.
 | **Tracker** | The system hosting Tickets — Linear, GitHub, whatever the repo declares |
 | **Ticket URL** | The canonical web address, from which Tracker and Ref both follow |
 | **Ref** | The Tracker-local identifier — `42` on GitHub, `ENG-123` on Linear |
-| **Prompt** | The `PROMPT.md` a worktree is seeded with |
+| **Playbook** | Prose at `.claude/playbooks/<name>.md` saying which Skills a shape of work should use, and why |
 
-## What `from-spec` actually does
+"Prompt" is retired: ADR 0002 deleted `PROMPT.md` rendering. Treepad authors no prose.
+
+## What `tp new --ticket` actually does
 
 ```
-tp from-spec [options] <branch> --ticket <url-or-ref>
+tp new [options] <branch> --ticket <url-or-ref>
 ```
 
 1. Resolves `--ticket` to a Ticket URL. This happens **before** anything is created, so an
    unresolvable ticket leaves no orphan worktree behind.
-2. Creates the worktree exactly as `tp new` does — config sync, artifact, `pre_new`,
+2. Creates the worktree exactly as a plain `tp new` does — config sync, artifact, `pre_new`,
    `pre_sync`/`post_sync`, `post_new`.
-3. Writes `PROMPT.md` into the worktree root.
-4. Runs `[from_spec] agent_command` in the worktree, with stdio passed through.
-5. Emits the cd directive unless `--current` was passed.
+3. Runs `[from_spec] agent_command` in the worktree, with stdio passed through.
+4. Emits the cd directive unless `--current` was passed.
 
 **`tp` never reads the Tracker.** It has no API token, no `gh` call, no knowledge of Linear
-or GitHub. It writes the Ticket URL into the prompt and the agent fetches the Spec itself.
-That is a deliberate design decision (ADR 0001), not a gap — so if a `PROMPT.md` looks
-empty of requirements, that is expected, and reading the cited URL is the agent's job.
+or GitHub. It hands the agent the Ticket URL and the agent fetches the Spec itself. That is a
+deliberate design decision (ADR 0001), not a gap — reading the cited URL is the agent's job.
+
+**`tp` writes no prompt.** It composes no text and interpolates nothing (ADR 0002).
 
 | Flag | Description |
 | --- | --- |
-| `--ticket` / `-t` | Ticket URL, or a bare Ref when `ticket_url` is configured (required) |
+| `--ticket` / `-t` | Ticket URL, or a bare Ref when `ticket_url` is configured |
 | `--base` / `-b` | Ref to branch from (default `main`) |
 | `--current` / `-c` | Do not emit the cd directive |
-| `--prompt` / `-p` | Instructions replacing the default closing "Implement the ticket." |
+
+`--ticket` cannot be combined with `--open`.
 
 ## Ticket resolution
 
@@ -75,55 +78,48 @@ no ticket_url configured: cannot resolve "ENG-123".
 A full URL always works and always overrides the configured Tracker, which is how a repo
 pulls a one-off ticket from somewhere else.
 
-## The generated `PROMPT.md`
-
-```markdown
-# <branch>
-
-## Spec
-Read the ticket at:
-<ticket-url>
-
-## Skills
-- /tdd
-- /code-review
-
-Implement the ticket.
-```
-
-The `## Skills` block appears only when `[from_spec] skills` is non-empty. `--prompt "..."`
-replaces the closing line with:
-
-```
-Implement the ticket according to the following instructions:
-
-<your text>
-```
-
-If `PROMPT.md` already exists in the worktree it is reused untouched and no new prompt is
-generated — which is how you hand-edit a prompt and re-run without losing your edits.
-
 ## Agent handoff
 
 ```toml
 [from_spec]
-agent_command = ["claude", "{{.PromptPath}}"]
+agent_command = ["claude", "{{.TicketURL}}"]
 ```
 
-Each element is a Go template with access to `.Spec`, `.Skills`, `.Branch`, `.Slug`,
-`.WorktreePath`, `.PromptPath`, and `.Prompt` (the rendered prompt body). The command runs
-with the worktree as its working directory, and `from-spec` returns the agent's exit code.
+Each element is a Go template with access to `.TicketURL`, `.Branch`, `.Slug` and
+`.WorktreePath` — and nothing else. The command runs with the worktree as its working
+directory, and `tp new --ticket` returns the agent's exit code.
 
-With no `agent_command`, `from-spec` writes the prompt, logs where it went, and exits —
-useful when you want to review the prompt before launching anything.
+A config still referencing `{{.PromptPath}}` or `{{.Skills}}` fails loudly with
+`execute agent_command template`. There is no fallback; update the config.
+
+With no `agent_command`, `tp new --ticket` creates the worktree, logs where it is, and exits.
 
 Launching an interactive agent from inside another agent's shell is rarely what you want.
-Prefer previewing:
+Prefer creating the worktree and leaving it:
 
 ```bash
-tp from-spec feat/x --ticket ENG-123 --current
-cat <worktree>/PROMPT.md
+tp new feat/x --ticket ENG-123 --current
 ```
+
+## Playbooks
+
+Skill routing is a Playbook's job. Write one with the body on stdin:
+
+```bash
+tp playbook new task-dashboard < playbook.md
+```
+
+The body is written **verbatim** to `.claude/playbooks/task-dashboard.md` in the main
+worktree — treepad composes nothing, interpolates nothing, appends nothing. `--force` / `-f`
+overwrites an existing Playbook; an empty body is an error.
+
+Name it on the Ticket (`Playbook: task-dashboard`). The agent reads the Ticket anyway, so it
+picks the name up for free, and the designation survives a re-run and works for bulk fan-out
+without per-ticket flags. Playbooks propagate through `[sync]`; the default `.claude/`
+pattern already covers them, and a narrowed config needs `".claude/playbooks/**"`.
+
+Treepad never reads a Playbook. A Ticket naming one that does not exist fails inside the
+agent, not as a `tp` error.
 
 ## Bulk fan-out
 
@@ -131,9 +127,8 @@ cat <worktree>/PROMPT.md
 tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19 --branch-prefix feat/
 ```
 
-One worktree and one `PROMPT.md` per ticket. It never launches an agent and never emits a cd
-directive — there is no single destination. Branch names are `--branch-prefix` plus the
-slugified Ref, with the Ref appended if two would collide.
+One worktree per ticket. It never launches an agent and never emits a cd directive — there is
+no single destination. Branch names are `--branch-prefix` plus the slugified Ref.
 
 Partial failures are non-fatal: a bad ticket is recorded in the summary and the batch
 continues. Exit code 1 means at least one ticket failed; read the table rather than assuming
@@ -156,12 +151,10 @@ context window.
 ```toml
 [from_spec]
 ticket_url = "https://linear.app/acme/issue/{{.Ref}}"
-skills = ["tdd", "code-review"]
-agent_command = ["claude", "{{.PromptPath}}"]
+agent_command = ["claude", "{{.TicketURL}}"]
 ```
 
 | Field | Effect |
 | --- | --- |
 | `ticket_url` | Template expanding a bare Ref into a Ticket URL; empty means URLs only |
-| `skills` | Skill names listed in every generated prompt's `## Skills` block |
-| `agent_command` | Argv run after the prompt is written; empty means write-and-exit |
+| `agent_command` | Argv run once the worktree exists; empty means create-and-exit |

@@ -105,13 +105,13 @@ runner = "just"                           # force a runner instead of auto-detec
 ```toml
 [from_spec]
 ticket_url = "https://linear.app/acme/issue/{{.Ref}}"
-skills = ["tdd", "code-review"]
-agent_command = ["claude", "{{.PromptPath}}"]
+agent_command = ["claude", "{{.TicketURL}}"]
 ```
 
 `ticket_url` is what lets `--ticket ENG-123` work with a bare ref; without it, pass full
-URLs. With no `agent_command`, `from-spec` writes `PROMPT.md` and exits. Details and the
-prompt structure are in [from-spec.md](from-spec.md).
+URLs. `agent_command` elements are Go templates over `.TicketURL`, `.Branch`, `.Slug` and
+`.WorktreePath` — nothing else. With no `agent_command`, `tp new --ticket` creates the
+worktree and exits. Details are in [from-spec.md](from-spec.md).
 
 ## `[hooks]`
 
