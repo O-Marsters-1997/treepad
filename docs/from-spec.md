@@ -80,6 +80,8 @@ EOF
 
 The body is written **verbatim**: treepad composes nothing and interpolates nothing. Then name the Playbook on the Ticket:
 
+For guidance on what to write, when to write one, and common mistakes, see [playbooks.md](playbooks.md).
+
 ```
 Playbook: task-dashboard
 ```
