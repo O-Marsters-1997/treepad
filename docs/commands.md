@@ -811,7 +811,7 @@ Write a Playbook to `.claude/playbooks/<name>.md` in the main worktree.
 tp playbook new <name> [--force] < body.md
 ```
 
-The body comes from stdin and is written **verbatim** — treepad composes nothing, interpolates nothing, and appends nothing. A Playbook is prose saying which Skills a recurring shape of work should use and why; the Ticket names it, and the agent picks the name up when it reads the Ticket. See [ADR 0002](adr/0002-treepad-writes-playbooks-not-prompts.md).
+The body comes from stdin and is written **verbatim** — treepad composes nothing, interpolates nothing, and appends nothing. A Playbook is prose saying which Skills a recurring shape of work should use and why; the Ticket names it, and the agent picks the name up when it reads the Ticket. See [ADR 0002](adr/0002-treepad-writes-playbooks-not-prompts.md) for the design rationale, and [playbooks.md](playbooks.md) for best practices on what to write.
 
 Refuses to overwrite an existing Playbook unless `--force` is passed. An empty body is an error. Add `".claude/playbooks/**"` to `[sync] include` so Playbooks reach every worktree — the built-in default already covers `.claude/`.
 
