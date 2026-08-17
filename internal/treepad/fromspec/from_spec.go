@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"text/template"
 
+	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
 	"github.com/O-Marsters-1997/treepad/internal/profile"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/cd"
@@ -51,7 +52,7 @@ func FromSpec(ctx context.Context, d deps.Deps, in FromSpecInput) (int, error) {
 		resolveDone()
 		return 0, err
 	}
-	ticketURL, _, err := resolveTicket(fsCfg, in.Ticket)
+	ticketURL, _, err := batch.ResolveTicket(fsCfg.TicketURL, in.Ticket)
 	resolveDone()
 	if err != nil {
 		return 0, err

@@ -33,28 +33,6 @@ func bulkSeqResponses(mainPath string, n int) []treepadtest.RunResponse {
 	return responses
 }
 
-func TestDeriveBranch(t *testing.T) {
-	tests := []struct {
-		name   string
-		prefix string
-		ref    string
-		want   string
-	}{
-		{name: "prefix with bare ref", prefix: "feat/", ref: "ENG-123", want: "feat/eng-123"},
-		{name: "no prefix", prefix: "", ref: "42", want: "42"},
-		{name: "prefix with title slug ref", prefix: "feat/", ref: "silent-refresh", want: "feat/silent-refresh"},
-		{name: "duplicate refs derive the same branch", prefix: "feat/", ref: "ENG-123", want: "feat/eng-123"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := deriveBranch(tt.prefix, tt.ref); got != tt.want {
-				t.Errorf("deriveBranch(%q, %q) = %q, want %q", tt.prefix, tt.ref, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestFromSpecBulk(t *testing.T) {
 	mainPath := makeMainWorktree(t)
 	outputDir := t.TempDir()
@@ -115,7 +93,6 @@ func TestFromSpecBulk(t *testing.T) {
 			}
 		}
 
-		// No agent invoked.
 		if len(pt.Calls) != 0 {
 			t.Errorf("PTRunner called %d times, want 0", len(pt.Calls))
 		}

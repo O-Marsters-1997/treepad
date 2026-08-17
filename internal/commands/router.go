@@ -19,6 +19,7 @@ func Router() []*cli.Command {
 		diffCommand(),
 		fromSpecBulkCommand(),
 		skillCommand(),
+		batchCommand(),
 		playbookCommand(),
 	}
 }

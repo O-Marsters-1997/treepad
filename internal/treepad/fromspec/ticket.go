@@ -13,6 +13,11 @@ import (
 
 const noTicketURLHint = "set [from_spec] ticket_url in .treepad.toml, or pass the full ticket URL."
 
+// specCitation is the ## Spec body: a citation, not the Spec. See ADR 0001.
+func specCitation(ticketURL string) string {
+	return "Read the ticket at:\n" + ticketURL
+}
+
 // resolveTicket turns user input into a Ticket URL and the Ref it carries.
 // Input matching http(s):// is used verbatim; anything else is a Ref rendered
 // through cfg.TicketURL.
