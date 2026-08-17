@@ -11,8 +11,11 @@ import (
 
 	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/slug"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 type BatchListInput struct {
@@ -80,6 +83,253 @@ func formatBatchRows(members []batch.Member) []string {
 	for _, m := range members {
 		_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
 			m.Batch, m.Chain, m.Position, m.Ticket, m.Ref, m.Branch, m.Base)
+	}
+	_ = w.Flush()
+	raw := strings.TrimRight(buf.String(), "\n")
+	if raw == "" {
+		return nil
+	}
+	return strings.Split(raw, "\n")
+}
+
+// Action values a ReportEntry can carry.
+const (
+	ActionCreated     = "created"      // worktree created this tick
+	ActionSkipped     = "skipped"      // branch already existed; nothing to do
+	ActionWouldCreate = "would-create" // --dry-run: would have been created
+	ActionBlocked     = "blocked"      // parent branch does not exist yet
+	ActionError       = "error"        // materialise failed; this Chain stops here
+)
+
+// ReportEntry pairs a resolved Member with what Reconcile did about it this tick.
+type ReportEntry struct {
+	batch.Member
+	WorktreePath string `json:"worktree_path,omitempty"`
+	Action       string `json:"action"`
+	Error        string `json:"error,omitempty"`
+}
+
+// Report is the JSON shape for `--json` and the row source for the TUI: one
+// entry per Member with the action Reconcile took on it this tick.
+type Report struct {
+	Members []ReportEntry `json:"members"`
+}
+
+// ReconcileInput parameterises Reconcile, called by both `tp batch sync` and
+// (later) `tp ui`'s tick.
+type ReconcileInput struct {
+	Batch     string // narrows to one Manifest by name; empty means every Manifest
+	DryRun    bool
+	OutputDir string
+}
+
+// Reconcile is the single function driving Batch orchestration. Its five
+// steps run in this fixed order on every tick; only materialise is
+// implemented so far, the rest land as no-op stubs for later tickets.
+func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, error) {
+	rc, err := repo.Load(ctx, d.Runner, in.OutputDir)
+	if err != nil {
+		return Report{}, err
+	}
+	cfg, err := config.Load(rc.Main.Path)
+	if err != nil {
+		return Report{}, fmt.Errorf("load config: %w", err)
+	}
+	commonDir, err := batch.CommonDir(ctx, d.Runner)
+	if err != nil {
+		return Report{}, err
+	}
+	manifests, err := batch.Load(commonDir)
+	if err != nil {
+		return Report{}, err
+	}
+
+	var entries []ReportEntry
+	for _, m := range manifests {
+		if in.Batch != "" && m.Name != in.Batch {
+			continue
+		}
+		chains, err := batch.Resolve(m, cfg.FromSpec.TicketURL)
+		if err != nil {
+			return Report{}, err
+		}
+		for _, chain := range chains {
+			entries = append(entries, materialise(ctx, d, in, rc, chain)...)
+		}
+	}
+	report := Report{Members: entries}
+
+	launch(ctx, d, in, report)
+	link(ctx, d, in, report)
+	restack(ctx, d, in, report)
+	retire(ctx, d, in, report)
+
+	return report, nil
+}
+
+// materialise walks one Chain in order, creating a stacked worktree per
+// member via lifecycle.CreateWorktreeWithSync — which already creates a
+// stacked worktree when base is a sibling's branch. The gate for
+// materialising a member is "the parent branch exists"; skipping is by
+// branch existence, so re-running is idempotent. A member that fails, or
+// whose parent branch does not exist, stops this Chain only — other Chains
+// are unaffected.
+func materialise(
+	ctx context.Context, d deps.Deps, in ReconcileInput, rc repo.Context, chain []batch.Member,
+) []ReportEntry {
+	entries := make([]ReportEntry, 0, len(chain))
+	// known tracks branches materialised (or, under --dry-run, simulated) so
+	// far this tick, so the gate for the next member doesn't require a real
+	// git call for a branch this same tick just created.
+	known := map[string]bool{}
+
+	for _, m := range chain {
+		entry := ReportEntry{Member: m, WorktreePath: worktreePathFor(rc, m.Branch)}
+
+		parentExists := known[m.Base]
+		if !parentExists {
+			var err error
+			parentExists, err = branchExists(ctx, d.Runner, m.Base)
+			if err != nil {
+				entry.Action, entry.Error = ActionError, err.Error()
+				entries = append(entries, entry)
+				break
+			}
+		}
+		if !parentExists {
+			entry.Action, entry.Error = ActionBlocked, fmt.Sprintf("parent branch %q does not exist", m.Base)
+			entries = append(entries, entry)
+			break
+		}
+
+		ownExists, err := branchExists(ctx, d.Runner, m.Branch)
+		if err != nil {
+			entry.Action, entry.Error = ActionError, err.Error()
+			entries = append(entries, entry)
+			break
+		}
+		if ownExists {
+			known[m.Branch] = true
+			entry.Action = ActionSkipped
+			entries = append(entries, entry)
+			continue
+		}
+
+		if in.DryRun {
+			known[m.Branch] = true
+			entry.Action = ActionWouldCreate
+			entries = append(entries, entry)
+			continue
+		}
+
+		res, err := lifecycle.CreateWorktreeWithSync(ctx, d, m.Branch, m.Base, in.OutputDir)
+		if err != nil {
+			entry.Action, entry.Error = ActionError, err.Error()
+			entries = append(entries, entry)
+			break
+		}
+		known[m.Branch] = true
+		entry.Action = ActionCreated
+		entry.WorktreePath = res.WorktreePath
+		entries = append(entries, entry)
+	}
+
+	return entries
+}
+
+// launch starts an agent for a materialised member that has none yet.
+// Not built in this ticket — a later ticket fills this in.
+func launch(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
+
+// link runs `gh stack link` across each Chain's ready prefix.
+// Not built in this ticket — a later ticket fills this in.
+func link(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
+
+// restack repairs worktrees left behind by a merged member.
+// Not built in this ticket — a later ticket fills this in.
+func restack(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
+
+// retire marks a merged member's worktree removable.
+// Not built in this ticket — a later ticket fills this in.
+func retire(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
+
+// branchExists reports whether branch is a known local branch. `git branch
+// --list` always exits 0, so existence is read from output emptiness rather
+// than the exit code.
+func branchExists(ctx context.Context, r worktree.CommandRunner, branch string) (bool, error) {
+	out, err := r.Run(ctx, "git", "branch", "--list", branch)
+	if err != nil {
+		return false, fmt.Errorf("git branch --list %s: %w", branch, err)
+	}
+	return len(bytes.TrimSpace(out)) > 0, nil
+}
+
+// worktreePathFor mirrors lifecycle.CreateWorktreeWithSync's path derivation,
+// so a Report can name a Member's worktree path before it exists (--dry-run,
+// or a member already skipped).
+func worktreePathFor(rc repo.Context, branch string) string {
+	return filepath.Join(filepath.Dir(rc.Main.Path), rc.Slug+"-"+slug.Slug(branch))
+}
+
+// BatchSyncInput parameterises the `tp batch sync` command.
+type BatchSyncInput struct {
+	JSON      bool
+	DryRun    bool
+	Batch     string
+	OutputDir string
+}
+
+// BatchSync runs Reconcile and renders the Report for `tp batch sync`. It
+// returns the count of members whose materialisation failed this tick, for
+// the caller to translate into a process exit code.
+func BatchSync(ctx context.Context, d deps.Deps, in BatchSyncInput) (int, error) {
+	report, err := Reconcile(ctx, d, ReconcileInput{
+		Batch:     in.Batch,
+		DryRun:    in.DryRun,
+		OutputDir: in.OutputDir,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	if in.JSON {
+		if err := json.NewEncoder(d.Out).Encode(report); err != nil {
+			return 0, err
+		}
+	} else if len(report.Members) == 0 {
+		d.Log.Info("no Batches found to reconcile")
+	} else {
+		writeReconcileTable(d, report.Members)
+	}
+
+	failed := 0
+	for _, e := range report.Members {
+		if e.Action == ActionError {
+			failed++
+		}
+	}
+	return failed, nil
+}
+
+func writeReconcileTable(d deps.Deps, entries []ReportEntry) {
+	for _, line := range formatReconcileRows(entries) {
+		_, _ = fmt.Fprintln(d.Out, line)
+	}
+}
+
+func formatReconcileRows(entries []ReportEntry) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	var buf bytes.Buffer
+	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "BATCH\tCHAIN\tPOS\tBRANCH\tACTION\tDETAIL")
+	for _, e := range entries {
+		detail := e.WorktreePath
+		if e.Error != "" {
+			detail = e.Error
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\t%s\n", e.Batch, e.Chain, e.Position, e.Branch, e.Action, detail)
 	}
 	_ = w.Flush()
 	raw := strings.TrimRight(buf.String(), "\n")
