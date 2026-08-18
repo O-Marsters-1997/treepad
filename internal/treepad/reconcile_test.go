@@ -26,9 +26,10 @@ type reconcileFakeRunner struct {
 	// gh responses. Zero-value ghAuthErr and ghListErr mean gh is available
 	// and returns ghListOut (defaulted to an empty PR list) — a test opts
 	// into "gh absent/failing" by setting one of these.
-	ghAuthErr error
-	ghListOut []byte
-	ghListErr error
+	ghAuthErr    error
+	ghListOut    []byte
+	ghListErr    error
+	stackLinkErr error
 
 	mu      sync.Mutex
 	adds    []string   // branches actually created, in call order
@@ -55,6 +56,8 @@ func (r *reconcileFakeRunner) Run(_ context.Context, name string, args ...string
 			return nil, r.ghAuthErr
 		case len(args) >= 2 && args[0] == "pr" && args[1] == "list":
 			return r.ghListOut, r.ghListErr
+		case len(args) >= 2 && args[0] == "stack" && args[1] == "link":
+			return nil, r.stackLinkErr
 		default:
 			return nil, fmt.Errorf("unexpected gh call: %v", args)
 		}
@@ -543,6 +546,164 @@ tickets = ["ENG-12"]
 		}
 		if !e.PRStale {
 			t.Error("PRStale = false, want true once gh starts failing")
+		}
+	})
+}
+
+const twoOpenPRJSON = `[
+	{"number":42,"headRefName":"feat/eng-12","baseRefName":"main","state":"OPEN","url":"https://x/42"},
+	{"number":43,"headRefName":"feat/eng-13","baseRefName":"feat/eng-12","state":"OPEN","url":"https://x/43"}
+]`
+
+// stackLinkCalls returns the branch arguments of every `gh stack link`
+// invocation recorded by runner, in call order.
+func stackLinkCalls(calls [][]string) [][]string {
+	var out [][]string
+	for _, c := range calls {
+		if len(c) >= 2 && c[0] == "stack" && c[1] == "link" {
+			out = append(out, c[2:])
+		}
+	}
+	return out
+}
+
+// TestReconcileLink covers ticket #139: linking a Chain into a Stack once
+// its leading members all have an open pull request.
+func TestReconcileLink(t *testing.T) {
+	twoMemberManifest := `
+name = "silent-refresh"
+branch_prefix = "feat/"
+base = "main"
+[[chain]]
+tickets = ["ENG-12", "ENG-13"]
+`
+
+	t.Run("links the full prefix once every member has an open pull request", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoMemberManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(twoOpenPRJSON)
+		d := reconcileDeps(runner)
+
+		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		got := stackLinkCalls(runner.ghCalls)
+		if len(got) != 1 {
+			t.Fatalf("gh stack link called %d times, want 1: %v", len(got), runner.ghCalls)
+		}
+		want := []string{"feat/eng-12", "feat/eng-13"}
+		if len(got[0]) != len(want) {
+			t.Fatalf("args = %v, want %v", got[0], want)
+		}
+		for i, b := range want {
+			if got[0][i] != b {
+				t.Errorf("args[%d] = %q, want %q", i, got[0][i], b)
+			}
+		}
+	})
+
+	// The load-bearing exclusion: eng-13 has no pull request of its own, so
+	// it must never appear as a `gh stack link` argument — that call would
+	// push eng-13's branch and open an unwanted pull request for it. If this
+	// test ever starts failing because the filter was "widened for
+	// tidiness", that widening is the bug, not the test.
+	t.Run("excludes a Chain member with no pull request: nothing is linked", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoMemberManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(oneOpenPRJSON) // only feat/eng-12 has a pull request
+		d := reconcileDeps(runner)
+
+		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if got := stackLinkCalls(runner.ghCalls); len(got) != 0 {
+			t.Errorf("gh stack link called with %v, want no call: a prefix of one member links nothing", got)
+		}
+	})
+
+	t.Run("re-running twice issues identical link arguments and persists no stack identity", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoMemberManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(twoOpenPRJSON)
+		d := reconcileDeps(runner)
+
+		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()}); err != nil {
+			t.Fatalf("first run: unexpected error: %v", err)
+		}
+		first := stackLinkCalls(runner.ghCalls)
+
+		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()}); err != nil {
+			t.Fatalf("second run: unexpected error: %v", err)
+		}
+		all := stackLinkCalls(runner.ghCalls)
+		if len(all) != 2*len(first) {
+			t.Fatalf("gh stack link called %d times across two runs, want %d", len(all), 2*len(first))
+		}
+		second := all[len(first):]
+		for i := range first {
+			if len(first[i]) != len(second[i]) {
+				t.Fatalf("run 1 args %v != run 2 args %v", first[i], second[i])
+			}
+			for j := range first[i] {
+				if first[i][j] != second[i][j] {
+					t.Errorf("run 1 args[%d][%d] = %q, run 2 = %q, want identical", i, j, first[i][j], second[i][j])
+				}
+			}
+		}
+	})
+
+	t.Run("--dry-run calls gh stack link for nothing", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoMemberManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(twoOpenPRJSON)
+		d := reconcileDeps(runner)
+
+		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir(), DryRun: true}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := stackLinkCalls(runner.ghCalls); len(got) != 0 {
+			t.Errorf("gh stack link called under --dry-run: %v, want none", got)
+		}
+	})
+
+	t.Run("--offline calls gh stack link for nothing", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoMemberManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		d := reconcileDeps(runner)
+
+		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir(), Offline: true}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(runner.ghCalls) != 0 {
+			t.Errorf("gh invoked %d times under --offline, want 0: %v", len(runner.ghCalls), runner.ghCalls)
+		}
+	})
+
+	// ADR 0003: `gh stack link` corrects an existing pull request's base
+	// itself, so nothing in Reconcile may call `gh pr edit --base`.
+	t.Run("never calls gh pr edit", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoMemberManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(twoOpenPRJSON)
+		d := reconcileDeps(runner)
+
+		for i := 0; i < 2; i++ {
+			if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()}); err != nil {
+				t.Fatalf("run %d: unexpected error: %v", i, err)
+			}
+		}
+		for _, call := range runner.ghCalls {
+			if len(call) >= 2 && call[0] == "pr" && call[1] == "edit" {
+				t.Errorf("Reconcile issued a gh pr edit call: %v", call)
+			}
 		}
 	})
 }

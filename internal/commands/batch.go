@@ -37,6 +37,9 @@ func batchSyncCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "sync",
 		Usage: "reconcile every Batch: materialise each Chain into a stacked worktree per member",
+		Description: "Once a Chain's leading branches all have an open pull request, sync links " +
+			"them into a GitHub Stack with `gh stack link`. Treepad can build a Stack this way but " +
+			"cannot un-link or reorder one — that is a human job on github.com.",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "json", Aliases: []string{"j"}, Usage: "emit the Report as JSON"},
 			&cli.BoolFlag{

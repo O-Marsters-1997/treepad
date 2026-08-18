@@ -110,3 +110,57 @@ func TestPRList(t *testing.T) {
 		}
 	})
 }
+
+// argCapturingRunner records the argv of every call made to it, so a test
+// can assert both what was called and what never was.
+type argCapturingRunner struct {
+	err  error
+	args [][]string
+}
+
+func (r *argCapturingRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	r.args = append(r.args, append([]string{name}, args...))
+	return nil, r.err
+}
+
+func TestStackLink(t *testing.T) {
+	t.Run("invokes gh stack link with branches in the given order", func(t *testing.T) {
+		r := &argCapturingRunner{}
+		branches := []string{"feat/eng-12", "feat/eng-13", "feat/eng-14"}
+		if err := StackLink(context.Background(), r, branches); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.args) != 1 {
+			t.Fatalf("gh invoked %d times, want 1: %v", len(r.args), r.args)
+		}
+		want := append([]string{"gh", "stack", "link"}, branches...)
+		got := r.args[0]
+		if len(got) != len(want) {
+			t.Fatalf("args = %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("args[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+
+	t.Run("gh call failing returns an error", func(t *testing.T) {
+		r := &argCapturingRunner{err: errors.New("gh: command not found")}
+		if err := StackLink(context.Background(), r, []string{"a", "b"}); err == nil {
+			t.Error("expected an error, got nil")
+		}
+	})
+
+	t.Run("never calls gh pr edit", func(t *testing.T) {
+		r := &argCapturingRunner{}
+		if err := StackLink(context.Background(), r, []string{"a", "b"}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for _, call := range r.args {
+			if len(call) >= 3 && call[0] == "gh" && call[1] == "pr" && call[2] == "edit" {
+				t.Errorf("StackLink issued a gh pr edit call: %v", call)
+			}
+		}
+	})
+}
