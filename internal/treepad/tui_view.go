@@ -98,7 +98,8 @@ func (m uiModel) View() string {
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderHelp())
 		sb.WriteString("\n")
-	case uiModeConfirmRemove, uiModeConfirmForceRemove, uiModeConfirmPrune, uiModeConfirmShell:
+	case uiModeConfirmRemove, uiModeConfirmForceRemove, uiModeConfirmPrune, uiModeConfirmShell,
+		uiModeConfirmLaunch, uiModeConfirmLaunchAll:
 		sb.WriteString("\n")
 		sb.WriteString(uiRenderModal(m))
 		sb.WriteString("\n")
@@ -141,6 +142,9 @@ func uiRenderHelp() string {
 		"r           Remove selected worktree (with confirmation)\n" +
 		"R           Force-remove selected worktree (discards unmerged work, with confirmation)\n" +
 		"p           Prune merged worktrees (with confirmation)\n" +
+		"l           Launch selected Batch member (with confirmation)\n" +
+		"L           Launch every pending Batch member (with confirmation)\n" +
+		"v           View selected member's Activity log in a pager\n" +
 		"/           Filter / search worktrees\n" +
 		"?           Show this help\n" +
 		"q / Ctrl-C  Quit\n\n" +
@@ -165,6 +169,12 @@ func uiRenderModal(m uiModel) string {
 	case uiModeConfirmShell:
 		title = fmt.Sprintf("Open shell in %s", m.confirmBranch)
 		detail = m.confirmShellPath
+	case uiModeConfirmLaunch:
+		title = fmt.Sprintf("Launch %s", m.confirmBranch)
+		detail = "This will spawn an agent for this Batch member via [batch] launch."
+	case uiModeConfirmLaunchAll:
+		title = "Launch every pending member"
+		detail = "This will spawn an agent for every materialised member with no Activity file yet."
 	}
 	body := fmt.Sprintf("%s\n%s\n\n[y] confirm  ·  [any other key] cancel", title, detail)
 	return uiModalStyle.Render(body)

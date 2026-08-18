@@ -67,6 +67,38 @@ func assertBranches(t *testing.T, got []StatusRow, want []string) {
 	}
 }
 
+func TestFilterRowsMatchesBatchAndChain(t *testing.T) {
+	rows := []StatusRow{
+		{Branch: "feat/eng-12", Path: "/repo/eng-12", Batch: "silent-refresh", Chain: 0},
+		{Branch: "feat/eng-14", Path: "/repo/eng-14", Batch: "silent-refresh", Chain: 1},
+		{Branch: "feat/other", Path: "/repo/other", Batch: "other-batch", Chain: 0},
+		{Branch: "unrelated", Path: "/repo/unrelated"},
+	}
+
+	t.Run("matches Batch name across both Chains", func(t *testing.T) {
+		got := filterRows(rows, "silent-refresh")
+		set := map[string]bool{}
+		for _, r := range got {
+			set[r.Branch] = true
+		}
+		if !set["feat/eng-12"] || !set["feat/eng-14"] {
+			t.Errorf("got %v, want feat/eng-12 and feat/eng-14", branchNames(got))
+		}
+		if set["feat/other"] {
+			t.Errorf("got %v, want other-batch excluded", branchNames(got))
+		}
+	})
+
+	t.Run("a row outside any Batch never matches on the Batch field", func(t *testing.T) {
+		got := filterRows(rows, "silent-refresh")
+		for _, r := range got {
+			if r.Branch == "unrelated" {
+				t.Error("unrelated row matched a Batch-name query")
+			}
+		}
+	})
+}
+
 func TestFilterRowsNoCrossFieldMatch(t *testing.T) {
 	// Verify that characters from the path cannot complete a branch-only
 	// subsequence. "feat" should NOT match "bug-fix-b" even if the path

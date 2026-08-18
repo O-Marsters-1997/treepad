@@ -5,13 +5,17 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/artifact"
+	"github.com/O-Marsters-1997/treepad/internal/launcher"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/cd"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
@@ -1135,6 +1139,415 @@ func TestUINumberNavigation(t *testing.T) {
 		view := m.View()
 		if !strings.Contains(view, "0–9") {
 			t.Errorf("help view missing '0–9' binding: %s", view)
+		}
+	})
+}
+
+func TestUILaunchKeys(t *testing.T) {
+	rowsBatch := []StatusRow{
+		{Branch: "main", IsMain: true, Path: "/repo/main"},
+		{Branch: "feat/pending", Path: "/repo/pending", Batch: "silent-refresh", RunState: string(launcher.StatePending)},
+		{Branch: "feat/working", Path: "/repo/working", Batch: "silent-refresh", RunState: string(launcher.StateWorking)},
+		{Branch: "solo", Path: "/repo/solo"},
+	}
+
+	t.Run("l on a non-Batch row shows a toast and stays in normal mode", func(t *testing.T) {
+		m := uiModel{rows: rowsBatch, cursor: 3}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want normal", m2.mode)
+		}
+		if m2.toast == nil || !strings.Contains(m2.toast.msg, "not launchable") {
+			t.Errorf("toast = %v, want not-launchable message", m2.toast)
+		}
+	})
+
+	t.Run("l on a working member shows a toast and stays in normal mode", func(t *testing.T) {
+		m := uiModel{rows: rowsBatch, cursor: 2}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want normal", m2.mode)
+		}
+		if m2.toast == nil {
+			t.Fatal("expected toast")
+		}
+	})
+
+	t.Run("l on a pending Batch member enters confirmLaunch mode", func(t *testing.T) {
+		m := uiModel{rows: rowsBatch, cursor: 1}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeConfirmLaunch {
+			t.Errorf("mode = %v, want uiModeConfirmLaunch", m2.mode)
+		}
+		if m2.confirmBranch != "feat/pending" {
+			t.Errorf("confirmBranch = %q, want feat/pending", m2.confirmBranch)
+		}
+		if cmd != nil {
+			t.Error("l should not dispatch a command immediately")
+		}
+	})
+
+	t.Run("y in confirmLaunch dispatches doLaunch", func(t *testing.T) {
+		m := uiModel{
+			rows: rowsBatch, cursor: 1,
+			mode: uiModeConfirmLaunch, confirmBranch: "feat/pending",
+		}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want normal after confirm", m2.mode)
+		}
+		if !m2.actionInFlight {
+			t.Error("actionInFlight should be true after y confirm")
+		}
+		if cmd == nil {
+			t.Error("expected dispatch command after y confirm")
+		}
+	})
+
+	t.Run("non-y key in confirmLaunch cancels", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmLaunch, confirmBranch: "feat/pending"}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want normal after cancel", m2.mode)
+		}
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false after cancel")
+		}
+	})
+
+	t.Run("L enters confirmLaunchAll mode regardless of cursor row", func(t *testing.T) {
+		m := uiModel{rows: rowsBatch, cursor: 0}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeConfirmLaunchAll {
+			t.Errorf("mode = %v, want uiModeConfirmLaunchAll", m2.mode)
+		}
+		if cmd != nil {
+			t.Error("L should not dispatch a command immediately")
+		}
+	})
+
+	t.Run("y in confirmLaunchAll dispatches doLaunchAll", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmLaunchAll}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+		m2 := updated.(uiModel)
+		if m2.mode != uiModeNormal {
+			t.Errorf("mode = %v, want normal after confirm", m2.mode)
+		}
+		if !m2.actionInFlight {
+			t.Error("actionInFlight should be true after y confirm")
+		}
+		if cmd == nil {
+			t.Error("expected dispatch command after y confirm")
+		}
+	})
+
+	t.Run("launch success shows a toast naming the branch and refreshes", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, cmd := m.Update(uiLaunchDoneMsg{branch: "feat/pending", err: nil})
+		m2 := updated.(uiModel)
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false")
+		}
+		if m2.toast == nil || !strings.Contains(m2.toast.msg, "feat/pending") {
+			t.Errorf("toast = %v, want containing branch", m2.toast)
+		}
+		if cmd == nil {
+			t.Error("expected refresh command")
+		}
+	})
+
+	t.Run("launch-all success shows a toast with the count", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, _ := m.Update(uiLaunchDoneMsg{count: 3, err: nil})
+		m2 := updated.(uiModel)
+		if m2.toast == nil || !strings.Contains(m2.toast.msg, "3") {
+			t.Errorf("toast = %v, want containing count 3", m2.toast)
+		}
+	})
+
+	t.Run("launch failure shows a sticky error toast", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, cmd := m.Update(uiLaunchDoneMsg{branch: "feat/pending", err: errors.New("boom")})
+		m2 := updated.(uiModel)
+		if m2.toast == nil || !m2.toast.isErr {
+			t.Error("expected sticky error toast")
+		}
+		if cmd != nil {
+			t.Error("error toast should not start a refresh/timer")
+		}
+	})
+
+	t.Run("help view lists launch bindings", func(t *testing.T) {
+		m := uiModel{mode: uiModeHelp}
+		view := m.View()
+		for _, want := range []string{"Launch", "pending"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("help view missing %q", want)
+			}
+		}
+	})
+
+	t.Run("view renders launch modal with branch name", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmLaunch, confirmBranch: "feat/pending"}
+		view := m.View()
+		for _, want := range []string{"feat/pending", "Launch", "confirm", "cancel"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("launch modal view missing %q", want)
+			}
+		}
+	})
+
+	t.Run("view renders launch-all modal", func(t *testing.T) {
+		m := uiModel{mode: uiModeConfirmLaunchAll}
+		view := m.View()
+		for _, want := range []string{"pending member", "confirm", "cancel"} {
+			if !strings.Contains(view, want) {
+				t.Errorf("launch-all modal view missing %q", want)
+			}
+		}
+	})
+}
+
+// TestUILaunchIntegration exercises launchBranch/launchAllPending against a
+// real Reconcile-produced Report, so a manual launch key and Reconcile's own
+// (tp-ui-disabled) launch step are proven to agree on what "launchable"
+// means — the double-launch guard included.
+func TestUILaunchIntegration(t *testing.T) {
+	t.Run("launchBranch spawns exactly one member via the same launch path as Reconcile", func(t *testing.T) {
+		mainPath, commonDir := setupLaunchRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", oneChainOneMemberManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		l := &fakeLauncher{}
+		d, _ := launchDeps(runner, l)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+
+		m := uiModel{ctx: context.Background(), d: d, in: StatusInput{OutputDir: t.TempDir()}, report: &report}
+		if err := m.launchBranch("feat/eng-12"); err != nil {
+			t.Fatalf("launchBranch: %v", err)
+		}
+		if len(l.calls) != 1 {
+			t.Fatalf("Launch called %d times, want 1", len(l.calls))
+		}
+	})
+
+	t.Run("launchBranch refuses a member that already has an Activity file", func(t *testing.T) {
+		mainPath, commonDir := setupLaunchRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", oneChainOneMemberManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		l := &fakeLauncher{}
+		d, _ := launchDeps(runner, l)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir(), Launch: true})
+		if err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+		if len(l.calls) != 1 {
+			t.Fatalf("setup launch calls = %d, want 1", len(l.calls))
+		}
+
+		m := uiModel{ctx: context.Background(), d: d, in: StatusInput{OutputDir: t.TempDir()}, report: &report}
+		if err := m.launchBranch("feat/eng-12"); err == nil {
+			t.Error("expected an error relaunching a member with an Activity file")
+		}
+		if len(l.calls) != 1 {
+			t.Errorf("Launch called %d times, want still 1 (no relaunch)", len(l.calls))
+		}
+	})
+
+	t.Run("launchAllPending launches every pending member", func(t *testing.T) {
+		twoChainManifest := `
+name = "silent-refresh"
+branch_prefix = "feat/"
+base = "main"
+[[chain]]
+tickets = ["ENG-12"]
+[[chain]]
+tickets = ["ENG-13"]
+`
+		mainPath, commonDir := setupLaunchRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		l := &fakeLauncher{}
+		d, _ := launchDeps(runner, l)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+
+		m := uiModel{ctx: context.Background(), d: d, in: StatusInput{OutputDir: t.TempDir()}, report: &report}
+		count, err := m.launchAllPending()
+		if err != nil {
+			t.Fatalf("launchAllPending: %v", err)
+		}
+		if count != 2 {
+			t.Errorf("count = %d, want 2", count)
+		}
+		if len(l.calls) != 2 {
+			t.Errorf("Launch called %d times, want 2", len(l.calls))
+		}
+	})
+
+	t.Run("launchBranch with no report loaded yet returns an error", func(t *testing.T) {
+		m := uiModel{ctx: context.Background(), d: deps.Deps{}, in: StatusInput{}}
+		if err := m.launchBranch("feat/eng-12"); err == nil {
+			t.Error("expected an error when no gh tick has completed yet")
+		}
+	})
+}
+
+func TestUILog(t *testing.T) {
+	rows := []StatusRow{
+		{Branch: "main", IsMain: true, Path: "/repo/main"},
+		{Branch: "solo", Path: "/repo/solo"},
+		{Branch: "feat/batch", Path: "/repo/feat-batch", Batch: "silent-refresh"},
+	}
+
+	t.Run("v on a non-Batch row shows a toast and does not dispatch", func(t *testing.T) {
+		m := uiModel{rows: rows, cursor: 1}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+		m2 := updated.(uiModel)
+		if m2.actionInFlight {
+			t.Error("actionInFlight should stay false")
+		}
+		if m2.toast == nil || !strings.Contains(m2.toast.msg, "not a Batch member") {
+			t.Errorf("toast = %v, want not-a-Batch-member message", m2.toast)
+		}
+	})
+
+	t.Run("v on a Batch row with no Activity file shows a toast", func(t *testing.T) {
+		d := deps.Deps{Runner: &treepadtest.Runner{}} // rev-parse resolves to cwd, no Activity file there
+		m := uiModel{ctx: context.Background(), d: d, rows: rows, cursor: 2}
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+		m2 := updated.(uiModel)
+		if m2.actionInFlight {
+			t.Error("actionInFlight should stay false")
+		}
+		if m2.toast == nil || !strings.Contains(m2.toast.msg, "no Activity file yet") {
+			t.Errorf("toast = %v, want no-Activity-file message", m2.toast)
+		}
+	})
+
+	t.Run("v on a Batch row with an Activity file dispatches doLog", func(t *testing.T) {
+		commonDir := t.TempDir()
+		path := launcher.ActivityPath(commonDir, "feat/batch")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		d := deps.Deps{Runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: []byte(commonDir + "\n")},
+		}}}
+		m := uiModel{ctx: context.Background(), d: d, rows: rows, cursor: 2}
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+		m2 := updated.(uiModel)
+		if !m2.actionInFlight {
+			t.Error("actionInFlight should be true while the pager runs")
+		}
+		if cmd == nil {
+			t.Error("expected a command to open the pager")
+		}
+	})
+
+	t.Run("log done success shows a toast naming the branch", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, _ := m.Update(uiLogDoneMsg{branch: "feat/batch", err: nil})
+		m2 := updated.(uiModel)
+		if m2.actionInFlight {
+			t.Error("actionInFlight should be false")
+		}
+		if m2.toast == nil || !strings.Contains(m2.toast.msg, "feat/batch") {
+			t.Errorf("toast = %v, want containing branch", m2.toast)
+		}
+	})
+
+	t.Run("log done failure shows a sticky error toast", func(t *testing.T) {
+		m := uiModel{actionInFlight: true}
+		updated, _ := m.Update(uiLogDoneMsg{branch: "feat/batch", err: errors.New("no pager")})
+		m2 := updated.(uiModel)
+		if m2.toast == nil || !m2.toast.isErr {
+			t.Error("expected sticky error toast")
+		}
+	})
+
+	t.Run("help view lists the log binding", func(t *testing.T) {
+		m := uiModel{mode: uiModeHelp}
+		view := m.View()
+		if !strings.Contains(view, "Activity log") {
+			t.Errorf("help view missing Activity log binding: %s", view)
+		}
+	})
+}
+
+func TestUIGhTick(t *testing.T) {
+	t.Run("gh tick skips refresh when action in flight", func(t *testing.T) {
+		noopTick := func() tea.Cmd { return func() tea.Msg { return uiGhTickMsg{} } }
+		m := uiModel{actionInFlight: true, ghTickCmd: noopTick}
+		_, cmd := m.Update(uiGhTickMsg{})
+		if cmd == nil {
+			t.Error("expected tick rescheduling command")
+		}
+	})
+
+	t.Run("gh refresh success stores the report and overlays PR state onto rows", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", `
+name = "silent-refresh"
+branch_prefix = "feat/"
+base = "main"
+[[chain]]
+tickets = ["ENG-12"]
+`)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(oneOpenPRJSON)
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+
+		m := uiModel{
+			ctx: context.Background(), d: d, in: StatusInput{OutputDir: t.TempDir()},
+			rows: []StatusRow{{Branch: "feat/eng-12", Batch: "silent-refresh"}},
+		}
+		updated, _ := m.Update(uiGhRefreshMsg{report: report})
+		m2 := updated.(uiModel)
+		if m2.report == nil {
+			t.Fatal("expected report to be stored")
+		}
+		if m2.rows[0].PRNumber != 42 || m2.rows[0].PRState != "OPEN" {
+			t.Errorf("row PR state = %d/%q, want 42/OPEN", m2.rows[0].PRNumber, m2.rows[0].PRState)
+		}
+	})
+
+	t.Run("gh refresh error leaves the last-known report and rows untouched", func(t *testing.T) {
+		existingReport := Report{Members: []ReportEntry{
+			{Member: batch.Member{Branch: "feat/eng-12"}, PRNumber: 42, PRState: "OPEN"},
+		}}
+		m := uiModel{
+			report: &existingReport,
+			rows:   []StatusRow{{Branch: "feat/eng-12", Batch: "silent-refresh", PRNumber: 42, PRState: "OPEN"}},
+		}
+		updated, _ := m.Update(uiGhRefreshMsg{err: errors.New("gh failed")})
+		m2 := updated.(uiModel)
+		if m2.report != &existingReport {
+			t.Error("report should be untouched on a failing gh tick")
+		}
+		if m2.rows[0].PRNumber != 42 {
+			t.Errorf("PRNumber = %d, want 42 preserved on error", m2.rows[0].PRNumber)
 		}
 	})
 }
