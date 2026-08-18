@@ -1,7 +1,8 @@
 # Ticket-driven worktrees
 
-`tp new --ticket` seeds a worktree from a ticket so an agent can start immediately, and
-`tp from-spec-bulk` fans several tickets out at once.
+`tp new --ticket` seeds a worktree from a ticket so an agent can start immediately. For more
+than a handful of related tickets, see [batch.md](batch.md) instead — a Manifest and
+`tp batch sync` replace one-off `tp new --ticket` calls at that scale.
 
 ## Contents
 
@@ -10,7 +11,6 @@
 - Ticket resolution
 - Agent handoff
 - Playbooks
-- Bulk fan-out
 - Configuration
 
 ## Vocabulary
@@ -114,37 +114,13 @@ worktree — treepad composes nothing, interpolates nothing, appends nothing. `-
 overwrites an existing Playbook; an empty body is an error.
 
 Name it on the Ticket (`Playbook: task-dashboard`). The agent reads the Ticket anyway, so it
-picks the name up for free, and the designation survives a re-run and works for bulk fan-out
-without per-ticket flags. Playbooks propagate through `[sync]`; the default `.claude/`
-pattern already covers them, and a narrowed config needs `".claude/playbooks/**"`.
+picks the name up for free, and the designation survives a re-run and applies uniformly across
+every Ticket in a Batch's Chains without per-ticket flags. Playbooks propagate through
+`[sync]`; the default `.claude/` pattern already covers them, and a narrowed config needs
+`".claude/playbooks/**"`.
 
 Treepad never reads a Playbook. A Ticket naming one that does not exist fails inside the
 agent, not as a `tp` error.
-
-## Bulk fan-out
-
-```
-tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19 --branch-prefix feat/
-```
-
-One worktree per ticket. It never launches an agent and never emits a cd directive — there is
-no single destination. Branch names are `--branch-prefix` plus the slugified Ref.
-
-Partial failures are non-fatal: a bad ticket is recorded in the summary and the batch
-continues. Exit code 1 means at least one ticket failed; read the table rather than assuming
-total failure.
-
-```
-[STEP] RESULTS
-[OK]     ENG-12  feat/eng-12   /Users/olly/code/repo-feat-eng-12
-[WARN]   ENG-14  no ticket_url configured: cannot resolve "ENG-14"
-[OK]     ENG-19  feat/eng-19   /Users/olly/code/repo-feat-eng-19
-[INFO] 2 succeeded, 1 failed
-```
-
-Afterwards, each worktree is opened in its own terminal and its agent started there — that
-separation is the point, since the whole purpose is parallel sessions that do not share a
-context window.
 
 ## Configuration
 

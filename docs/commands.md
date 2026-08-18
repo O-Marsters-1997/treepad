@@ -110,54 +110,129 @@ tp new feature-a --ticket ENG-42
 tp new feature-b --ticket https://github.com/acme/api/issues/42
 ```
 
-## from-spec-bulk
+## batch orchestration
 
-Create worktrees from multiple Tickets. Does not launch agents — after the command completes, open each worktree in its own terminal and start your agent there.
+Turn a scoped collection of Tickets into a fleet of provisioned worktrees that respects blocking
+relationships: unblocked work runs in parallel, dependent work is stacked rather than serialised.
+Vocabulary follows [CONTEXT.md](../CONTEXT.md): a **Batch** is a collection of Tickets declared by a
+**Manifest**; a **Chain** is an ordered run of Tickets within a Batch, each worktree branched from
+the one before it; a **Stack** is GitHub's linked pull requests, which a Chain *becomes* once linked;
+the **Launcher** starts one agent in one worktree; the **Activity file** is the sole evidence treepad
+has that an agent is working in it.
+
+A Batch of single-Ticket Chains replaces the bulk worktree-creation verb this repo used to ship —
+see [Retired commands](#retired-commands).
+
+### The Manifest
+
+A Manifest is an uncommitted local TOML file under `<git-common-dir>/treepad/batches/*.toml`,
+declaring one Batch's Chains. Treepad reads every Manifest under that directory and never writes one
+itself — a Manifest is authored by an agent that read the Tracker, or by hand for testing.
+
+```toml
+name          = "silent-refresh"
+branch_prefix = "feat/"
+base          = "main"
+
+[[chain]]
+tickets = ["ENG-12", "ENG-13"]
+
+[[chain]]
+tickets = ["ENG-14"]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | The Batch's name. Defaults to the filename stem when omitted. |
+| `branch_prefix` | string | Prefix prepended to each member's slugified Ref (default: `feat/`). |
+| `base` | string | Ref the first member of every Chain branches from (default: `main`). |
+| `[[chain]]` | table array | One entry per Chain. Each Chain's `tickets` array is ordered — position 0 branches from `base`, every later position branches from the member before it. |
+
+A Chain of one Ticket never becomes a Stack. Chains within a Batch have no ordering between them and
+run in parallel.
+
+> **Chain depth is a review-latency multiplier.** Layer five cannot land until four reviews complete
+> below it, and every merge below rewrites the base under the agents above. Deep Chains optimise
+> writing throughput and pessimise review throughput, which is the opposite of the point. **Shallow
+> and wide beats deep and narrow.**
+
+**External dependency:** the Manifest is meant to be machine-written by whatever cuts your Tickets.
+`to-tickets` (a separate tool/repo) must learn to emit it — until it does, Manifests are hand-authored
+fixtures, and the feature is only as useful as that hand-authoring effort.
+
+### `tp batch list`
+
+List every Batch, its Chains, and each member's Ticket, Ref, branch, and base. Reads Manifests only —
+creates no worktrees and calls `gh` for nothing.
 
 ```
-tp from-spec-bulk [options]
+tp batch list [--json]
 ```
 
-For each Ticket: resolves it to a Ticket URL, derives a branch name (`--branch-prefix` + slugified Ref), and creates a worktree the same way `tp new` does. On completion, prints a summary table showing the status, branch, and path for every Ticket.
+### `tp batch sync`
 
-Partial failures are non-fatal: if one Ticket fails (unresolvable Ref, worktree creation error), the rest of the batch continues. The command exits with status `1` if any Ticket failed.
+Reconcile every Batch against the current worktrees and GitHub state: create the next materialisable
+worktree in each Chain, link ready pull requests into a Stack with `gh stack link`, repair
+divergence, and retire worktrees whose pull request merged.
 
-**Hooks fired per worktree:** `pre_new`, `pre_sync`/`post_sync`, `post_new`. Same as `tp new`. See [hooks.md](hooks.md).
+```
+tp batch sync [options]
+```
 
-### Flags
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--json` | `-j` | Emit the Report as JSON instead of a table |
+| `--dry-run` | `-n` | Print what would be created without touching anything |
+| `--batch` | | Narrow to one Manifest by name |
+| `--offline` | | Skip the `gh` call; report last-known pull request state |
+| `--launch` | | Spawn `[batch] launch` for each materialised member with no Activity file yet |
 
-| Flag              | Short | Description                                                            |
-| ----------------- | ----- | ------------------------------------------------------------------------ |
-| `--tickets`       | `-t`  | Comma-separated Ticket URLs or Refs, e.g. `"ENG-12,ENG-14"` (required) |
-| `--branch-prefix` |       | Prefix prepended to the slugified Ref (default: empty)                 |
-| `--base`          | `-b`  | Ref to branch every worktree from (default: `main`)                    |
+**Requires `gh`.** Linking Chains into Stacks, and checking whether a Chain's parent branch has an
+open pull request, both go through the `gh` CLI (`gh auth status`, `gh pr list`, `gh stack link`).
+Without `gh` installed and authenticated, `tp batch sync` still materialises each Chain's first
+member, but every later member reports `gh-required` instead of `blocked` or `created` — it degrades
+gracefully rather than failing the whole run. `--offline` chooses this degraded mode deliberately,
+reporting cached pull request state marked stale.
 
-### Examples
+Each output row carries an `action`: `created`, `skipped` (branch already exists), `would-create`
+(`--dry-run`), `blocked` (parent has no open pull request yet), `gh-required` (parent's pull request
+state is unknown), `error`, or `launched`.
+
+**`gh stack link` is additive only.** Treepad can build a Chain into a Stack, but it can **never take
+one apart** — nothing here ever calls `gh pr edit --base`, and treepad stores no stack identity to
+undo. Practically: **a Manifest edited after its Chain has been linked leaves a Stack on GitHub that
+no treepad command can correct.** Fix a wrong Stack by hand on github.com.
+
+Starting an agent is opt-in via `--launch`, and only fires for a member with a worktree but no
+Activity file yet — see `[batch] launch` in [configuration.md](configuration.md#batch-section).
+Without `--launch`, or with `[batch] launch` unconfigured, `tp batch sync` reports how many members
+are ready to launch and starts nothing.
+
+#### Examples
 
 ```bash
-# Create worktrees for three tickets
-tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19
+# See what a Batch would do without touching anything
+tp batch sync --dry-run
 
-# Use a branch prefix
-tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19 --branch-prefix feat/
+# Reconcile every Batch, spawning agents for newly-ready members
+tp batch sync --launch
 
-# Branch from a non-default base
-tp from-spec-bulk --tickets ENG-22,ENG-23 --branch-prefix fix/ --base develop
+# Reconcile one Batch by name, emitting JSON for scripting
+tp batch sync --batch silent-refresh --json
+
+# Skip the gh call entirely (e.g. offline, or gh not installed)
+tp batch sync --offline
 ```
 
-### Output
+### Retired commands
+
+`tp from-spec-bulk` is retired: a Batch of single-Ticket Chains replaces it. Invoking it still
+resolves as a command, but its Action always fails, naming the Manifest as the replacement:
 
 ```
-[STEP] RESULTS
-[OK]     ENG-12  feat/eng-12   /Users/olly/code/treepad-feat-eng-12
-[WARN]   ENG-14  no ticket_url configured: cannot resolve "ENG-14"
-[OK]     ENG-19  feat/eng-19   /Users/olly/code/treepad-feat-eng-19
-[INFO] 2 succeeded, 1 failed
+$ tp from-spec-bulk
+tp from-spec-bulk is retired: a Batch of single-Ticket Chains replaces it — write a Manifest and run `tp batch sync` instead
 ```
-
-Branch names are slugified from the Ref. If two Tickets slug to the same name, the second gets the Ref appended to avoid collision.
-
-The shell `cd` directive (`__TREEPAD_CD__`) is never emitted — there is no single worktree to navigate to. After the command, `cd` into any of the printed paths and start your agent.
 
 ## cd
 
@@ -629,6 +704,12 @@ tp ui
 
 Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Shows the same worktree data as `tp status` plus a cursor for navigation and inline actions. When you navigate to a worktree and press Enter, `tp ui` exits and cd's your shell into that directory (requires shell integration).
 
+Rows belonging to a Batch group by Batch then Chain, ordered by position within the Chain, main
+first; a worktree with no Manifest entry still renders, ungrouped. Batch members show run state
+(`pending`/`working`/`idle`, derived from the Activity file) and pull request state alongside the
+usual columns; without `gh`, pull request columns show last-known state plus a staleness marker
+rather than going blank. See [batch orchestration](#batch-orchestration) for the underlying model.
+
 ### Key Bindings
 
 | Key            | Action                                                                                                        |
@@ -642,6 +723,9 @@ Renders a full-screen alt-screen display that auto-refreshes every 5 seconds. Sh
 | `o`            | Open artifact file for selected worktree                                                                      |
 | `d`            | Diff selected worktree against base (default from config or `origin/main`)                                    |
 | `e`            | Open an interactive shell (`$SHELL`, falling back to `/bin/sh`) in selected worktree — TUI suspends, shell runs full-screen, TUI resumes on exit (prompts for confirmation) |
+| `l`            | Launch an agent for the selected Batch member via `[batch] launch` (prompts for confirmation; only enabled while the member's run state is `pending`) |
+| `L`            | Launch every `pending` Batch member across the fleet (prompts for confirmation)                               |
+| `v`            | Open the selected Batch member's Activity file in the pager — TUI suspends, pager runs full-screen, TUI resumes on exit |
 | `y`            | Yank (copy) path to clipboard via OSC-52                                                                      |
 | `r`            | Remove selected worktree (prompts for confirmation)                                                           |
 | `R`            | Force-remove selected worktree — discards uncommitted changes and unmerged commits (prompts for confirmation) |

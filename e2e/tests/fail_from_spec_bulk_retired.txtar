@@ -1,0 +1,8 @@
+tp-init-repo
+
+# from-spec-bulk is retired: it must fail loudly and name its replacement
+# rather than disappear silently.
+! exec tp from-spec-bulk
+stderr 'retired'
+stderr 'Manifest'
+stderr 'tp batch sync'

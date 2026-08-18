@@ -84,7 +84,7 @@ The body is written **verbatim**: treepad composes nothing and interpolates noth
 Playbook: task-dashboard
 ```
 
-The agent already reads the Ticket, so it picks the name up for free. The designation is durable — it survives a re-run, works for `tp from-spec-bulk` without per-Ticket flags, and is visible and editable in the Tracker.
+The agent already reads the Ticket, so it picks the name up for free. The designation is durable — it survives a re-run, applies uniformly across every Ticket in a Batch's Chains without per-Ticket flags, and is visible and editable in the Tracker.
 
 Playbooks propagate through the existing `[sync]` machinery. The built-in default already includes `.claude/`; a config that narrows it needs an explicit `".claude/playbooks/**"` entry.
 
@@ -260,6 +260,6 @@ Or pass additional Claude Code flags:
 agent_command = ["claude", "--allowedTools", "Edit,Write,Bash", "{{.TicketURL}}"]
 ```
 
-### 7. Skip the agent for bulk prep
+### 7. Preparing several Tickets at once
 
-Use `tp from-spec-bulk` when you want to prepare multiple worktrees without launching agents immediately. See the [commands reference](commands.md#from-spec-bulk) for details.
+For more than a handful of related Tickets, use Batch orchestration instead of repeated `tp new --ticket` calls: declare a Manifest, then run `tp batch sync`. See the [commands reference](commands.md#batch-orchestration) for details.

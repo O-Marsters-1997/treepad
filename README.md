@@ -148,18 +148,47 @@ tp playbook new task-dashboard < playbook.md
 
 The body is written verbatim to `.claude/playbooks/task-dashboard.md` in the main worktree and propagated by `[sync]`. Name it on the ticket (`Playbook: task-dashboard`) and the agent picks it up when it reads the ticket. See [ADR 0002](docs/adr/0002-treepad-writes-playbooks-not-prompts.md).
 
-**`from-spec-bulk`** — Create multiple worktrees from tickets:
+**`batch sync`** — Reconcile a Batch of Tickets into a fleet of stacked worktrees:
 
 ```bash
-# Create worktrees for three tickets
-tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19
+# Preview what a Batch would do
+tp batch sync --dry-run
 
-# Use a branch prefix
-tp from-spec-bulk --tickets ENG-12,ENG-14,ENG-19 --branch-prefix feat/
+# Reconcile every Batch, spawning agents for newly-ready members
+tp batch sync --launch
 
-# Branch from a non-default base
-tp from-spec-bulk --tickets ENG-22,ENG-23 --branch-prefix fix/ --base develop
+# List every Batch, its Chains, and each member's ticket/ref/branch/base
+tp batch list
 ```
+
+A **Batch** is a collection of Tickets declared by a **Manifest** — an uncommitted TOML file under
+`<git-common-dir>/treepad/batches/*.toml` naming one or more **Chains** (ordered runs of Tickets,
+each worktree branched from the one before it). Treepad reads Manifests; it never writes one — that's
+an external dependency: `to-tickets` must learn to emit them.
+
+```toml
+name = "silent-refresh"
+[[chain]]
+tickets = ["ENG-12", "ENG-13"]
+[[chain]]
+tickets = ["ENG-14"]
+```
+
+`tp batch sync` materialises each Chain's worktrees in order and links ready pull requests into a
+GitHub **Stack** with `gh stack link` — requires `gh` installed and authenticated; without it, only
+each Chain's first member materialises and the rest report `gh-required`. Configure `[batch] launch`
+to start an agent automatically once a member is ready (see [docs/configuration.md](docs/configuration.md)); `--launch` spawns it via the **Launcher**, which writes to that worktree's **Activity file**.
+
+> **Chain depth is a review-latency multiplier.** Layer five cannot land until four reviews complete
+> below it, and every merge below rewrites the base under the agents above. Deep Chains optimise
+> writing throughput and pessimise review throughput, which is the opposite of the point. **Shallow
+> and wide beats deep and narrow.**
+
+**`gh stack link` is additive only** — treepad can build a Chain into a Stack but can never take one
+apart. A Manifest edited after its Chain is linked leaves a Stack on GitHub that no treepad command
+can correct; fix it by hand on github.com.
+
+See [docs/commands.md](docs/commands.md#batch-orchestration) for the full reference.
 
 **`remove`** — Remove a git worktree and its associated files:
 
@@ -333,7 +362,9 @@ See [docs/commands.md](docs/commands.md) for the full command reference.
 tp [--verbose] <command>
 ├── sync [options] [source-path]
 ├── new [options] <branch>
-├── from-spec-bulk [options]
+├── batch
+│   ├── list [--json]
+│   └── sync [options]
 ├── remove <branch>
 ├── prune [options]
 ├── cd <branch | ->
