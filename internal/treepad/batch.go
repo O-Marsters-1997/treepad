@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/gh"
 	"github.com/O-Marsters-1997/treepad/internal/slug"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
@@ -107,6 +109,13 @@ type ReportEntry struct {
 	WorktreePath string `json:"worktree_path,omitempty"`
 	Action       string `json:"action"`
 	Error        string `json:"error,omitempty"`
+	PRNumber     int    `json:"pr_number,omitempty"`
+	PRState      string `json:"pr_state,omitempty"`
+	// PRStale is true when --offline was passed, or gh is absent or failed
+	// this tick, so PRNumber/PRState are last-known rather than fresh. Its
+	// zero value must never be mistaken for "no PR exists" — that case has
+	// PRStale false and PRNumber/PRState empty.
+	PRStale bool `json:"pr_stale,omitempty"`
 }
 
 // Report is the JSON shape for `--json` and the row source for the TUI: one
@@ -120,6 +129,7 @@ type Report struct {
 type ReconcileInput struct {
 	Batch     string // narrows to one Manifest by name; empty means every Manifest
 	DryRun    bool
+	Offline   bool // skip the gh call entirely; PR fields report last-known plus staleness
 	OutputDir string
 }
 
@@ -158,6 +168,7 @@ func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, err
 		}
 	}
 	report := Report{Members: entries}
+	attachPRState(ctx, d, in, commonDir, report.Members)
 
 	launch(ctx, d, in, report)
 	link(ctx, d, in, report)
@@ -253,6 +264,66 @@ func restack(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
 // Not built in this ticket — a later ticket fills this in.
 func retire(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
 
+// attachPRState fills in PRNumber, PRState and PRStale on each entry from a
+// single gh pr list call. It never fails Reconcile: --offline, gh being
+// absent, or the call itself failing all degrade to the last cached result
+// (nil on a cold cache) with PRStale set, rather than blocking the tick.
+func attachPRState(ctx context.Context, d deps.Deps, in ReconcileInput, commonDir string, entries []ReportEntry) {
+	prs, stale := loadPRs(ctx, d, in.Offline, commonDir)
+	for i := range entries {
+		if pr, ok := prs[entries[i].Branch]; ok {
+			entries[i].PRNumber = pr.Number
+			entries[i].PRState = pr.State
+		}
+		entries[i].PRStale = stale
+	}
+}
+
+func loadPRs(ctx context.Context, d deps.Deps, offline bool, commonDir string) (map[string]batch.PR, bool) {
+	cachePath := prCachePath(commonDir)
+	if offline || !gh.Available(ctx, d.Runner) {
+		return loadPRCache(cachePath), true
+	}
+	prs, err := gh.PRList(ctx, d.Runner)
+	if err != nil {
+		return loadPRCache(cachePath), true
+	}
+	savePRCache(cachePath, prs)
+	return prs, false
+}
+
+// prCachePath is where the last successful `gh pr list` result is cached, so
+// an offline or failing tick can report last-known PR state instead of a
+// blank one.
+func prCachePath(commonDir string) string {
+	return filepath.Join(commonDir, "treepad", "pr-cache.json")
+}
+
+func loadPRCache(path string) map[string]batch.PR {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var prs map[string]batch.PR
+	if err := json.Unmarshal(data, &prs); err != nil {
+		return nil
+	}
+	return prs
+}
+
+// savePRCache writes best-effort: a failed write degrades the next stale
+// tick's data, not this one's, so it is not an error Reconcile need surface.
+func savePRCache(path string, prs map[string]batch.PR) {
+	data, err := json.Marshal(prs)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0o644)
+}
+
 // branchExists reports whether branch is a known local branch. `git branch
 // --list` always exits 0, so existence is read from output emptiness rather
 // than the exit code.
@@ -275,6 +346,7 @@ func worktreePathFor(rc repo.Context, branch string) string {
 type BatchSyncInput struct {
 	JSON      bool
 	DryRun    bool
+	Offline   bool
 	Batch     string
 	OutputDir string
 }
@@ -286,6 +358,7 @@ func BatchSync(ctx context.Context, d deps.Deps, in BatchSyncInput) (int, error)
 	report, err := Reconcile(ctx, d, ReconcileInput{
 		Batch:     in.Batch,
 		DryRun:    in.DryRun,
+		Offline:   in.Offline,
 		OutputDir: in.OutputDir,
 	})
 	if err != nil {

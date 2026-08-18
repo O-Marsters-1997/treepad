@@ -44,6 +44,7 @@ func batchSyncCommand() *cli.Command {
 				Usage: "print what would be created without touching anything",
 			},
 			&cli.StringFlag{Name: "batch", Usage: "narrow to one Manifest by name"},
+			&cli.BoolFlag{Name: "offline", Usage: "skip the gh call; report last-known PR state"},
 		},
 		Action: runBatchSync,
 	}
@@ -51,9 +52,10 @@ func batchSyncCommand() *cli.Command {
 
 func runBatchSync(ctx context.Context, cmd *cli.Command) error {
 	failed, err := treepad.BatchSync(ctx, commandDeps(cmd), treepad.BatchSyncInput{
-		JSON:   cmd.Bool("json"),
-		DryRun: cmd.Bool("dry-run"),
-		Batch:  cmd.String("batch"),
+		JSON:    cmd.Bool("json"),
+		DryRun:  cmd.Bool("dry-run"),
+		Offline: cmd.Bool("offline"),
+		Batch:   cmd.String("batch"),
 	})
 	if err != nil {
 		return err
