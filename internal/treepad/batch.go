@@ -99,7 +99,8 @@ const (
 	ActionCreated     = "created"      // worktree created this tick
 	ActionSkipped     = "skipped"      // branch already existed; nothing to do
 	ActionWouldCreate = "would-create" // --dry-run: would have been created
-	ActionBlocked     = "blocked"      // parent branch does not exist yet
+	ActionBlocked     = "blocked"      // gh is available but the parent has no open pull request yet
+	ActionGHRequired  = "gh-required"  // gh absent, unauthenticated, or --offline: parent's PR state is unknown
 	ActionError       = "error"        // materialise failed; this Chain stops here
 )
 
@@ -154,6 +155,8 @@ func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, err
 		return Report{}, err
 	}
 
+	prs, stale := loadPRs(ctx, d, in.Offline, commonDir)
+
 	var entries []ReportEntry
 	for _, m := range manifests {
 		if in.Batch != "" && m.Name != in.Batch {
@@ -164,11 +167,11 @@ func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, err
 			return Report{}, err
 		}
 		for _, chain := range chains {
-			entries = append(entries, materialise(ctx, d, in, rc, chain)...)
+			entries = append(entries, materialise(ctx, d, in, rc, chain, prs, stale)...)
 		}
 	}
 	report := Report{Members: entries}
-	attachPRState(ctx, d, in, commonDir, report.Members)
+	attachPRState(report.Members, prs, stale)
 
 	launch(ctx, d, in, report)
 	link(ctx, d, in, report)
@@ -181,53 +184,54 @@ func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, err
 // materialise walks one Chain in order, creating a stacked worktree per
 // member via lifecycle.CreateWorktreeWithSync — which already creates a
 // stacked worktree when base is a sibling's branch. The gate for
-// materialising a member is "the parent branch exists"; skipping is by
-// branch existence, so re-running is idempotent. A member that fails, or
-// whose parent branch does not exist, stops this Chain only — other Chains
-// are unaffected.
+// materialising a member beyond position 0 is batch.ReadyToMaterialise: the
+// parent must have an open (or merged) pull request, not merely an existing
+// branch. Skipping is by branch existence, so re-running is idempotent. A
+// member that fails stops this Chain only — other Chains are unaffected. A
+// member past the ready prefix is reported, never materialised: "blocked"
+// when gh is working but the parent has no pull request yet, "gh-required"
+// when gh is absent, unauthenticated, or --offline made its state unknown.
 func materialise(
 	ctx context.Context, d deps.Deps, in ReconcileInput, rc repo.Context, chain []batch.Member,
+	prs map[string]batch.PR, stale bool,
 ) []ReportEntry {
 	entries := make([]ReportEntry, 0, len(chain))
-	// known tracks branches materialised (or, under --dry-run, simulated) so
-	// far this tick, so the gate for the next member doesn't require a real
-	// git call for a branch this same tick just created.
-	known := map[string]bool{}
-
+	existing := make(map[string]bool, len(chain))
 	for _, m := range chain {
+		exists, err := branchExists(ctx, d.Runner, m.Branch)
+		if err != nil {
+			return append(entries, ReportEntry{
+				Member: m, WorktreePath: worktreePathFor(rc, m.Branch),
+				Action: ActionError, Error: err.Error(),
+			})
+		}
+		existing[m.Branch] = exists
+	}
+
+	ready := batch.ReadyToMaterialise(chain, existing, prs)
+
+	for i, m := range chain {
 		entry := ReportEntry{Member: m, WorktreePath: worktreePathFor(rc, m.Branch)}
 
-		parentExists := known[m.Base]
-		if !parentExists {
-			var err error
-			parentExists, err = branchExists(ctx, d.Runner, m.Base)
-			if err != nil {
-				entry.Action, entry.Error = ActionError, err.Error()
-				entries = append(entries, entry)
-				break
+		if i >= len(ready) {
+			if stale {
+				entry.Action = ActionGHRequired
+				entry.Error = fmt.Sprintf("gh required to check whether parent branch %q has an open pull request", m.Base)
+			} else {
+				entry.Action = ActionBlocked
+				entry.Error = fmt.Sprintf("parent branch %q has no open pull request", m.Base)
 			}
-		}
-		if !parentExists {
-			entry.Action, entry.Error = ActionBlocked, fmt.Sprintf("parent branch %q does not exist", m.Base)
 			entries = append(entries, entry)
-			break
+			continue
 		}
 
-		ownExists, err := branchExists(ctx, d.Runner, m.Branch)
-		if err != nil {
-			entry.Action, entry.Error = ActionError, err.Error()
-			entries = append(entries, entry)
-			break
-		}
-		if ownExists {
-			known[m.Branch] = true
+		if existing[m.Branch] {
 			entry.Action = ActionSkipped
 			entries = append(entries, entry)
 			continue
 		}
 
 		if in.DryRun {
-			known[m.Branch] = true
 			entry.Action = ActionWouldCreate
 			entries = append(entries, entry)
 			continue
@@ -239,7 +243,6 @@ func materialise(
 			entries = append(entries, entry)
 			break
 		}
-		known[m.Branch] = true
 		entry.Action = ActionCreated
 		entry.WorktreePath = res.WorktreePath
 		entries = append(entries, entry)
@@ -264,12 +267,12 @@ func restack(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
 // Not built in this ticket — a later ticket fills this in.
 func retire(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
 
-// attachPRState fills in PRNumber, PRState and PRStale on each entry from a
-// single gh pr list call. It never fails Reconcile: --offline, gh being
-// absent, or the call itself failing all degrade to the last cached result
-// (nil on a cold cache) with PRStale set, rather than blocking the tick.
-func attachPRState(ctx context.Context, d deps.Deps, in ReconcileInput, commonDir string, entries []ReportEntry) {
-	prs, stale := loadPRs(ctx, d, in.Offline, commonDir)
+// attachPRState fills in PRNumber, PRState and PRStale on each entry from
+// the tick's already-loaded PR data. It never fails Reconcile: --offline, gh
+// being absent, or the call itself failing all degrade to the last cached
+// result (nil on a cold cache) with PRStale set, rather than blocking the
+// tick.
+func attachPRState(entries []ReportEntry, prs map[string]batch.PR, stale bool) {
 	for i := range entries {
 		if pr, ok := prs[entries[i].Branch]; ok {
 			entries[i].PRNumber = pr.Number

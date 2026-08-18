@@ -140,6 +140,7 @@ tickets = ["ENG-14"]
 		mainPath, commonDir := setupReconcileRepo(t)
 		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoChainManifest)
 		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(oneOpenPRJSON)
 		d := reconcileDeps(runner)
 
 		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
@@ -172,6 +173,7 @@ tickets = ["ENG-14"]
 		mainPath, commonDir := setupReconcileRepo(t)
 		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoChainManifest)
 		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(oneOpenPRJSON)
 		d := reconcileDeps(runner)
 
 		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()}); err != nil {
@@ -206,6 +208,7 @@ tickets = ["ENG-14"]
 		mainPath, commonDir := setupReconcileRepo(t)
 		writeReconcileManifest(t, commonDir, "silent-refresh.toml", threeManifest)
 		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(oneOpenPRJSON)
 		runner.failAdd["feat/eng-13"] = errors.New("branch already exists")
 		d := reconcileDeps(runner)
 
@@ -237,6 +240,7 @@ tickets = ["ENG-14"]
 		mainPath, commonDir := setupReconcileRepo(t)
 		writeReconcileManifest(t, commonDir, "silent-refresh.toml", twoChainManifest)
 		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(oneOpenPRJSON)
 		d := reconcileDeps(runner)
 
 		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir(), DryRun: true})
@@ -283,6 +287,157 @@ tickets = ["ENG-99"]
 const oneOpenPRJSON = `[
 	{"number":42,"headRefName":"feat/eng-12","baseRefName":"main","state":"OPEN","url":"https://x/42"}
 ]`
+
+// TestReconcileReadyGate covers ticket #138: materialisation past position 0
+// is gated on the parent's pull request, not its branch, and gh being
+// unavailable degrades to Chain heads only rather than a hard error.
+func TestReconcileReadyGate(t *testing.T) {
+	threeChainManifest := `
+name = "silent-refresh"
+branch_prefix = "feat/"
+base = "main"
+[[chain]]
+tickets = ["ENG-12", "ENG-13", "ENG-15"]
+`
+
+	t.Run("fresh Manifest creates only Chain heads", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", threeChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := []string{"feat/eng-12"}; len(runner.adds) != len(got) || runner.adds[0] != got[0] {
+			t.Errorf("adds = %v, want %v", runner.adds, got)
+		}
+
+		byBranch := map[string]ReportEntry{}
+		for _, e := range report.Members {
+			byBranch[e.Branch] = e
+		}
+		if got := byBranch["feat/eng-12"].Action; got != ActionCreated {
+			t.Errorf("feat/eng-12 action = %q, want %q", got, ActionCreated)
+		}
+		for _, b := range []string{"feat/eng-13", "feat/eng-15"} {
+			if got := byBranch[b].Action; got != ActionBlocked {
+				t.Errorf("%s action = %q, want %q", b, got, ActionBlocked)
+			}
+		}
+	})
+
+	t.Run("opening a pull request on the head unblocks position 1 and no further", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", threeChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		d := reconcileDeps(runner)
+
+		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()}); err != nil {
+			t.Fatalf("first run: unexpected error: %v", err)
+		}
+
+		runner.ghListOut = []byte(oneOpenPRJSON)
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("second run: unexpected error: %v", err)
+		}
+		wantAdds := []string{"feat/eng-12", "feat/eng-13"}
+		if len(runner.adds) != len(wantAdds) {
+			t.Fatalf("adds = %v, want %v", runner.adds, wantAdds)
+		}
+		for i, b := range wantAdds {
+			if runner.adds[i] != b {
+				t.Errorf("adds[%d] = %q, want %q", i, runner.adds[i], b)
+			}
+		}
+
+		byBranch := map[string]ReportEntry{}
+		for _, e := range report.Members {
+			byBranch[e.Branch] = e
+		}
+		if got := byBranch["feat/eng-13"].Action; got != ActionCreated {
+			t.Errorf("feat/eng-13 action = %q, want %q", got, ActionCreated)
+		}
+		if got := byBranch["feat/eng-15"].Action; got != ActionBlocked {
+			t.Errorf("feat/eng-15 action = %q, want %q", got, ActionBlocked)
+		}
+	})
+
+	t.Run("gh absent: Chain heads still materialise, deeper members report gh-required, exit 0", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", threeChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghAuthErr = errors.New("gh: command not found")
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		for _, e := range report.Members {
+			if e.Action == ActionError {
+				t.Errorf("member %s: action = %q, want no error (exit 0)", e.Branch, e.Action)
+			}
+		}
+		if got := []string{"feat/eng-12"}; len(runner.adds) != len(got) || runner.adds[0] != got[0] {
+			t.Errorf("adds = %v, want %v: no worktree should be created for a deeper member without gh", runner.adds, got)
+		}
+	})
+
+	t.Run("gh absent marks every deeper member gh-required", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", threeChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghAuthErr = errors.New("gh: command not found")
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		byBranch := map[string]ReportEntry{}
+		for _, e := range report.Members {
+			byBranch[e.Branch] = e
+		}
+		if got := byBranch["feat/eng-12"].Action; got != ActionCreated {
+			t.Errorf("feat/eng-12 action = %q, want %q", got, ActionCreated)
+		}
+		for _, b := range []string{"feat/eng-13", "feat/eng-15"} {
+			if got := byBranch[b].Action; got != ActionGHRequired {
+				t.Errorf("%s action = %q, want %q", b, got, ActionGHRequired)
+			}
+		}
+	})
+
+	t.Run("--offline behaves identically to gh being absent", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", threeChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir(), Offline: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(runner.ghCalls) != 0 {
+			t.Errorf("gh invoked %d times under --offline, want 0: %v", len(runner.ghCalls), runner.ghCalls)
+		}
+		if got := []string{"feat/eng-12"}; len(runner.adds) != len(got) || runner.adds[0] != got[0] {
+			t.Errorf("adds = %v, want %v", runner.adds, got)
+		}
+		byBranch := map[string]ReportEntry{}
+		for _, e := range report.Members {
+			byBranch[e.Branch] = e
+		}
+		for _, b := range []string{"feat/eng-13", "feat/eng-15"} {
+			if got := byBranch[b].Action; got != ActionGHRequired {
+				t.Errorf("%s action = %q, want %q", b, got, ActionGHRequired)
+			}
+		}
+	})
+}
 
 func TestReconcilePRState(t *testing.T) {
 	oneChainManifest := `
