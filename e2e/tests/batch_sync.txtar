@@ -45,4 +45,8 @@ exec tp batch sync --batch other --json
 stdout '"ticket":"ENG-99"'
 exists ../repo-feat-eng-99
 
+# --offline skips gh entirely and still exits 0, marking PR state stale
+exec tp batch sync --offline --json
+stdout '"pr_stale":true'
+
 ! stdout '__TREEPAD_CD__'

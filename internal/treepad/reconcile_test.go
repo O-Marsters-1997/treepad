@@ -23,8 +23,16 @@ type reconcileFakeRunner struct {
 	branches            map[string]bool
 	failAdd             map[string]error // branch -> error to return from `worktree add`
 
-	mu   sync.Mutex
-	adds []string // branches actually created, in call order
+	// gh responses. Zero-value ghAuthErr and ghListErr mean gh is available
+	// and returns ghListOut (defaulted to an empty PR list) — a test opts
+	// into "gh absent/failing" by setting one of these.
+	ghAuthErr error
+	ghListOut []byte
+	ghListErr error
+
+	mu      sync.Mutex
+	adds    []string   // branches actually created, in call order
+	ghCalls [][]string // gh invocations, in call order
 }
 
 func newReconcileFakeRunner(mainPath, commonDir string) *reconcileFakeRunner {
@@ -33,10 +41,24 @@ func newReconcileFakeRunner(mainPath, commonDir string) *reconcileFakeRunner {
 		commonDir: commonDir,
 		branches:  map[string]bool{"main": true},
 		failAdd:   map[string]error{},
+		ghListOut: []byte("[]"),
 	}
 }
 
 func (r *reconcileFakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	if name == "gh" {
+		r.mu.Lock()
+		r.ghCalls = append(r.ghCalls, append([]string{}, args...))
+		r.mu.Unlock()
+		switch {
+		case len(args) >= 2 && args[0] == "auth" && args[1] == "status":
+			return nil, r.ghAuthErr
+		case len(args) >= 2 && args[0] == "pr" && args[1] == "list":
+			return r.ghListOut, r.ghListErr
+		default:
+			return nil, fmt.Errorf("unexpected gh call: %v", args)
+		}
+	}
 	if name != "git" {
 		return nil, fmt.Errorf("unexpected command %s", name)
 	}
@@ -254,6 +276,118 @@ tickets = ["ENG-99"]
 		}
 		if report.Members[0].Ticket != "ENG-99" {
 			t.Errorf("ticket = %q, want ENG-99", report.Members[0].Ticket)
+		}
+	})
+}
+
+const oneOpenPRJSON = `[
+	{"number":42,"headRefName":"feat/eng-12","baseRefName":"main","state":"OPEN","url":"https://x/42"}
+]`
+
+func TestReconcilePRState(t *testing.T) {
+	oneChainManifest := `
+name = "silent-refresh"
+branch_prefix = "feat/"
+base = "main"
+[[chain]]
+tickets = ["ENG-12"]
+`
+
+	t.Run("wires gh pr list into the Report", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", oneChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(oneOpenPRJSON)
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(report.Members) != 1 {
+			t.Fatalf("len(members) = %d, want 1", len(report.Members))
+		}
+		e := report.Members[0]
+		if e.PRNumber != 42 || e.PRState != "OPEN" {
+			t.Errorf("PRNumber/PRState = %d/%q, want 42/OPEN", e.PRNumber, e.PRState)
+		}
+		if e.PRStale {
+			t.Error("PRStale = true, want false when gh succeeded")
+		}
+	})
+
+	t.Run("--offline issues no gh call and marks entries stale", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", oneChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir(), Offline: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(runner.ghCalls) != 0 {
+			t.Errorf("gh invoked %d times under --offline, want 0: %v", len(runner.ghCalls), runner.ghCalls)
+		}
+		if !report.Members[0].PRStale {
+			t.Error("PRStale = false, want true under --offline")
+		}
+	})
+
+	t.Run("gh unavailable does not fail the sync and marks entries stale", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", oneChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghAuthErr = errors.New("gh: command not found")
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !report.Members[0].PRStale {
+			t.Error("PRStale = false, want true when gh is unavailable")
+		}
+	})
+
+	t.Run("gh pr list failing does not fail the sync and marks entries stale", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", oneChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListErr = errors.New("network error")
+		d := reconcileDeps(runner)
+
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !report.Members[0].PRStale {
+			t.Error("PRStale = false, want true when gh pr list fails")
+		}
+	})
+
+	t.Run("a failing tick reports the last successful tick's PR state, marked stale", func(t *testing.T) {
+		mainPath, commonDir := setupReconcileRepo(t)
+		writeReconcileManifest(t, commonDir, "silent-refresh.toml", oneChainManifest)
+		runner := newReconcileFakeRunner(mainPath, commonDir)
+		runner.ghListOut = []byte(oneOpenPRJSON)
+		d := reconcileDeps(runner)
+
+		if _, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()}); err != nil {
+			t.Fatalf("first run: unexpected error: %v", err)
+		}
+
+		runner.ghListErr = errors.New("network error")
+		report, err := Reconcile(context.Background(), d, ReconcileInput{OutputDir: t.TempDir()})
+		if err != nil {
+			t.Fatalf("second run: unexpected error: %v", err)
+		}
+		e := report.Members[0]
+		if e.PRNumber != 42 || e.PRState != "OPEN" {
+			t.Errorf("PRNumber/PRState = %d/%q, want last-known 42/OPEN", e.PRNumber, e.PRState)
+		}
+		if !e.PRStale {
+			t.Error("PRStale = false, want true once gh starts failing")
 		}
 	})
 }
