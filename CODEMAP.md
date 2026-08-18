@@ -19,7 +19,7 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 
 ### `router.go`
 
-- `Router()` — returns `[]*cli.Command` with all top-level commands registered: sync, config, new, shell-init, remove, prune, status, ui, cd, base, doctor, exec, diff, from-spec-bulk, skill, playbook
+- `Router()` — returns `[]*cli.Command` with all top-level commands registered: sync, config, new, shell-init, remove, prune, status, ui, cd, base, doctor, exec, diff, skill, batch, playbook (`from-spec-bulk` is also registered, but only as a retired stub — see `retired.go`)
 
 ### `base.go`
 
@@ -312,7 +312,7 @@ Owns the `__TREEPAD_CD__` shell-bridge protocol.
 
 ### `internal/treepad/fromspec/`
 
-Backs `tp new --ticket` and `tp from-spec-bulk`. Treepad never reads the Tracker (ADR 0001) and authors no prompt (ADR 0002).
+Backs `tp new --ticket`. Treepad never reads the Tracker (ADR 0001) and authors no prompt (ADR 0002).
 
 `from_spec.go`:
 
@@ -329,12 +329,26 @@ Backs `tp new --ticket` and `tp from-spec-bulk`. Treepad never reads the Tracker
 - `refOfURL(rawURL) string` — last non-empty path segment
 - `renderTicketURL(tmpl, ref) (string, error)` — renders `ticket_url` with `{{.Ref}}`
 
-`bulk.go`:
+### `batch/`
 
-- `FromSpecBulkInput` struct — `Tickets []string`, `BranchPrefix`, `Base`, `OutputDir`
-- `BulkResult` struct — per-ticket outcome record: `Ticket`, `TicketURL`, `Branch`, `WorktreePath`, `Err`
-- `FromSpecBulk(ctx, deps.Deps, FromSpecBulkInput) ([]BulkResult, failedCount int, error)` — creates one worktree per ticket; never launches an agent, never emits cd sentinel; partial failures are non-fatal; prints summary on completion
-- `deriveBranch(prefix, ref) string` — `prefix + slug.Slug(ref)`
+Backs `tp batch list` and `tp batch sync`, and the Manifest format. See
+[plans/batch-orchestration.md](plans/batch-orchestration.md) and [CONTEXT.md](CONTEXT.md) for
+the design and vocabulary (Batch, Manifest, Chain, Stack).
+
+- `manifest.go` — `Manifest`/`Chain` structs (`toml` tags); `Load(commonDir) ([]Manifest, error)` reads and defaults every `*.toml` under `<commonDir>/treepad/batches`
+- `resolve.go` — `Member` struct; `Resolve(Manifest, ticketURLTmpl) ([][]Member, error)`; `ResolveTicket`; `DeriveBranch(prefix, ref) string`
+- `ready.go` — `ReadyToMaterialise(chain, existing, prs)` — the prefix-of-Chain gate for materialisation
+- `link.go` — `LinkArgs(chain, prs) []string` — the longest PR-having prefix, the `gh stack link` argument list
+- `pr.go` — `PR` struct, plain data mirroring `gh pr list` output
+
+### `internal/gh/`
+
+The entire `gh` CLI surface for Batch orchestration: `Available`, `PRList`, `StackLink`.
+
+### `internal/launcher/`
+
+Starts one agent in one worktree via `[batch] launch` and never supervises it again. `Data`,
+`Render`, `ActivityPath`, `Launcher` interface, `ProcessLauncher`.
 
 ### `internal/treepad/repo/`
 
@@ -500,10 +514,9 @@ tp [--verbose] <command>
 │   ├── --open (-o)
 │   ├── --current (-c)
 │   └── --ticket (-t, mutually exclusive with --open)
-├── from-spec-bulk [options]
-│   ├── --tickets (-t, required, comma-separated)
-│   ├── --branch-prefix
-│   └── --base (-b, default: main)
+├── batch
+│   ├── list [--json]
+│   └── sync [options] (--json, --dry-run, --batch, --offline, --launch)
 ├── shell-init
 ├── remove <branch>
 ├── prune [options]

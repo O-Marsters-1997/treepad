@@ -6,7 +6,7 @@ file if they ever disagree.
 ## Contents
 
 - Global flags
-- Creating: `new` (with and without `--ticket`), `from-spec-bulk`
+- Creating: `new` (with and without `--ticket`), `batch sync`, `batch list`
 - Navigating: `cd`, `base`, `shell-init`
 - Inspecting: `status`, `doctor`, `diff`, `ui`
 - Operating: `exec`, `sync`
@@ -50,19 +50,24 @@ With `--ticket`, `tp new` also resolves the ticket to a Ticket URL (before creat
 and runs `[from_spec] agent_command` with that URL. It writes no prompt. `--ticket` cannot be
 combined with `--open`. See [from-spec.md](from-spec.md).
 
-### `tp from-spec-bulk [options]`
+### `tp batch sync [options]` / `tp batch list [--json]`
 
-One worktree per ticket. Never launches an agent and never emits a cd directive — there is no
-single destination. Branch names are the slugified ref with `--branch-prefix` prepended.
+Reconciles every Batch declared by a Manifest (`<git-common-dir>/treepad/batches/*.toml`) into
+a fleet of stacked worktrees — one Chain member materialised per tick, in order, linked into a
+GitHub Stack once its pull requests exist. `list` only reads Manifests; `sync` is what creates
+worktrees and calls `gh`.
 
-| Flag | Description |
+| Flag (`sync`) | Description |
 | --- | --- |
-| `--tickets` / `-t` | Comma-separated ticket URLs or refs, e.g. `"ENG-12,ENG-14"` (required) |
-| `--branch-prefix` | Prepended to each derived branch name, e.g. `feat/` |
-| `--base` / `-b` | Ref every worktree branches from (default `main`) |
+| `--json` / `-j` | Emit the Report as JSON instead of a table |
+| `--dry-run` / `-n` | Print what would be created without touching anything |
+| `--batch` | Narrow to one Manifest by name |
+| `--offline` | Skip the `gh` call; report last-known pull request state |
+| `--launch` | Spawn `[batch] launch` for each materialised member with no Activity file yet |
 
-Partial failures are non-fatal: bad tickets are reported in the summary table and the rest
-of the batch continues. Exit code is 1 if any ticket failed.
+Partial failures are per-Chain, not per-Batch: a member's materialisation error stops only its
+own Chain. Exit code is 1 if any member errored this tick. See
+[batch.md](batch.md) for the Manifest format, the `gh` requirement, and the sharp edges.
 
 ## Navigating
 
@@ -266,6 +271,6 @@ reads the Ticket. See [from-spec.md](from-spec.md).
 | --- | --- |
 | 0 | Success |
 | 1 | Command failed; `[ERR]` line on stderr explains why |
-| 1 | `from-spec-bulk` with at least one failed ticket (the rest still succeeded) |
+| 1 | `tp batch sync` with at least one member whose materialisation errored this tick |
 | 2 | `tp ui` with no TTY |
 | child | `tp exec` returns the child process's exit code unchanged |

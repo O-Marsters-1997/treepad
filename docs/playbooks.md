@@ -108,7 +108,7 @@ When you name a Playbook on a Ticket, the agent reads the Ticket and loads the P
 Consequences:
 
 - **The routing decision survives a re-run.** The Ticket holds the name, not the CLI invocation. Typing `tp new` twice with the same Ref loads the same Playbook both times.
-- **Bulk operations work without per-Ticket flags.** `tp from-spec-bulk` creates worktrees for a list of Tickets. Each Ticket names its own Playbook; the tool does not need a `--playbook` flag or config override.
+- **Batch orchestration works without per-Ticket flags.** A Manifest's Chains create one worktree per Ticket. Each Ticket names its own Playbook; the tool does not need a `--playbook` flag or config override.
 - **The choice is visible and editable in the Tracker.** A team member can see which Playbook a Ticket uses, and change it if the shape of work evolved. No shell history to dig through.
 
 This is why there is no `--playbook` flag and no `default_playbook` config key. The designation travels with the work, not with the invocation.

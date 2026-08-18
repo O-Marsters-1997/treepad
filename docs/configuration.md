@@ -142,7 +142,7 @@ base = "develop"
 
 ### `[from_spec]` section
 
-Configuration for ticket-driven worktrees — `tp new --ticket` and `tp from-spec-bulk`. See [from-spec.md](from-spec.md) for the full workflow.
+Configuration for ticket-driven worktrees via `tp new --ticket`. See [from-spec.md](from-spec.md) for the full workflow.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -160,6 +160,28 @@ agent_command = ["claude", "{{.TicketURL}}"]
 ```
 
 If `agent_command` is not configured, `tp new --ticket` creates the worktree and exits so you can invoke an agent manually.
+
+### `[batch]` section
+
+Configures the Launcher used by Batch orchestration (`tp batch sync --launch`). See [commands.md](commands.md#batch-orchestration) for the Manifest format and full workflow.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `launch` | string[] | Command to start an agent in a materialised Chain member's worktree. Each element is a Go text/template string. Available variables: `.Branch`, `.Slug`, `.WorktreePath`, `.TicketURL`, `.Ref`, `.ActivityFile`, `.Batch`, `.Chain`, `.Position`. Empty or absent means `tp batch sync --launch` reports members ready to launch and spawns nothing |
+
+**Default** (when no `[batch]` section is present):
+
+```toml
+[batch]
+launch = []
+```
+
+```toml
+[batch]
+launch = ["claude", "{{.TicketURL}}"]
+```
+
+With `launch` empty, `tp batch sync --launch` never starts a process — it only reports which members are materialised and have no Activity file yet, so you can start agents by hand.
 
 ## Template Context
 

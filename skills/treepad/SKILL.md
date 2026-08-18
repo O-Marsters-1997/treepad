@@ -63,7 +63,8 @@ anything, so use `git -C "$WT"` or `cd "$WT" && ...` there instead.
 | --- | --- |
 | Start work on a new branch | `tp new <branch>` (`--base <ref>` to branch off something other than `main`) |
 | Start work from a ticket, with the ticket URL handed to an agent | `tp new <branch> --ticket <url-or-ref>` |
-| Fan several tickets out into their own worktrees at once | `tp from-spec-bulk --tickets ENG-12,ENG-14 --branch-prefix feat/` |
+| Reconcile a Manifest's Batch of Tickets into stacked worktrees | `tp batch sync` (add `--launch` to start agents) |
+| See every Batch, Chain, and member | `tp batch list` |
 | Record which Skills a recurring shape of work should use | `tp playbook new <name> < playbook.md` |
 | Find where a branch's worktree lives | `tp status --json` + `jq` |
 | Run a build/test/command in another worktree | `tp exec <branch> [--] <command>` |
@@ -123,8 +124,11 @@ Read the one that matches the task rather than all of them:
   resolution order, artifact templates, and lifecycle hooks. Go here when changing what
   gets synced, what artifact is generated, or what runs at a lifecycle event.
 - **[references/from-spec.md](references/from-spec.md)** — ticket-driven worktrees: ticket
-  URL resolution, agent handoff, Playbooks, bulk fan-out. Go here whenever a ticket, issue,
-  or spec is the starting point.
+  URL resolution, agent handoff, Playbooks. Go here whenever a ticket, issue, or spec is the
+  starting point.
+- **[references/batch.md](references/batch.md)** — Batch orchestration: the Manifest format,
+  Chains becoming Stacks, the `gh` requirement, `[batch] launch`. Go here whenever a Manifest,
+  Batch, Chain, or Stack is the starting point.
 - **[references/troubleshooting.md](references/troubleshooting.md)** — error messages mapped
   to cause and fix. Go here the moment a `tp` command fails instead of guessing.
 
