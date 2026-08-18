@@ -1,7 +1,9 @@
 // Package gh is the entire gh CLI surface for Batch orchestration (ADR
-// 0003): `gh auth status`, via Available, and `gh pr list`, via PRList. It
-// must never grow a call to `gh stack init`, `add`, `submit`, `modify`,
-// `rebase`, or `sync` — see forbidden_test.go.
+// 0003): `gh auth status`, via Available; `gh pr list`, via PRList; and
+// `gh stack link`, via StackLink. It must never grow a call to `gh stack
+// init`, `add`, `submit`, `modify`, `rebase`, or `sync` — see
+// forbidden_test.go — nor a `gh pr edit --base` call, which `link` makes
+// redundant.
 package gh
 
 import (
@@ -27,6 +29,18 @@ type prListEntry struct {
 	BaseRefName string `json:"baseRefName"`
 	State       string `json:"state"`
 	URL         string `json:"url"`
+}
+
+// StackLink runs `gh stack link` across branches, in stack order bottom to
+// top. It requires no checkout and writes no local tracking state: existing
+// pull requests whose base does not match the chain are corrected by `link`
+// itself, so nothing here ever calls `gh pr edit --base` (ADR 0003).
+func StackLink(ctx context.Context, r worktree.CommandRunner, branches []string) error {
+	args := append([]string{"stack", "link"}, branches...)
+	if _, err := r.Run(ctx, "gh", args...); err != nil {
+		return fmt.Errorf("gh stack link: %w", err)
+	}
+	return nil
 }
 
 // PRList issues exactly one `gh pr list` call for the whole repo, keyed by

@@ -135,7 +135,7 @@ type ReconcileInput struct {
 }
 
 // Reconcile is the single function driving Batch orchestration. Its five
-// steps run in this fixed order on every tick; only materialise is
+// steps run in this fixed order on every tick; materialise and link are
 // implemented so far, the rest land as no-op stubs for later tickets.
 func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, error) {
 	rc, err := repo.Load(ctx, d.Runner, in.OutputDir)
@@ -174,7 +174,7 @@ func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, err
 	attachPRState(report.Members, prs, stale)
 
 	launch(ctx, d, in, report)
-	link(ctx, d, in, report)
+	link(ctx, d, in, report, prs, stale)
 	restack(ctx, d, in, report)
 	retire(ctx, d, in, report)
 
@@ -255,9 +255,52 @@ func materialise(
 // Not built in this ticket — a later ticket fills this in.
 func launch(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
 
-// link runs `gh stack link` across each Chain's ready prefix.
-// Not built in this ticket — a later ticket fills this in.
-func link(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
+// link runs `gh stack link` across each Chain's longest PR-having prefix
+// (batch.LinkArgs), turning it into a Stack. It stores no stack identity:
+// every tick re-derives the whole Chain-so-far from the Report and re-issues
+// `link`, which is additive and idempotent, so repeated ticks issue
+// identical arguments. It runs on neither --dry-run nor a stale PR read —
+// gh stack link pushes branches and mutates GitHub, so it must never act on
+// data that might already be wrong.
+func link(ctx context.Context, d deps.Deps, in ReconcileInput, report Report, prs map[string]batch.PR, stale bool) {
+	if in.DryRun || stale {
+		return
+	}
+	for _, chain := range chainsOf(report.Members) {
+		args := batch.LinkArgs(chain, prs)
+		if args == nil {
+			continue
+		}
+		if err := gh.StackLink(ctx, d.Runner, args); err != nil {
+			d.Log.Warn("gh stack link %s: %s", strings.Join(args, " "), err)
+		}
+	}
+}
+
+// chainsOf regroups a Report's flat Members back into per-Chain slices,
+// keyed by (Batch, Chain) and in materialise's original position order —
+// the same re-derivation Reconcile itself does from Manifests, done here
+// because link is fed the Report rather than the Manifests directly.
+func chainsOf(entries []ReportEntry) [][]batch.Member {
+	type key struct {
+		batch string
+		chain int
+	}
+	var order []key
+	grouped := make(map[key][]batch.Member)
+	for _, e := range entries {
+		k := key{e.Batch, e.Chain}
+		if _, ok := grouped[k]; !ok {
+			order = append(order, k)
+		}
+		grouped[k] = append(grouped[k], e.Member)
+	}
+	chains := make([][]batch.Member, len(order))
+	for i, k := range order {
+		chains[i] = grouped[k]
+	}
+	return chains
+}
 
 // restack repairs worktrees left behind by a merged member.
 // Not built in this ticket — a later ticket fills this in.
