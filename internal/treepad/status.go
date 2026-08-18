@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
@@ -36,6 +37,12 @@ type StatusRow struct {
 	LastTouched    time.Time           `json:"last_touched"`
 	Prunable       bool                `json:"prunable,omitempty"`
 	PrunableReason string              `json:"prunable_reason,omitempty"`
+	// Batch, Chain and Position identify this worktree's place in a Batch
+	// Manifest, when its branch is a resolved Chain member; zero-value
+	// (Batch empty) means it is not Batch-managed.
+	Batch    string `json:"batch,omitempty"`
+	Chain    int    `json:"chain,omitempty"`
+	Position int    `json:"position,omitempty"`
 }
 
 func refreshStatus(ctx context.Context, d deps.Deps, in StatusInput) ([]StatusRow, error) {
@@ -47,7 +54,39 @@ func refreshStatus(ctx context.Context, d deps.Deps, in StatusInput) ([]StatusRo
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	return collectStatusRows(ctx, d, rc, cfg.Artifact)
+	members, err := batchMembersByBranch(ctx, d, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return collectStatusRows(ctx, d, rc, cfg.Artifact, members)
+}
+
+// batchMembersByBranch resolves every Batch Manifest's Members, keyed by
+// branch, so collectStatusRows can label a worktree with its Batch/Chain/
+// Position regardless of whether Reconcile has run this session. A repo with
+// no Manifests returns an empty map, not an error.
+func batchMembersByBranch(ctx context.Context, d deps.Deps, cfg config.Config) (map[string]batch.Member, error) {
+	commonDir, err := batch.CommonDir(ctx, d.Runner)
+	if err != nil {
+		return nil, err
+	}
+	manifests, err := batch.Load(commonDir)
+	if err != nil {
+		return nil, err
+	}
+	members := make(map[string]batch.Member)
+	for _, m := range manifests {
+		chains, err := batch.Resolve(m, cfg.FromSpec.TicketURL)
+		if err != nil {
+			return nil, err
+		}
+		for _, chain := range chains {
+			for _, mem := range chain {
+				members[mem.Branch] = mem
+			}
+		}
+	}
+	return members, nil
 }
 
 func Status(ctx context.Context, d deps.Deps, in StatusInput) error {
@@ -63,6 +102,7 @@ func Status(ctx context.Context, d deps.Deps, in StatusInput) error {
 
 func collectStatusRows(
 	ctx context.Context, d deps.Deps, rc repo.Context, artCfg config.ArtifactConfig,
+	members map[string]batch.Member,
 ) ([]StatusRow, error) {
 	rows := make([]StatusRow, 0, len(rc.Worktrees))
 	for _, wt := range rc.Worktrees {
@@ -72,6 +112,11 @@ func collectStatusRows(
 			IsMain:         wt.IsMain,
 			Prunable:       wt.Prunable,
 			PrunableReason: wt.PrunableReason,
+		}
+		if mem, ok := members[wt.Branch]; ok {
+			row.Batch = mem.Batch
+			row.Chain = mem.Chain
+			row.Position = mem.Position
 		}
 
 		if wt.Prunable {
@@ -216,6 +261,11 @@ func collapsePath(path string) string {
 type healthFlags struct {
 	Merged  bool
 	Drifted bool
+	// StackStale mirrors batch.RestackStale: this worktree diverged from
+	// origin/<branch> in a way treepad cannot safely repair — dirty, or
+	// holding a commit git cherry says is not yet upstream — and it is
+	// waiting for a human.
+	StackStale bool
 }
 
 const uiStaleThreshold = 14 * 24 * time.Hour
@@ -259,6 +309,15 @@ func computeHealth(ctx context.Context, d deps.Deps, rows []StatusRow) (map[stri
 				flags.Drifted = !reflect.DeepEqual(wtCfg, mainCfg)
 			}
 		}
+		// git cherry is the expensive check, so it runs only once divergence
+		// is already established from ahead/behind counts already in hand.
+		if !flags.Merged && r.HasUpstream && r.Ahead > 0 && r.Behind > 0 {
+			patchEquivalent, err := patchEquivalentToOrigin(ctx, d.Runner, r.Path, r.Branch)
+			if err != nil {
+				return nil, err
+			}
+			flags.StackStale = batch.RestackDecision(!r.Dirty, r.Ahead, r.Behind, patchEquivalent) == batch.RestackStale
+		}
 		health[r.Branch] = flags
 	}
 	return health, nil
@@ -266,7 +325,7 @@ func computeHealth(ctx context.Context, d deps.Deps, rows []StatusRow) (map[stri
 
 // deriveStatus returns a human-readable label and a category key for r,
 // incorporating health flags. Priority: broken → detached → merged → dirty →
-// diverged → ahead → behind → stale → local → clean.
+// stack-stale → diverged → ahead → behind → stale → local → clean.
 func deriveStatus(r StatusRow, h healthFlags) (label, key string) {
 	switch {
 	case r.Prunable:
@@ -286,6 +345,8 @@ func deriveStatus(r StatusRow, h healthFlags) (label, key string) {
 			label += fmt.Sprintf(" · ↓%d", r.Behind)
 		}
 		key = "dirty"
+	case h.StackStale:
+		label, key = fmt.Sprintf("stack-stale · ↑%d ↓%d", r.Ahead, r.Behind), "stack-stale"
 	case r.HasUpstream && r.Ahead > 0 && r.Behind > 0:
 		label, key = fmt.Sprintf("diverged · ↑%d ↓%d", r.Ahead, r.Behind), "diverged"
 	case r.HasUpstream && r.Ahead > 0:
@@ -367,7 +428,10 @@ func uiBuildSummary(rows []StatusRow, health map[string]healthFlags) string {
 			driftCount++
 		}
 	}
-	order := []string{"clean", "dirty", "ahead", "behind", "diverged", "merged", "stale", "local", "detached", "broken"}
+	order := []string{
+		"clean", "dirty", "stack-stale", "ahead", "behind", "diverged",
+		"merged", "stale", "local", "detached", "broken",
+	}
 	parts := make([]string, 0, 12)
 	parts = append(parts, fmt.Sprintf("%d worktrees", len(rows)))
 	for _, k := range order {

@@ -86,6 +86,12 @@ func Doctor(ctx context.Context, d deps.Deps, in DoctorInput) error {
 
 		findings = append(findings, doctorCheckMerged(wt, mergedSet, in.Base)...)
 
+		staleFindings, err := doctorCheckStackStale(ctx, d, wt)
+		if err != nil {
+			return err
+		}
+		findings = append(findings, staleFindings...)
+
 		if !in.Offline {
 			remoteFindings, err := doctorCheckRemoteGone(ctx, d, wt)
 			if err != nil {
@@ -189,6 +195,40 @@ func doctorCheckMerged(wt worktree.Worktree, mergedSet map[string]bool, base str
 		}}
 	}
 	return nil
+}
+
+// doctorCheckStackStale reports a wt whose branch has diverged from
+// origin/<branch> in a way restack cannot safely repair (issue #140): dirty,
+// or holding a commit `git cherry` says is not yet upstream. It runs no
+// fetch — the same locally-cached remote-tracking state `status` reads —
+// so it reports what a tick already knows, not what a live check would find.
+func doctorCheckStackStale(ctx context.Context, d deps.Deps, wt worktree.Worktree) ([]DoctorFinding, error) {
+	dirty, err := worktree.Dirty(ctx, d.Runner, wt.Path)
+	if err != nil {
+		return nil, err
+	}
+	ahead, behind, hasUpstream, err := worktree.AheadBehind(ctx, d.Runner, wt.Path)
+	if err != nil {
+		return nil, err
+	}
+	if !hasUpstream {
+		return nil, nil
+	}
+
+	var patchEquivalent bool
+	if ahead > 0 && behind > 0 {
+		patchEquivalent, err = patchEquivalentToOrigin(ctx, d.Runner, wt.Path, wt.Branch)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if batch.RestackDecision(!dirty, ahead, behind, patchEquivalent) != batch.RestackStale {
+		return nil, nil
+	}
+	detail := fmt.Sprintf("diverged from origin/%s (↑%d ↓%d) and cannot auto-repair; needs a human",
+		wt.Branch, ahead, behind)
+	return []DoctorFinding{{Branch: wt.Branch, Path: wt.Path, Kind: "stack-stale", Detail: detail}}, nil
 }
 
 func doctorCheckRemoteGone(ctx context.Context, d deps.Deps, wt worktree.Worktree) ([]DoctorFinding, error) {
