@@ -48,6 +48,9 @@ func batchSyncCommand() *cli.Command {
 			},
 			&cli.StringFlag{Name: "batch", Usage: "narrow to one Manifest by name"},
 			&cli.BoolFlag{Name: "offline", Usage: "skip the gh call; report last-known PR state"},
+			&cli.BoolFlag{
+				Name: "launch", Usage: "spawn [batch] launch for each materialised member with no Activity file yet",
+			},
 		},
 		Action: runBatchSync,
 	}
@@ -58,6 +61,7 @@ func runBatchSync(ctx context.Context, cmd *cli.Command) error {
 		JSON:    cmd.Bool("json"),
 		DryRun:  cmd.Bool("dry-run"),
 		Offline: cmd.Bool("offline"),
+		Launch:  cmd.Bool("launch"),
 		Batch:   cmd.String("batch"),
 	})
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/O-Marsters-1997/treepad/internal/artifact"
 	"github.com/O-Marsters-1997/treepad/internal/hook"
+	"github.com/O-Marsters-1997/treepad/internal/launcher"
 	"github.com/O-Marsters-1997/treepad/internal/passthrough"
 	"github.com/O-Marsters-1997/treepad/internal/profile"
 	internalsync "github.com/O-Marsters-1997/treepad/internal/sync"
@@ -23,6 +24,7 @@ type Deps struct {
 	Opener     artifact.Opener
 	HookRunner hook.Runner
 	PTRunner   passthrough.Runner
+	Launcher   launcher.Launcher
 	Profiler   profile.Profiler
 	Out        io.Writer   // stdout: machine payloads (__TREEPAD_CD__, JSON, tables)
 	Log        *ui.Printer // stderr: tagged user-facing narrative
@@ -46,6 +48,7 @@ func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
 		Opener:     artifact.ExecOpener{Runner: runner},
 		HookRunner: hook.ExecRunner{Runner: runner, TTY: passthrough.OSRunner{}},
 		PTRunner:   passthrough.OSRunner{},
+		Launcher:   launcher.ProcessLauncher{},
 		Profiler:   profile.Disabled(),
 		Out:        out,
 		Log:        ui.New(errw),

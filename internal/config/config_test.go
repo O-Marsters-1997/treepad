@@ -209,6 +209,32 @@ ticket_url = "https://linear.app/acme/issue/{{.Ref}}"
 			t.Errorf("Diff.Base = %q, want %q", cfg.Diff.Base, "origin/main")
 		}
 	})
+
+	t.Run("batch section round-trips", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), `
+[batch]
+launch = ["claude", "--dangerously-skip-permissions", "{{.TicketURL}}"]
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"claude", "--dangerously-skip-permissions", "{{.TicketURL}}"}
+		if !reflect.DeepEqual(cfg.Batch.Launch, want) {
+			t.Errorf("Batch.Launch = %v, want %v", cfg.Batch.Launch, want)
+		}
+	})
+
+	t.Run("omitted batch section is zero", func(t *testing.T) {
+		cfg, err := Load(t.TempDir())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.Batch.IsZero() {
+			t.Error("expected zero Batch when section omitted")
+		}
+	})
 }
 
 func TestDefaultSyncInclude(t *testing.T) {
