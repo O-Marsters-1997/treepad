@@ -30,10 +30,24 @@ var ErrNotTTY = errors.New("tp ui requires an interactive terminal")
 
 type (
 	uiTickMsg         struct{}
+	uiGhTickMsg       struct{}
 	uiToastExpiredMsg struct{ gen int }
 	uiRefreshMsg      struct {
 		rows   []StatusRow
 		health map[string]healthFlags
+		err    error
+	}
+	uiGhRefreshMsg struct {
+		report Report
+		err    error
+	}
+	uiLaunchDoneMsg struct {
+		branch string // empty = "launch every pending member"
+		count  int    // set only when branch is empty
+		err    error
+	}
+	uiLogDoneMsg struct {
+		branch string
 		err    error
 	}
 	uiSyncDoneMsg struct {
@@ -70,6 +84,8 @@ const (
 	uiModeConfirmForceRemove        // R pressed — awaiting y/cancel
 	uiModeConfirmPrune              // p pressed — awaiting y/cancel
 	uiModeConfirmShell              // e pressed — awaiting y/cancel
+	uiModeConfirmLaunch             // l pressed — awaiting y/cancel
+	uiModeConfirmLaunchAll          // L pressed — awaiting y/cancel
 	uiModeHelp                      // ? pressed — any key dismisses
 	uiModeFilter                    // / pressed — typing filter query
 )
@@ -86,6 +102,7 @@ type uiModel struct {
 	in               StatusInput
 	rows             []StatusRow
 	health           map[string]healthFlags // keyed by branch; nil until first refresh
+	report           *Report                // last Reconcile Report; nil until the first gh tick completes
 	activePath       string                 // filepath.Clean(cwd) at UI launch; "" if unavailable
 	cursor           int
 	width            int
@@ -108,6 +125,7 @@ type uiModel struct {
 	// Injectable behaviour. Nil means the feature is disabled; see UI() for
 	// production defaults and NewHeadlessUI for the headless/e2e overrides.
 	tickCmd       func() tea.Cmd // auto-refresh tick; nil → no tick
+	ghTickCmd     func() tea.Cmd // slower gh/Reconcile tick; nil → no tick
 	toastTimerCmd func() tea.Cmd // toast-expiry timer; nil → toasts persist
 	headerClock   func() string  // header timestamp; nil → time.Now()
 }
@@ -124,6 +142,9 @@ func UI(ctx context.Context, d deps.Deps, in StatusInput) error {
 		ctx: ctx, d: d, in: in, loading: true, spinner: sp,
 		activePath: filepath.Clean(curDir),
 		tickCmd:    func() tea.Cmd { return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiTickMsg{} }) },
+		ghTickCmd: func() tea.Cmd {
+			return tea.Tick(ghTickInterval, func(time.Time) tea.Msg { return uiGhTickMsg{} })
+		},
 		toastTimerCmd: func() tea.Cmd {
 			return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return uiToastExpiredMsg{} })
 		},

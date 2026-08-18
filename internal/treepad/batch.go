@@ -269,16 +269,53 @@ func materialise(
 // --launch; a reconcile tick that doesn't pass it never spawns anything. An
 // empty [batch] launch behaves like agent_command's empty case: it
 // materialises and reports members ready to launch rather than spawning.
+// readyToLaunch reports whether e was materialised (this tick or a prior
+// one) and has no Activity file yet — the double-launch guard. Shared by
+// Reconcile's automatic launch step and tp ui's manual l/L keys, so both
+// agree on what "launchable" means.
+func readyToLaunch(commonDir string, e ReportEntry) bool {
+	if e.Action != ActionCreated && e.Action != ActionSkipped {
+		return false // not materialised this tick or ever: no worktree to launch into
+	}
+	return !launcher.Exists(commonDir, e.Branch)
+}
+
+// launchEntry starts an agent for e via [batch] launch, writing back
+// ActionLaunched on success or ActionError with the failure on e itself.
+// Shared by Reconcile's automatic launch step and tp ui's manual l/L keys, so
+// every launch path spawns identically.
+func launchEntry(d deps.Deps, cfg config.Config, commonDir string, rc repo.Context, e *ReportEntry) error {
+	activityFile := launcher.ActivityPath(commonDir, e.Branch)
+	data := launcher.Data{
+		Branch:       e.Branch,
+		Slug:         rc.Slug,
+		WorktreePath: e.WorktreePath,
+		TicketURL:    e.TicketURL,
+		Ref:          e.Ref,
+		ActivityFile: activityFile,
+		Batch:        e.Batch,
+		Chain:        e.Chain,
+		Position:     e.Position,
+	}
+	argv, err := launcher.Render(cfg.Batch.Launch, data)
+	if err != nil {
+		e.Action, e.Error = ActionError, err.Error()
+		return err
+	}
+	if err := d.Launcher.Launch(argv, e.WorktreePath, activityFile); err != nil {
+		e.Action, e.Error = ActionError, err.Error()
+		return err
+	}
+	e.Action = ActionLaunched
+	return nil
+}
+
 func launch(d deps.Deps, in ReconcileInput, cfg config.Config, commonDir string, rc repo.Context, report Report) {
 	var ready []int
 	for i, e := range report.Members {
-		if e.Action != ActionCreated && e.Action != ActionSkipped {
-			continue // not materialised this tick or ever: no worktree to launch into
+		if readyToLaunch(commonDir, e) {
+			ready = append(ready, i)
 		}
-		if launcher.Exists(commonDir, e.Branch) {
-			continue
-		}
-		ready = append(ready, i)
 	}
 
 	if !in.Launch {
@@ -290,29 +327,7 @@ func launch(d deps.Deps, in ReconcileInput, cfg config.Config, commonDir string,
 	}
 
 	for _, i := range ready {
-		e := &report.Members[i]
-		activityFile := launcher.ActivityPath(commonDir, e.Branch)
-		data := launcher.Data{
-			Branch:       e.Branch,
-			Slug:         rc.Slug,
-			WorktreePath: e.WorktreePath,
-			TicketURL:    e.TicketURL,
-			Ref:          e.Ref,
-			ActivityFile: activityFile,
-			Batch:        e.Batch,
-			Chain:        e.Chain,
-			Position:     e.Position,
-		}
-		argv, err := launcher.Render(cfg.Batch.Launch, data)
-		if err != nil {
-			e.Action, e.Error = ActionError, err.Error()
-			continue
-		}
-		if err := d.Launcher.Launch(argv, e.WorktreePath, activityFile); err != nil {
-			e.Action, e.Error = ActionError, err.Error()
-			continue
-		}
-		e.Action = ActionLaunched
+		_ = launchEntry(d, cfg, commonDir, rc, &report.Members[i])
 	}
 }
 

@@ -1,6 +1,7 @@
 package treepad
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 
@@ -8,9 +9,9 @@ import (
 )
 
 // filterRows returns rows matching query, ordered by best score.
-// Branch and path basename are matched independently so that characters from
-// one field cannot form a subsequence that spans into the other.
-// An empty query returns rows unchanged.
+// Branch, path basename, and Batch/Chain (when the row is Batch-managed) are
+// matched independently so that characters from one field cannot form a
+// subsequence that spans into another. An empty query returns rows unchanged.
 func filterRows(rows []StatusRow, query string) []StatusRow {
 	if query == "" {
 		return rows
@@ -18,17 +19,26 @@ func filterRows(rows []StatusRow, query string) []StatusRow {
 
 	branches := make([]string, len(rows))
 	basenames := make([]string, len(rows))
+	groups := make([]string, len(rows))
 	for i, r := range rows {
 		branches[i] = r.Branch
 		basenames[i] = filepath.Base(r.Path)
+		if r.Batch != "" {
+			groups[i] = fmt.Sprintf("%s %d", r.Batch, r.Chain)
+		}
 	}
 
-	// scores maps row index → best match score across both fields.
+	// scores maps row index → best match score across all fields.
 	scores := make(map[int]int)
 	for _, m := range fuzzy.Find(query, branches) {
 		scores[m.Index] = m.Score
 	}
 	for _, m := range fuzzy.Find(query, basenames) {
+		if existing, ok := scores[m.Index]; !ok || m.Score > existing {
+			scores[m.Index] = m.Score
+		}
+	}
+	for _, m := range fuzzy.Find(query, groups) {
 		if existing, ok := scores[m.Index]; !ok || m.Score > existing {
 			scores[m.Index] = m.Score
 		}

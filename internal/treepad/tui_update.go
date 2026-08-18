@@ -10,13 +10,15 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/launcher"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
 )
 
 func (m uiModel) Init() tea.Cmd {
-	return tea.Batch(m.doRefresh(), m.doTick())
+	return tea.Batch(m.doRefresh(), m.doTick(), m.doGhRefresh(), m.doGhTick())
 }
 
 func (m uiModel) doRefresh() tea.Cmd {
@@ -26,6 +28,9 @@ func (m uiModel) doRefresh() tea.Cmd {
 			return uiRefreshMsg{err: err}
 		}
 		health, _ := computeHealth(m.ctx, m.d, rows)
+		if commonDir, err := batch.CommonDir(m.ctx, m.d.Runner); err == nil {
+			rows = applyRunStates(rows, commonDir, time.Now())
+		}
 		return uiRefreshMsg{rows: rows, health: health}
 	}
 }
@@ -35,6 +40,23 @@ func (m uiModel) doTick() tea.Cmd {
 		return nil
 	}
 	return m.tickCmd()
+}
+
+// doGhRefresh calls the same Reconcile function `tp batch sync` calls, with
+// launch always disabled — tp ui never spawns an agent on its own tick, only
+// via the explicit l/L keys.
+func (m uiModel) doGhRefresh() tea.Cmd {
+	return func() tea.Msg {
+		report, err := Reconcile(m.ctx, m.d, ReconcileInput{OutputDir: m.in.OutputDir, Launch: false})
+		return uiGhRefreshMsg{report: report, err: err}
+	}
+}
+
+func (m uiModel) doGhTick() tea.Cmd {
+	if m.ghTickCmd == nil {
+		return nil
+	}
+	return m.ghTickCmd()
 }
 
 func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -57,13 +79,23 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.doRefresh(), m.doTick())
 
+	case uiGhTickMsg:
+		if m.actionInFlight {
+			return m, m.doGhTick() // skip refresh, reschedule tick
+		}
+		return m, tea.Batch(m.doGhRefresh(), m.doGhTick())
+
 	case uiRefreshMsg:
 		m.loading = false
 		if msg.err != nil {
 			m.err = msg.err
 		} else {
 			m.err = nil
-			m.rows = msg.rows
+			rows := msg.rows
+			if m.report != nil {
+				rows = applyPRState(rows, m.report)
+			}
+			m.rows = groupRows(rows)
 			if msg.health != nil {
 				m.health = msg.health
 			}
@@ -72,6 +104,13 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if len(vr) == 0 {
 				m.cursor = 0
 			}
+		}
+
+	case uiGhRefreshMsg:
+		if msg.err == nil {
+			report := msg.report
+			m.report = &report
+			m.rows = groupRows(applyPRState(m.rows, m.report))
 		}
 
 	case uiSyncDoneMsg:
@@ -124,6 +163,30 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toastGen++
 		m.toast = &uiToast{msg: fmt.Sprintf("✓ shell exited (%s)", msg.branch)}
 		return m, tea.Batch(m.doRefresh(), m.doTick(), m.timerCmd())
+
+	case uiLaunchDoneMsg:
+		m.actionInFlight = false
+		if msg.err != nil {
+			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
+			return m, nil
+		}
+		m.toastGen++
+		if msg.branch != "" {
+			m.toast = &uiToast{msg: fmt.Sprintf("✓ launched %s", msg.branch)}
+		} else {
+			m.toast = &uiToast{msg: fmt.Sprintf("✓ launched %d pending member(s)", msg.count)}
+		}
+		return m, tea.Batch(m.doRefresh(), m.doTick(), m.timerCmd())
+
+	case uiLogDoneMsg:
+		m.actionInFlight = false
+		if msg.err != nil {
+			m.toast = &uiToast{msg: fmt.Sprintf("%v", msg.err), isErr: true}
+			return m, nil
+		}
+		m.toastGen++
+		m.toast = &uiToast{msg: fmt.Sprintf("✓ viewed log for %s", msg.branch)}
+		return m, m.timerCmd()
 
 	case uiYankClearMsg:
 		m.yankPath = ""
@@ -282,6 +345,42 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+		case "l":
+			if !m.actionInFlight {
+				if row, ok := m.visibleCursorRow(); ok {
+					if row.Batch == "" || row.RunState != string(launcher.StatePending) {
+						m.toastGen++
+						m.toast = &uiToast{msg: row.Branch + " is not launchable"}
+						return m, m.timerCmd()
+					}
+					m.mode = uiModeConfirmLaunch
+					m.confirmBranch = row.Branch
+					return m, nil
+				}
+			}
+		case "L":
+			if !m.actionInFlight {
+				m.mode = uiModeConfirmLaunchAll
+				return m, nil
+			}
+		case "v":
+			if !m.actionInFlight {
+				if row, ok := m.visibleCursorRow(); ok {
+					if row.Batch == "" {
+						m.toastGen++
+						m.toast = &uiToast{msg: "no Activity file: " + row.Branch + " is not a Batch member"}
+						return m, m.timerCmd()
+					}
+					if !activityExists(m.ctx, m.d, row.Branch) {
+						m.toastGen++
+						m.toast = &uiToast{msg: "no Activity file yet for " + row.Branch}
+						return m, m.timerCmd()
+					}
+					m.actionInFlight = true
+					m.toast = nil
+					return m, m.doLog(row)
+				}
+			}
 		case "y":
 			if row, ok := m.visibleCursorRow(); ok {
 				m.yankPath = row.Path
@@ -371,6 +470,16 @@ func (m uiModel) handleConfirm() (tea.Model, tea.Cmd) {
 		m.confirmShellPath = ""
 		m.actionInFlight = true
 		return m, m.doShell(StatusRow{Branch: branch, Path: path})
+	case uiModeConfirmLaunch:
+		branch := m.confirmBranch
+		m.mode = uiModeNormal
+		m.confirmBranch = ""
+		m.actionInFlight = true
+		return m, m.doLaunch(branch)
+	case uiModeConfirmLaunchAll:
+		m.mode = uiModeNormal
+		m.actionInFlight = true
+		return m, m.doLaunchAll()
 	case uiModeFilter:
 		return m, nil
 	}
@@ -441,6 +550,36 @@ func (m uiModel) doDiff(row StatusRow) tea.Cmd {
 	cmd := exec.Command("git", "-C", row.Path, "diff", base+"...HEAD")
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return uiDiffDoneMsg{branch: row.Branch, err: err}
+	})
+}
+
+func (m uiModel) doLaunch(branch string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.launchBranch(branch)
+		return uiLaunchDoneMsg{branch: branch, err: err}
+	}
+}
+
+func (m uiModel) doLaunchAll() tea.Cmd {
+	return func() tea.Msg {
+		count, err := m.launchAllPending()
+		return uiLaunchDoneMsg{count: count, err: err}
+	}
+}
+
+func (m uiModel) doLog(row StatusRow) tea.Cmd {
+	commonDir, err := batch.CommonDir(m.ctx, m.d.Runner)
+	if err != nil {
+		return func() tea.Msg { return uiLogDoneMsg{branch: row.Branch, err: err} }
+	}
+	path := launcher.ActivityPath(commonDir, row.Branch)
+	pager := os.Getenv("PAGER")
+	if pager == "" {
+		pager = "less"
+	}
+	cmd := exec.Command(pager, path)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return uiLogDoneMsg{branch: row.Branch, err: err}
 	})
 }
 

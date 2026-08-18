@@ -43,6 +43,19 @@ type StatusRow struct {
 	Batch    string `json:"batch,omitempty"`
 	Chain    int    `json:"chain,omitempty"`
 	Position int    `json:"position,omitempty"`
+
+	// RunState mirrors launcher.RunState (pending/working/idle), derived from
+	// the Activity file's mtime. Empty for a non-Batch row: `tp status` never
+	// populates it, since deriving it costs nothing but a stat call, the same
+	// as tp ui's local ~5s tick.
+	RunState string `json:"run_state,omitempty"`
+	// PRNumber, PRState and PRStale mirror ReportEntry's fields of the same
+	// name, filled in by tp ui's slower gh tick from the last Reconcile
+	// Report. Zero-value on a non-Batch row or before the first gh tick
+	// completes.
+	PRNumber int    `json:"pr_number,omitempty"`
+	PRState  string `json:"pr_state,omitempty"`
+	PRStale  bool   `json:"pr_stale,omitempty"`
 }
 
 func refreshStatus(ctx context.Context, d deps.Deps, in StatusInput) ([]StatusRow, error) {
@@ -372,7 +385,7 @@ func formatUIRows(rows []StatusRow, health map[string]healthFlags) []string {
 	}
 	var buf bytes.Buffer
 	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "BRANCH\tSTATUS\tLAST COMMIT\tTOUCHED\tPATH")
+	_, _ = fmt.Fprintln(w, "BATCH\tBRANCH\tRUN\tPR\tSTATUS\tLAST COMMIT\tTOUCHED\tPATH")
 
 	for _, r := range rows {
 		branch := r.Branch
@@ -381,10 +394,13 @@ func formatUIRows(rows []StatusRow, health map[string]healthFlags) []string {
 		}
 
 		label, _ := deriveStatus(r, health[r.Branch])
+		batchCell := formatBatchCell(r)
+		runCell := formatRunState(r)
+		prCell := formatPRState(r)
 
 		if r.Prunable {
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-				branch, label, r.PrunableReason, "—", collapsePath(r.Path))
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				batchCell, branch, runCell, prCell, label, r.PrunableReason, "—", collapsePath(r.Path))
 			continue
 		}
 
@@ -402,8 +418,8 @@ func formatUIRows(rows []StatusRow, health map[string]healthFlags) []string {
 			touched = since(r.LastTouched)
 		}
 
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			branch, label, lastCommit, touched, collapsePath(r.Path))
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			batchCell, branch, runCell, prCell, label, lastCommit, touched, collapsePath(r.Path))
 	}
 
 	_ = w.Flush()
@@ -412,6 +428,44 @@ func formatUIRows(rows []StatusRow, health map[string]healthFlags) []string {
 		return nil
 	}
 	return strings.Split(raw, "\n")
+}
+
+// formatBatchCell renders a row's place in a Batch Manifest as
+// "<batch>/<chain>#<position>", or "—" for a worktree no Manifest resolved —
+// tp ui renders the whole fleet, Batch-managed or not.
+func formatBatchCell(r StatusRow) string {
+	if r.Batch == "" {
+		return "—"
+	}
+	return fmt.Sprintf("%s/%d#%d", r.Batch, r.Chain, r.Position)
+}
+
+// formatRunState renders launcher.RunState, or "—" for a non-Batch row: there
+// is no launch concept for a worktree no Manifest resolved.
+func formatRunState(r StatusRow) string {
+	if r.RunState == "" {
+		return "—"
+	}
+	return r.RunState
+}
+
+// formatPRState renders a Batch member's pull request state, always
+// non-blank per #142's degradation requirement: "none" (no PR yet) and
+// "stale" (gh has never answered) are distinct from each other and from a
+// live "#N STATE".
+func formatPRState(r StatusRow) string {
+	switch {
+	case r.Batch == "":
+		return "—"
+	case r.PRNumber == 0 && r.PRStale:
+		return "stale"
+	case r.PRNumber == 0:
+		return "none"
+	case r.PRStale:
+		return fmt.Sprintf("#%d %s (stale)", r.PRNumber, r.PRState)
+	default:
+		return fmt.Sprintf("#%d %s", r.PRNumber, r.PRState)
+	}
 }
 
 func uiBuildSummary(rows []StatusRow, health map[string]healthFlags) string {
