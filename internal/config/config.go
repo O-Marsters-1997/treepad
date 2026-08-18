@@ -107,6 +107,20 @@ func (f FromSpecConfig) IsZero() bool {
 	return len(f.AgentCommand) == 0 && f.TicketURL == ""
 }
 
+// BatchConfig configures the Batch orchestration Launcher.
+type BatchConfig struct {
+	// Launch starts an agent in a materialised Chain member's worktree.
+	// Each element is a text/template string. Empty means materialise only:
+	// `tp batch sync --launch` reports members ready to launch and spawns
+	// nothing. Template data: .Branch, .Slug, .WorktreePath, .TicketURL,
+	// .Ref, .ActivityFile, .Batch, .Chain, .Position.
+	Launch []string `toml:"launch"`
+}
+
+func (b BatchConfig) IsZero() bool {
+	return len(b.Launch) == 0
+}
+
 type Config struct {
 	Sync     SyncConfig     `toml:"sync"`
 	Artifact ArtifactConfig `toml:"artifact"`
@@ -115,6 +129,7 @@ type Config struct {
 	Exec     ExecConfig     `toml:"exec"`
 	FromSpec FromSpecConfig `toml:"from_spec"`
 	Diff     DiffConfig     `toml:"diff"`
+	Batch    BatchConfig    `toml:"batch"`
 }
 
 // GlobalConfigPath returns the path to the global config file.
@@ -181,6 +196,9 @@ func Load(repoRoot string) (Config, error) {
 	}
 	if !fileCfg.Diff.IsZero() {
 		cfg.Diff = fileCfg.Diff
+	}
+	if !fileCfg.Batch.IsZero() {
+		cfg.Batch = fileCfg.Batch
 	}
 
 	slog.Debug("loaded .treepad.toml", "dir", repoRoot, "syncInclude", cfg.Sync.Include)

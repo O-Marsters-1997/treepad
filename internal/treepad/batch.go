@@ -13,6 +13,7 @@ import (
 	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
 	"github.com/O-Marsters-1997/treepad/internal/gh"
+	"github.com/O-Marsters-1997/treepad/internal/launcher"
 	"github.com/O-Marsters-1997/treepad/internal/slug"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
@@ -102,6 +103,7 @@ const (
 	ActionBlocked     = "blocked"      // gh is available but the parent has no open pull request yet
 	ActionGHRequired  = "gh-required"  // gh absent, unauthenticated, or --offline: parent's PR state is unknown
 	ActionError       = "error"        // materialise failed; this Chain stops here
+	ActionLaunched    = "launched"     // --launch spawned an agent for this member this tick
 )
 
 // ReportEntry pairs a resolved Member with what Reconcile did about it this tick.
@@ -140,6 +142,7 @@ type ReconcileInput struct {
 	Batch     string // narrows to one Manifest by name; empty means every Manifest
 	DryRun    bool
 	Offline   bool // skip the gh call entirely; PR fields report last-known plus staleness
+	Launch    bool // spawn an agent for each materialised member with no Activity file yet
 	OutputDir string
 }
 
@@ -182,7 +185,7 @@ func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, err
 	report := Report{Members: entries}
 	attachPRState(report.Members, prs, stale)
 
-	launch(ctx, d, in, report)
+	launch(d, in, cfg, commonDir, rc, report)
 	link(ctx, d, in, report, prs, stale)
 	restack(ctx, d, in, report)
 	retire(ctx, d, in, report, prs)
@@ -260,9 +263,58 @@ func materialise(
 	return entries
 }
 
-// launch starts an agent for a materialised member that has none yet.
-// Not built in this ticket — a later ticket fills this in.
-func launch(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
+// launch starts an agent for each materialised member that has no Activity
+// file yet — that file's existence is the double-launch guard, so once a
+// member has one it is never relaunched automatically. It runs only under
+// --launch; a reconcile tick that doesn't pass it never spawns anything. An
+// empty [batch] launch behaves like agent_command's empty case: it
+// materialises and reports members ready to launch rather than spawning.
+func launch(d deps.Deps, in ReconcileInput, cfg config.Config, commonDir string, rc repo.Context, report Report) {
+	var ready []int
+	for i, e := range report.Members {
+		if e.Action != ActionCreated && e.Action != ActionSkipped {
+			continue // not materialised this tick or ever: no worktree to launch into
+		}
+		if launcher.Exists(commonDir, e.Branch) {
+			continue
+		}
+		ready = append(ready, i)
+	}
+
+	if !in.Launch {
+		return
+	}
+	if len(cfg.Batch.Launch) == 0 {
+		d.Log.Info("%d ready to launch; configure [batch] launch to start agents", len(ready))
+		return
+	}
+
+	for _, i := range ready {
+		e := &report.Members[i]
+		activityFile := launcher.ActivityPath(commonDir, e.Branch)
+		data := launcher.Data{
+			Branch:       e.Branch,
+			Slug:         rc.Slug,
+			WorktreePath: e.WorktreePath,
+			TicketURL:    e.TicketURL,
+			Ref:          e.Ref,
+			ActivityFile: activityFile,
+			Batch:        e.Batch,
+			Chain:        e.Chain,
+			Position:     e.Position,
+		}
+		argv, err := launcher.Render(cfg.Batch.Launch, data)
+		if err != nil {
+			e.Action, e.Error = ActionError, err.Error()
+			continue
+		}
+		if err := d.Launcher.Launch(argv, e.WorktreePath, activityFile); err != nil {
+			e.Action, e.Error = ActionError, err.Error()
+			continue
+		}
+		e.Action = ActionLaunched
+	}
+}
 
 // link runs `gh stack link` across each Chain's longest PR-having prefix
 // (batch.LinkArgs), turning it into a Stack. It stores no stack identity:
@@ -406,6 +458,7 @@ type BatchSyncInput struct {
 	JSON      bool
 	DryRun    bool
 	Offline   bool
+	Launch    bool
 	Batch     string
 	OutputDir string
 }
@@ -418,6 +471,7 @@ func BatchSync(ctx context.Context, d deps.Deps, in BatchSyncInput) (int, error)
 		Batch:     in.Batch,
 		DryRun:    in.DryRun,
 		Offline:   in.Offline,
+		Launch:    in.Launch,
 		OutputDir: in.OutputDir,
 	})
 	if err != nil {

@@ -51,4 +51,12 @@ exists ../repo-feat-eng-99
 exec tp batch sync --offline --json
 stdout '"pr_stale":true'
 
+# --launch with no [batch] launch configured reports readiness and spawns nothing
+exec tp batch sync --launch
+stderr 'ready to launch'
+
+# without --launch, sync behaves exactly as before: no launch report at all
+exec tp batch sync
+! stderr 'ready to launch'
+
 ! stdout '__TREEPAD_CD__'
