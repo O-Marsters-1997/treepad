@@ -5,31 +5,33 @@ exec sh -c 'printf "[from_spec]\nticket_url = \"https://linear.app/acme/issue/{{
 exec sh -c 'mkdir -p .git/treepad/batches'
 exec sh -c 'printf "name = \"silent-refresh\"\nbranch_prefix = \"feat/\"\nbase = \"main\"\n\n[[chain]]\ntickets = [\"ENG-12\", \"ENG-13\"]\n\n[[chain]]\ntickets = [\"ENG-14\"]\n" > .git/treepad/batches/silent-refresh.toml'
 
-# --dry-run touches nothing
+# --dry-run touches nothing; without gh, only Chain heads would be created
 exec tp batch sync --dry-run
 stdout 'would-create'
+stdout 'gh-required'
 ! exists ../repo-feat-eng-12
 ! exists ../repo-feat-eng-13
 ! exists ../repo-feat-eng-14
 
 exec tp batch sync --dry-run --json
 stdout '"action":"would-create"'
+stdout '"action":"gh-required"'
 ! exists ../repo-feat-eng-12
 
-# the real run creates three worktrees, one per Member
+# the real run materialises Chain heads only: gh is unavailable in this
+# sandbox (HOME is redirected), so feat/eng-13 reports gh-required and no
+# worktree is created for it
 exec tp batch sync --json
 stdout '"action":"created"'
 stdout '"branch":"feat/eng-12"'
-stdout '"branch":"feat/eng-13"'
 stdout '"branch":"feat/eng-14"'
+stdout '"action":"gh-required"'
+stdout '"branch":"feat/eng-13"'
 exists ../repo-feat-eng-12
-exists ../repo-feat-eng-13
+! exists ../repo-feat-eng-13
 exists ../repo-feat-eng-14
 
-# feat/eng-13 is genuinely stacked on feat/eng-12's tip, not a sibling of main
-exec sh -c 'test "$(git -C ../repo-feat-eng-13 merge-base feat/eng-12 feat/eng-13)" = "$(git -C ../repo-feat-eng-13 rev-parse feat/eng-12)"'
-
-# re-running is idempotent: creates nothing and exits 0
+# re-running is idempotent: creates nothing more and exits 0
 exec tp batch sync --json
 stdout '"action":"skipped"'
 ! stdout '"action":"created"'

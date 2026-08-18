@@ -11,7 +11,9 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/gh"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
 	"github.com/O-Marsters-1997/treepad/internal/worktree"
@@ -59,6 +61,14 @@ func Doctor(ctx context.Context, d deps.Deps, in DoctorInput) error {
 
 	var findings []DoctorFinding
 
+	if !in.Offline {
+		ghFindings, err := doctorCheckGH(ctx, d)
+		if err != nil {
+			return err
+		}
+		findings = append(findings, ghFindings...)
+	}
+
 	for _, wt := range rc.Worktrees {
 		if wt.Prunable {
 			findings = append(findings, doctorCheckPrunable(wt)...)
@@ -104,6 +114,26 @@ func Doctor(ctx context.Context, d deps.Deps, in DoctorInput) error {
 		return fmt.Errorf("%d finding(s) reported", len(findings))
 	}
 	return nil
+}
+
+// doctorCheckGH reports a finding when Batch Manifests exist but gh is
+// unavailable — Batch orchestration would then materialise Chain heads only.
+func doctorCheckGH(ctx context.Context, d deps.Deps) ([]DoctorFinding, error) {
+	commonDir, err := batch.CommonDir(ctx, d.Runner)
+	if err != nil {
+		return nil, err
+	}
+	manifests, err := batch.Load(commonDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(manifests) == 0 || gh.Available(ctx, d.Runner) {
+		return nil, nil
+	}
+	return []DoctorFinding{{
+		Kind:   "gh-unavailable",
+		Detail: "gh is not installed or not authenticated; tp batch sync will materialise Chain heads only",
+	}}, nil
 }
 
 func doctorCheckPrunable(wt worktree.Worktree) []DoctorFinding {

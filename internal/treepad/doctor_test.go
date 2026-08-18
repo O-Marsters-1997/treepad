@@ -146,6 +146,7 @@ func TestDoctor(t *testing.T) {
 			{Output: porcelain},
 			{Output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
 			{Output: []byte("")},                              // for-each-ref --merged: none
+			{Output: []byte(outputDir + "\n")},                // git rev-parse --git-common-dir (no manifests present)
 			{Output: recentCommitOutput("abc1234", "init")},   // log: main
 			{Output: []byte("")},                              // dirty: main
 			{Err: errors.New("no upstream")},                  // rev-parrse @{upstream}: main (none)
@@ -170,6 +171,51 @@ func TestDoctor(t *testing.T) {
 		out := buf.String()
 		if !strings.Contains(out, "remote-gone") {
 			t.Errorf("output missing 'remote-gone' finding:\n%s", out)
+		}
+	})
+
+	t.Run("gh-unavailable finding when Manifests exist and gh does not", func(t *testing.T) {
+		commonDir := t.TempDir()
+		batchesDir := filepath.Join(commonDir, "treepad", "batches")
+		if err := os.MkdirAll(batchesDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(batchesDir, "silent-refresh.toml"), []byte(`
+name = "silent-refresh"
+[[chain]]
+tickets = ["ENG-12"]
+`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
+			{Output: []byte("")},                              // for-each-ref --merged: none
+			{Output: []byte(commonDir + "\n")},                // git rev-parse --git-common-dir (Manifests present)
+			{Err: errors.New("gh: command not found")},        // gh auth status
+			{Output: recentCommitOutput("abc1234", "init")},   // log: main
+			{Output: []byte("")},                              // dirty: main
+			{Err: errors.New("no upstream")},                  // rev-parse @{upstream}: main (none)
+			{Output: recentCommitOutput("def5678", "feat x")}, // log: feat
+			{Output: []byte("")},                              // dirty: feat
+			{Err: errors.New("no upstream")},                  // rev-parse @{upstream}: feat (none)
+		}}
+		var buf strings.Builder
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
+
+		in := DoctorInput{StaleDays: 30, Base: "main", Offline: false, OutputDir: outputDir}
+		if err := Doctor(context.Background(), d, in); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "gh-unavailable") {
+			t.Errorf("output missing 'gh-unavailable' finding:\n%s", out)
 		}
 	})
 
