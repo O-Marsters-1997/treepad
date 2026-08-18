@@ -117,6 +117,15 @@ type ReportEntry struct {
 	// zero value must never be mistaken for "no PR exists" — that case has
 	// PRStale false and PRNumber/PRState empty.
 	PRStale bool `json:"pr_stale,omitempty"`
+	// StackStale is true when restack found this member's worktree diverged
+	// from origin/<branch> in a way it cannot safely repair — dirty, or
+	// holding a commit git cherry says is not yet upstream — and it is
+	// waiting for a human.
+	StackStale bool `json:"stack_stale,omitempty"`
+	// Removable is true once this member's pull request is MERGED: a
+	// reviewer merged on GitHub, so its worktree is safe to remove. Treepad
+	// never merges the pull request itself.
+	Removable bool `json:"removable,omitempty"`
 }
 
 // Report is the JSON shape for `--json` and the row source for the TUI: one
@@ -176,7 +185,7 @@ func Reconcile(ctx context.Context, d deps.Deps, in ReconcileInput) (Report, err
 	launch(ctx, d, in, report)
 	link(ctx, d, in, report, prs, stale)
 	restack(ctx, d, in, report)
-	retire(ctx, d, in, report)
+	retire(ctx, d, in, report, prs)
 
 	return report, nil
 }
@@ -302,13 +311,17 @@ func chainsOf(entries []ReportEntry) [][]batch.Member {
 	return chains
 }
 
-// restack repairs worktrees left behind by a merged member.
-// Not built in this ticket — a later ticket fills this in.
-func restack(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
-
-// retire marks a merged member's worktree removable.
-// Not built in this ticket — a later ticket fills this in.
-func retire(_ context.Context, _ deps.Deps, _ ReconcileInput, _ Report) {}
+// retire marks a member removable once its pull request is MERGED. Treepad
+// never merges (ADR 0003) — reviewers merge on github.com; this only notices,
+// via PR state, and marks the worktree safe to remove.
+func retire(_ context.Context, _ deps.Deps, _ ReconcileInput, report Report, prs map[string]batch.PR) {
+	for i := range report.Members {
+		e := &report.Members[i]
+		if pr, ok := prs[e.Branch]; ok && pr.State == "MERGED" {
+			e.Removable = true
+		}
+	}
+}
 
 // attachPRState fills in PRNumber, PRState and PRStale on each entry from
 // the tick's already-loaded PR data. It never fails Reconcile: --offline, gh
@@ -447,6 +460,12 @@ func formatReconcileRows(entries []ReportEntry) []string {
 		detail := e.WorktreePath
 		if e.Error != "" {
 			detail = e.Error
+		}
+		if e.StackStale {
+			detail += " (stack-stale)"
+		}
+		if e.Removable {
+			detail += " (removable)"
 		}
 		_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\t%s\n", e.Batch, e.Chain, e.Position, e.Branch, e.Action, detail)
 	}

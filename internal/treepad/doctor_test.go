@@ -53,9 +53,13 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("aaa111\n")},                       // git rev-parse main^{commit}
 			{Output: []byte("")},                               // git for-each-ref --merged (nothing)
 			{Output: recentCommitOutput("abc1234", "init")},    // log: main (recent)
-			{Output: []byte("")},                               // dirty: main (clean)
+			{Output: []byte("")},                               // dirty: main (age check)
+			{Output: []byte("")},                               // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")},                   // upstream: main (stack-stale check)
 			{Output: staleCommitOutput("def5678", "old work")}, // log: feat (stale)
-			{Output: []byte("")},                               // dirty: feat (clean)
+			{Output: []byte("")},                               // dirty: feat (age check)
+			{Output: []byte("")},                               // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")},                   // upstream: feat (stack-stale check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{
@@ -84,9 +88,13 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
 			{Output: []byte("")},         // git for-each-ref --merged
 			{Output: recentCommitOutput("abc1234", "init")},
-			{Output: []byte("")},                               // dirty: main clean
+			{Output: []byte("")},                               // dirty: main clean (age check)
+			{Output: []byte("")},                               // dirty: main clean (stack-stale check)
+			{Err: errors.New("no upstream")},                   // upstream: main (stack-stale check)
 			{Output: staleCommitOutput("def5678", "old work")}, // feat: stale
-			{Output: []byte("M file.go\n")},                    // dirty: feat dirty
+			{Output: []byte("M file.go\n")},                    // dirty: feat dirty (age check)
+			{Output: []byte("M file.go\n")},                    // dirty: feat dirty (stack-stale check)
+			{Err: errors.New("no upstream")},                   // upstream: feat (stack-stale check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{
@@ -110,15 +118,56 @@ func TestDoctor(t *testing.T) {
 		}
 	})
 
+	t.Run("stack-stale finding when diverged and not patch-equivalent", func(t *testing.T) {
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{Output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
+			{Output: []byte("")},                              // for-each-ref --merged
+			{Output: recentCommitOutput("abc1234", "init")},   // log: main
+			{Output: []byte("")},                              // dirty: main (age check)
+			{Output: []byte("")},                              // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: main (stack-stale check)
+			{Output: recentCommitOutput("def5678", "feat x")}, // log: feat
+			{Output: []byte("")},                              // dirty: feat (age check)
+			{Output: []byte("")},                              // dirty: feat (stack-stale check, clean)
+			{Output: []byte("origin/feat\n")},                 // upstream: feat (stack-stale check, has upstream)
+			{Output: []byte("2\t3\n")},                        // rev-list: feat (2 ahead, 3 behind: diverged)
+			{Output: []byte("+ abc999 msg\n")},                // cherry: a genuinely local commit
+		}}
+		var buf strings.Builder
+		d := deps.Deps{
+			Runner: runner,
+			Syncer: &treepadtest.FakeSyncer{},
+			Opener: &treepadtest.FakeOpener{},
+			Out:    &buf,
+		}
+
+		err := Doctor(context.Background(), d, offlineInput())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, "stack-stale") {
+			t.Errorf("output missing 'stack-stale' finding:\n%s", out)
+		}
+		if !strings.Contains(out, "feat") {
+			t.Errorf("output missing 'feat' branch:\n%s", out)
+		}
+	})
+
 	t.Run("merged-present finding when worktree branch is in merged set", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
 			{Output: []byte("aaa111\n")},                      // git rev-parse main^{commit}
 			{Output: []byte("feat bbb222\n")},                 // for-each-ref --merged: feat is merged
 			{Output: recentCommitOutput("abc1234", "init")},   // log: main
-			{Output: []byte("")},                              // dirty: main
+			{Output: []byte("")},                              // dirty: main (age check)
+			{Output: []byte("")},                              // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: main (stack-stale check)
 			{Output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{Output: []byte("")},                              // dirty: feat
+			{Output: []byte("")},                              // dirty: feat (age check)
+			{Output: []byte("")},                              // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: feat (stack-stale check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{
@@ -148,11 +197,16 @@ func TestDoctor(t *testing.T) {
 			{Output: []byte("")},                              // for-each-ref --merged: none
 			{Output: []byte(outputDir + "\n")},                // git rev-parse --git-common-dir (no manifests present)
 			{Output: recentCommitOutput("abc1234", "init")},   // log: main
-			{Output: []byte("")},                              // dirty: main
-			{Err: errors.New("no upstream")},                  // rev-parrse @{upstream}: main (none)
+			{Output: []byte("")},                              // dirty: main (age check)
+			{Output: []byte("")},                              // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: main (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: main (remote-gone check, none)
 			{Output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{Output: []byte("")},                              // dirty: feat
-			{Output: []byte("origin/feat\n")},                 // rev-parse @{upstream}: feat has upstream
+			{Output: []byte("")},                              // dirty: feat (age check)
+			{Output: []byte("")},                              // dirty: feat (stack-stale check)
+			{Output: []byte("origin/feat\n")},                 // upstream: feat (stack-stale check, has upstream)
+			{Output: []byte("0\t0\n")},                        // rev-list: feat (stack-stale check, in sync)
+			{Output: []byte("origin/feat\n")},                 // upstream: feat (remote-gone check, has upstream)
 			{Output: []byte("")},                              // ls-remote: empty → branch gone
 		}}
 		var buf strings.Builder
@@ -195,11 +249,15 @@ tickets = ["ENG-12"]
 			{Output: []byte(commonDir + "\n")},                // git rev-parse --git-common-dir (Manifests present)
 			{Err: errors.New("gh: command not found")},        // gh auth status
 			{Output: recentCommitOutput("abc1234", "init")},   // log: main
-			{Output: []byte("")},                              // dirty: main
-			{Err: errors.New("no upstream")},                  // rev-parse @{upstream}: main (none)
+			{Output: []byte("")},                              // dirty: main (age check)
+			{Output: []byte("")},                              // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: main (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: main (remote-gone check)
 			{Output: recentCommitOutput("def5678", "feat x")}, // log: feat
-			{Output: []byte("")},                              // dirty: feat
-			{Err: errors.New("no upstream")},                  // rev-parse @{upstream}: feat (none)
+			{Output: []byte("")},                              // dirty: feat (age check)
+			{Output: []byte("")},                              // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: feat (stack-stale check)
+			{Err: errors.New("no upstream")},                  // upstream: feat (remote-gone check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{
@@ -225,9 +283,13 @@ tickets = ["ENG-12"]
 			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
 			{Output: []byte("")},         // git for-each-ref --merged
 			{Output: recentCommitOutput("abc1234", "init")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: main (age check)
+			{Output: []byte("")},             // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: main (stack-stale check)
 			{Output: recentCommitOutput("def5678", "feat x")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: feat (age check)
+			{Output: []byte("")},             // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: feat (stack-stale check)
 		}}
 		d := deps.Deps{
 			Runner: runner,
@@ -240,9 +302,9 @@ tickets = ["ENG-12"]
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// All 7 calls consumed; any 8th would trip seqRunner's out-of-bounds guard.
-		if runner.Idx != 7 {
-			t.Errorf("runner called %d times, want 7 (rev-parse/ls-remote must be skipped)", runner.Idx)
+		// All 11 calls consumed; any 12th would trip seqRunner's out-of-bounds guard.
+		if runner.Idx != 11 {
+			t.Errorf("runner called %d times, want 11 (ls-remote must be skipped under --offline)", runner.Idx)
 		}
 	})
 
@@ -252,9 +314,13 @@ tickets = ["ENG-12"]
 			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
 			{Output: []byte("")},         // git for-each-ref --merged
 			{Output: recentCommitOutput("abc1234", "init")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: main (age check)
+			{Output: []byte("")},             // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: main (stack-stale check)
 			{Output: recentCommitOutput("def5678", "feat x")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: feat (age check)
+			{Output: []byte("")},             // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: feat (stack-stale check)
 		}}
 		// outputDir has no artifact files on disk → both worktrees flagged missing.
 		emptyOutputDir := t.TempDir()
@@ -292,9 +358,13 @@ tickets = ["ENG-12"]
 			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
 			{Output: []byte("")},         // git for-each-ref --merged
 			{Output: recentCommitOutput("abc1234", "init")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: main (age check)
+			{Output: []byte("")},             // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: main (stack-stale check)
 			{Output: recentCommitOutput("def5678", "feat x")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: feat (age check)
+			{Output: []byte("")},             // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: feat (stack-stale check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{
@@ -330,9 +400,13 @@ tickets = ["ENG-12"]
 			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
 			{Output: []byte("")},         // git for-each-ref --merged
 			{Output: recentCommitOutput("abc1234", "init")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: main (age check)
+			{Output: []byte("")},             // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: main (stack-stale check)
 			{Output: recentCommitOutput("def5678", "feat x")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: feat (age check)
+			{Output: []byte("")},             // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: feat (stack-stale check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{
@@ -360,9 +434,13 @@ tickets = ["ENG-12"]
 			{Output: []byte("aaa111\n")},      // git rev-parse main^{commit}
 			{Output: []byte("feat bbb222\n")}, // for-each-ref --merged: feat merged
 			{Output: recentCommitOutput("abc1234", "init")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: main (age check)
+			{Output: []byte("")},             // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: main (stack-stale check)
 			{Output: recentCommitOutput("def5678", "feat x")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: feat (age check)
+			{Output: []byte("")},             // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: feat (stack-stale check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{
@@ -396,9 +474,13 @@ tickets = ["ENG-12"]
 			{Output: []byte("aaa111\n")},      // git rev-parse main^{commit}
 			{Output: []byte("feat bbb222\n")}, // for-each-ref --merged: feat merged → finding
 			{Output: recentCommitOutput("abc1234", "init")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: main (age check)
+			{Output: []byte("")},             // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: main (stack-stale check)
 			{Output: recentCommitOutput("def5678", "feat x")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: feat (age check)
+			{Output: []byte("")},             // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: feat (stack-stale check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{
@@ -431,9 +513,13 @@ tickets = ["ENG-12"]
 			{Output: []byte("aaa111\n")}, // git rev-parse main^{commit}
 			{Output: []byte("")},         // git for-each-ref --merged
 			{Output: recentCommitOutput("abc1234", "init")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: main (age check)
+			{Output: []byte("")},             // dirty: main (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: main (stack-stale check)
 			{Output: recentCommitOutput("def5678", "feat x")},
-			{Output: []byte("")},
+			{Output: []byte("")},             // dirty: feat (age check)
+			{Output: []byte("")},             // dirty: feat (stack-stale check)
+			{Err: errors.New("no upstream")}, // upstream: feat (stack-stale check)
 		}}
 		var buf strings.Builder
 		d := deps.Deps{

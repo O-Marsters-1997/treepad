@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
 	"github.com/O-Marsters-1997/treepad/internal/slug"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
@@ -85,6 +86,7 @@ func TestStatus(t *testing.T) {
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},                        // git worktree list
+			{Output: []byte(outputDir + "\n")},         // rev-parse --git-common-dir: no Batch Manifests
 			{Output: []byte("")},                       // dirty: main (clean)
 			{Output: []byte("origin/main\n")},          // rev-parse @{upstream}: main
 			{Output: []byte("0\t1\n")},                 // rev-list: main (0↑ 1↓)
@@ -103,8 +105,8 @@ func TestStatus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if runner.Idx != 8 {
-			t.Errorf("runner called %d times, want 8", runner.Idx)
+		if runner.Idx != 9 {
+			t.Errorf("runner called %d times, want 9", runner.Idx)
 		}
 		out := buf.String()
 		for _, want := range []string{"BRANCH", "main", "feat", "clean", "dirty", "↑0 ↓1", "—", "abc1234", "def5678"} {
@@ -117,6 +119,7 @@ func TestStatus(t *testing.T) {
 	t.Run("json flag emits JSON array", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
+			{Output: []byte(outputDir + "\n")}, // rev-parse --git-common-dir
 			{Output: []byte("")},
 			{Err: errors.New("no upstream")},
 			{Output: commitOutput("abc1234", "init")},
@@ -150,6 +153,7 @@ func TestStatus(t *testing.T) {
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelainWithPrunable},           // git worktree list
+			{Output: []byte(outputDir + "\n")},        // rev-parse --git-common-dir
 			{Output: []byte("")},                      // dirty: main (clean)
 			{Output: []byte("origin/main\n")},         // rev-parse @{upstream}: main
 			{Output: []byte("0\t0\n")},                // rev-list: main
@@ -165,9 +169,9 @@ func TestStatus(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		// Only 5 runner calls: list + 4 for main. No calls for the prunable worktree.
-		if runner.Idx != 5 {
-			t.Errorf("runner called %d times, want 5 (no git calls for prunable)", runner.Idx)
+		// Only 6 runner calls: list + common-dir + 4 for main. No calls for the prunable worktree.
+		if runner.Idx != 6 {
+			t.Errorf("runner called %d times, want 6 (no git calls for prunable)", runner.Idx)
 		}
 		out := buf.String()
 		for _, want := range []string{"stale-branch", "prunable", "gitdir file points to non-existent location", "tp prune"} {
@@ -193,6 +197,7 @@ func TestStatus(t *testing.T) {
 			name: "dirty probe fails",
 			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 				{Output: porcelain},
+				{Output: []byte(outputDir + "\n")}, // rev-parse --git-common-dir
 				{Err: errors.New("status failed")},
 			}},
 			wantErr: "status failed",
@@ -201,9 +206,10 @@ func TestStatus(t *testing.T) {
 			name: "last commit probe fails",
 			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 				{Output: porcelain},
-				{Output: []byte("")},             // dirty: clean
-				{Err: errors.New("no upstream")}, // no upstream
-				{Err: errors.New("log failed")},  // log fails
+				{Output: []byte(outputDir + "\n")}, // rev-parse --git-common-dir
+				{Output: []byte("")},               // dirty: clean
+				{Err: errors.New("no upstream")},   // no upstream
+				{Err: errors.New("log failed")},    // log fails
 			}},
 			wantErr: "log failed",
 		},
@@ -287,6 +293,24 @@ func TestDeriveStatus(t *testing.T) {
 			name:      "diverged",
 			row:       StatusRow{Branch: "feat", HasUpstream: true, Ahead: 3, Behind: 1},
 			wantLabel: "diverged · ↑3 ↓1", wantKey: "diverged",
+		},
+		{
+			name:      "stack-stale takes priority over diverged",
+			row:       StatusRow{Branch: "feat", HasUpstream: true, Ahead: 3, Behind: 1},
+			health:    healthFlags{StackStale: true},
+			wantLabel: "stack-stale · ↑3 ↓1", wantKey: "stack-stale",
+		},
+		{
+			name:      "dirty takes priority over stack-stale",
+			row:       StatusRow{Branch: "feat", Dirty: true, HasUpstream: true, Ahead: 3, Behind: 1},
+			health:    healthFlags{StackStale: true},
+			wantLabel: "dirty · ↑3 ↓1", wantKey: "dirty",
+		},
+		{
+			name:      "merged takes priority over stack-stale",
+			row:       StatusRow{Branch: "feat", HasUpstream: true, Ahead: 3, Behind: 1},
+			health:    healthFlags{Merged: true, StackStale: true},
+			wantLabel: "merged (safe rm)", wantKey: "merged",
 		},
 		{
 			name:      "ahead",
@@ -446,6 +470,101 @@ func TestUiBuildSummary(t *testing.T) {
 	})
 }
 
+func TestComputeHealthStackStale(t *testing.T) {
+	rows := []StatusRow{
+		{Branch: "clean-feat", Path: "/repo/clean-feat", HasUpstream: true, Ahead: 0, Behind: 0},
+		{Branch: "ahead-feat", Path: "/repo/ahead-feat", HasUpstream: true, Ahead: 4, Behind: 0},
+		{Branch: "stale-feat", Path: "/repo/stale-feat", HasUpstream: true, Ahead: 2, Behind: 3},
+	}
+	runner := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+		{Output: []byte("deadbeef\n")},      // rev-parse origin/main^{commit}
+		{Output: []byte("")},                // for-each-ref --merged
+		{Output: []byte("+ abc1234 msg\n")}, // git cherry origin/stale-feat stale-feat: genuinely local commit
+	}}}
+	d := deps.Deps{Runner: runner}
+
+	health, err := computeHealth(context.Background(), d, rows)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if health["clean-feat"].StackStale {
+		t.Error("clean-feat (in-sync) should not be stack-stale")
+	}
+	if health["ahead-feat"].StackStale {
+		t.Error("ahead-feat (ahead-only) should not be stack-stale")
+	}
+	if !health["stale-feat"].StackStale {
+		t.Error("stale-feat (diverged, non-patch-equivalent) should be stack-stale")
+	}
+
+	cherryCalls := 0
+	for _, c := range runner.Calls {
+		for _, arg := range c {
+			if arg == "cherry" {
+				cherryCalls++
+			}
+		}
+	}
+	if cherryCalls != 1 {
+		t.Errorf("git cherry called %d times, want 1 (only for the diverged branch)", cherryCalls)
+	}
+}
+
+func TestBatchMembersByBranch(t *testing.T) {
+	mainPath, commonDir := setupReconcileRepo(t)
+	writeReconcileManifest(t, commonDir, "silent-refresh.toml", `
+name = "silent-refresh"
+branch_prefix = "feat/"
+base = "main"
+[[chain]]
+tickets = ["ENG-12", "ENG-13"]
+`)
+	runner := newReconcileFakeRunner(mainPath, commonDir)
+	d := reconcileDeps(runner)
+	cfg, err := config.Load(mainPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	members, err := batchMembersByBranch(context.Background(), d, cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	m, ok := members["feat/eng-13"]
+	if !ok {
+		t.Fatal("expected feat/eng-13 to resolve to a Member")
+	}
+	if m.Batch != "silent-refresh" || m.Chain != 0 || m.Position != 1 {
+		t.Errorf("got Batch=%q Chain=%d Position=%d, want silent-refresh/0/1", m.Batch, m.Chain, m.Position)
+	}
+}
+
+func TestCollectStatusRowsBatchFields(t *testing.T) {
+	rc := repo.Context{
+		Worktrees: []worktree.Worktree{
+			{Branch: "main", Path: "/repo/main", IsMain: true, Prunable: true, PrunableReason: "gone"},
+			{Branch: "feat/eng-13", Path: "/repo/feat", Prunable: true, PrunableReason: "gone"},
+		},
+		Main: worktree.Worktree{Branch: "main", Path: "/repo/main", IsMain: true},
+	}
+	members := map[string]batch.Member{
+		"feat/eng-13": {Batch: "silent-refresh", Chain: 0, Position: 1},
+	}
+	rows, err := collectStatusRows(context.Background(), deps.Deps{}, rc, config.ArtifactConfig{}, members)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var featRow StatusRow
+	for _, r := range rows {
+		if r.Branch == "feat/eng-13" {
+			featRow = r
+		}
+	}
+	if featRow.Batch != "silent-refresh" || featRow.Chain != 0 || featRow.Position != 1 {
+		t.Errorf("got Batch=%q Chain=%d Position=%d, want silent-refresh/0/1", featRow.Batch, featRow.Chain, featRow.Position)
+	}
+}
+
 func TestCollectStatusRowsMainFirst(t *testing.T) {
 	// Git may list worktrees in any order. collectStatusRows must pin IsMain first.
 	rc := repo.Context{
@@ -455,7 +574,7 @@ func TestCollectStatusRowsMainFirst(t *testing.T) {
 		},
 		Main: worktree.Worktree{Branch: "main", Path: "/repo/main", IsMain: true},
 	}
-	rows, err := collectStatusRows(context.Background(), deps.Deps{}, rc, config.ArtifactConfig{})
+	rows, err := collectStatusRows(context.Background(), deps.Deps{}, rc, config.ArtifactConfig{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
