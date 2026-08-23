@@ -4,6 +4,7 @@ package lifecycle
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -29,11 +30,14 @@ import (
 )
 
 // CreateResult holds the output of a successful worktree creation.
+// PostErr is non-nil when a post hook failed: the worktree exists and is
+// complete, and the caller decides whether a failed post hook matters to it.
 type CreateResult struct {
 	RC           repo.Context
 	Cfg          config.Config
 	WorktreePath string
 	ArtifactPath string
+	PostErr      *hook.PostErr
 }
 
 // CreateWorktreeWithSync creates a worktree, syncs configs, and writes the artifact.
@@ -64,6 +68,7 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 	}
 
 	var artifactPath string
+	var syncPostErr *hook.PostErr
 	postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, hook.PreNew, hook.PostNew, hData, func() error {
 		addDone := p.Stage("git.worktree_add")
 		_, addErr := d.Runner.Run(ctx, "git", "worktree", "add", "--no-checkout", "-b", branch, worktreePath, base)
@@ -89,7 +94,7 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 		})
 		g.Go(func() error {
 			var err error
-			newCfg, err = LoadAndSync(gctx, d, rc.Main.Path, &cfg, nil,
+			newCfg, syncPostErr, err = LoadAndSync(gctx, d, rc.Main.Path, &cfg, nil,
 				[]SyncTarget{{Path: worktreePath, Branch: branch}}, rc.Slug, rc.OutputDir)
 			return err
 		})
@@ -125,6 +130,7 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 		Cfg:          cfg,
 		WorktreePath: worktreePath,
 		ArtifactPath: artifactPath,
+		PostErr:      cmp.Or(postErr, syncPostErr),
 	}, nil
 }
 
@@ -152,12 +158,14 @@ func OpenWorktree(
 }
 
 // LoadAndSync syncs configs to all targets. When preloaded is non-nil it is
-// used as-is, otherwise config is loaded from sourceDir.
+// used as-is, otherwise config is loaded from sourceDir. The returned
+// *hook.PostErr is the first post-sync hook failure, already logged as a
+// warning; syncing continued past it.
 func LoadAndSync(
 	ctx context.Context, d deps.Deps, sourceDir string,
 	preloaded *config.Config, extraPatterns []string, targets []SyncTarget,
 	repoSlug, outputDir string,
-) (config.Config, error) {
+) (config.Config, *hook.PostErr, error) {
 	p := profile.OrDisabled(d.Profiler)
 
 	var cfg config.Config
@@ -167,18 +175,19 @@ func LoadAndSync(
 		var err error
 		cfg, err = config.Load(sourceDir)
 		if err != nil {
-			return config.Config{}, fmt.Errorf("load config: %w", err)
+			return config.Config{}, nil, fmt.Errorf("load config: %w", err)
 		}
 	}
 
 	if len(targets) == 0 {
-		return cfg, nil
+		return cfg, nil, nil
 	}
 
 	patterns := slices.Concat(cfg.Sync.Include, extraPatterns)
 	slog.Debug("sync patterns", "patterns", patterns)
 
 	d.Log.Step("syncing configs to worktrees...")
+	var firstPostErr *hook.PostErr
 	for _, t := range targets {
 		d.Log.Info("→ %s (%s)", t.Branch, t.Path)
 		hData := hook.Data{
@@ -204,12 +213,13 @@ func LoadAndSync(
 		})
 		if postErr != nil {
 			d.Log.Warn("%s", postErr)
+			firstPostErr = cmp.Or(firstPostErr, postErr)
 		}
 		if err != nil {
-			return config.Config{}, err
+			return config.Config{}, nil, err
 		}
 	}
-	return cfg, nil
+	return cfg, firstPostErr, nil
 }
 
 // RemoveWorktreeAndArtifact removes a git worktree, its artifact, and its branch.

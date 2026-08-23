@@ -79,7 +79,7 @@ func Generate(ctx context.Context, d deps.Deps, in GenerateInput) error {
 		targets = matched
 	}
 
-	cfg, err := lifecycle.LoadAndSync(
+	cfg, _, err := lifecycle.LoadAndSync(
 		ctx,
 		deps.Deps{
 			Runner:     d.Runner,

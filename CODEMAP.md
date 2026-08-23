@@ -2,6 +2,18 @@
 
 This document describes the architecture and module organization.
 
+## Library Facade (`treepad`, module root)
+
+Public Go API for callers that import treepad instead of running `tp`. A sibling of the CLI: both adapt over `lifecycle.CreateWorktreeWithSync`, so a cut made here is indistinguishable from `tp new` — config sync runs and lifecycle hooks fire. See [ADR 0004](docs/adr/0004-treepad-exposes-a-library-facade.md).
+
+### `treepad.go`
+
+- `NewOptions` struct — `Branch` (required), `Base`, `RepoDir` (required, absolute), `OutputDir` (empty means `$HOME/<slug>-workspaces`), `Stderr` (nil discards the narrative)
+- `Worktree` struct — `Path`, `Branch`, `BaseSHA`
+- `ErrPostHook` — returned wrapped when a post hook fails; the returned `Worktree` is still complete and on disk
+- `New(ctx, NewOptions) (Worktree, error)` — resolves `Base` to a SHA before creating anything, then delegates to `lifecycle.CreateWorktreeWithSync`
+- Cuts are serialised per repository by a process-local mutex keyed on the main worktree path
+
 ## Entry Point
 
 **`cmd/tp/main.go`** — CLI bootstrap
@@ -278,15 +290,16 @@ Business logic entry points. Each public function is a standalone top-level func
   - `IsTerminal func(w io.Writer) bool` — injectable TTY check
   - `CDSentinel func() io.Writer` — test override for the fd-3 cd sentinel writer
 - `DefaultDeps(out, errw io.Writer, in io.Reader) Deps` — wires production implementations; `Profiler` defaults to `profile.Disabled()`
+- `DefaultDepsIn(dir string, out, errw io.Writer, in io.Reader) Deps` — `DefaultDeps` with every git, hook and open command run in `dir`; used by the library facade, which names a repo rather than standing in it
 
 ### `internal/treepad/lifecycle/`
 
 Owns the worktree creation, removal, and pruning verbs.
 
-- `CreateResult` struct — `RC repo.Context`, `Cfg config.Config`, `WorktreePath`, `ArtifactPath`
+- `CreateResult` struct — `RC repo.Context`, `Cfg config.Config`, `WorktreePath`, `ArtifactPath`, `PostErr *hook.PostErr` (non-nil when a post hook failed; the worktree is complete either way)
 - `SyncTarget` struct — `Path`, `Branch`
 - `CreateWorktreeWithSync(ctx, deps.Deps, branch, base, outputDir) (CreateResult, error)` — runs `git worktree add`, syncs configs, writes artifact; fires `pre_new`/`post_new` hooks
-- `LoadAndSync(ctx, deps.Deps, sourceDir, extraPatterns, []SyncTarget, repoSlug, outputDir) (config.Config, error)` — loads config, syncs files to all targets; fires `pre_sync`/`post_sync` per target
+- `LoadAndSync(ctx, deps.Deps, sourceDir, extraPatterns, []SyncTarget, repoSlug, outputDir) (config.Config, *hook.PostErr, error)` — loads config, syncs files to all targets; fires `pre_sync`/`post_sync` per target
 - `OpenWorktree(ctx, deps.Deps, openCmd, branch, wtPath, artifactPath, outputDir) error` — opens artifact (or worktree dir) via configured open command
 - `RemoveWorktreeAndArtifact(ctx, deps.Deps, target, main worktree.Worktree, outputDir string, force bool) error` — `git worktree remove [--force]`, deletes artifact, `git branch -d` (or `-D`); fires `pre_remove`/`post_remove` hooks
 - `New(ctx, deps.Deps, NewInput) (mainPath string, error)` — calls `CreateWorktreeWithSync`, optionally opens artifact, emits cd sentinel unless `Current=true`
@@ -379,7 +392,7 @@ Wrapper around git worktree operations.
 
 - `Worktree` struct — represents a single git worktree with Path, Branch, etc.
 - `CommitInfo` struct — summary of a git commit: `ShortSHA`, `Subject`, `Committed` (time.Time)
-- `ExecRunner` — executes `git` commands (dependency injection)
+- `ExecRunner` — executes `git` commands (dependency injection); `Dir` sets the working directory, empty inherits the process one
 - `List(ctx, runner)` — lists all worktrees in a repo
 - `MainWorktree(worktrees)` — returns the main worktree (contains `.git` directory)
 - `MergedBranches(ctx, runner, base string)` — returns local branches merged into base (excluding base itself)
