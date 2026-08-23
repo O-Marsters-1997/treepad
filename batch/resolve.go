@@ -14,13 +14,14 @@ import (
 const noTicketURLHint = "set [from_spec] ticket_url in .treepad.toml, or pass the full ticket URL."
 
 // Member is a Chain member resolved against config: one Ticket, its Ref, the
-// branch it seeds, and the base that branch is created from.
+// branch it seeds, and the base that branch is created from. Base at position 0
+// is Chain.Base or Manifest.Base, at every later position the previous Branch.
 type Member struct {
 	Ticket    string `json:"ticket"`
 	Ref       string `json:"ref"`
 	TicketURL string `json:"ticket_url"`
 	Branch    string `json:"branch"`
-	Base      string `json:"base"` // Chain position 0 -> Manifest.Base; otherwise the previous member's Branch
+	Base      string `json:"base"`
 	Batch     string `json:"batch"`
 	Chain     int    `json:"chain"`
 	Position  int    `json:"position"`
@@ -33,6 +34,9 @@ func Resolve(m Manifest, ticketURLTmpl string) ([][]Member, error) {
 	for ci, chain := range m.Chains {
 		members := make([]Member, len(chain.Tickets))
 		base := m.Base
+		if chain.Base != "" {
+			base = chain.Base
+		}
 		for pi, ticket := range chain.Tickets {
 			ticketURL, ref, err := ResolveTicket(ticketURLTmpl, ticket)
 			if err != nil {
