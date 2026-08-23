@@ -163,6 +163,61 @@ func TestResolve(t *testing.T) {
 		}
 	})
 
+	t.Run("Chain.Base roots a fan-out on another Chain's branch", func(t *testing.T) {
+		m := Manifest{
+			Name:         "tp-ui",
+			BranchPrefix: "feat/",
+			Base:         "main",
+			Chains: []Chain{
+				{Tickets: []string{"70"}},
+				{Base: "feat/70", Tickets: []string{"71", "73"}},
+				{Base: "feat/70", Tickets: []string{"72"}},
+			},
+		}
+		tmpl := "https://github.com/me/treepad/issues/{{.Ref}}"
+
+		chains, err := Resolve(m, tmpl)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		bases := map[string]string{}
+		for _, chain := range chains {
+			for _, mem := range chain {
+				bases[mem.Branch] = mem.Base
+			}
+		}
+
+		want := map[string]string{
+			"feat/70": "main",
+			"feat/71": "feat/70",
+			"feat/73": "feat/71",
+			"feat/72": "feat/70",
+		}
+		for branch, wantBase := range want {
+			if got := bases[branch]; got != wantBase {
+				t.Errorf("%s base = %q, want %q", branch, got, wantBase)
+			}
+		}
+	})
+
+	t.Run("an empty Chain.Base inherits Manifest.Base", func(t *testing.T) {
+		m := Manifest{
+			Name:         "inherit",
+			BranchPrefix: "feat/",
+			Base:         "develop",
+			Chains:       []Chain{{Tickets: []string{"ENG-12"}}},
+		}
+
+		chains, err := Resolve(m, "https://linear.app/acme/issue/{{.Ref}}")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := chains[0][0].Base; got != "develop" {
+			t.Errorf("base = %q, want %q", got, "develop")
+		}
+	})
+
 	t.Run("a ticket that fails to resolve errors naming both fixes", func(t *testing.T) {
 		m := Manifest{
 			BranchPrefix: "feat/",

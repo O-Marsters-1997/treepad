@@ -31,8 +31,13 @@ type Manifest struct {
 	Chains       []Chain `toml:"chain"`
 }
 
-// Chain is an ordered run of Tickets, each worktree branched from the one before it.
+// Chain is an ordered run of Tickets, each worktree branched from the one
+// before it. Base overrides where position 0 branches from; empty inherits
+// Manifest.Base. Setting it to another Chain's branch is how a fan-out is
+// declared — several Chains rooted on one shared parent, which a single linear
+// Chain cannot express.
 type Chain struct {
+	Base    string   `toml:"base"`
 	Tickets []string `toml:"tickets"`
 }
 

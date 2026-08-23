@@ -174,6 +174,10 @@ tickets = ["ENG-12", "ENG-13"]
 tickets = ["ENG-14"]
 ```
 
+A Chain is strictly linear, so several Tickets sharing one parent need a `base` per Chain instead:
+`base = "feat/eng-12"` roots a Chain on another Chain's branch, which is how a fan-out is declared.
+See [docs/commands.md](docs/commands.md) for the caveat on ordering.
+
 `tp batch sync` materialises each Chain's worktrees in order and links ready pull requests into a
 GitHub **Stack** with `gh stack link` — requires `gh` installed and authenticated; without it, only
 each Chain's first member materialises and the rest report `gh-required`. Configure `[batch] launch`

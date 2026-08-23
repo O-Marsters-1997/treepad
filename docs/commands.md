@@ -147,9 +147,40 @@ tickets = ["ENG-14"]
 | `branch_prefix` | string | Prefix prepended to each member's slugified Ref (default: `feat/`). |
 | `base` | string | Ref the first member of every Chain branches from (default: `main`). |
 | `[[chain]]` | table array | One entry per Chain. Each Chain's `tickets` array is ordered — position 0 branches from `base`, every later position branches from the member before it. |
+| `[[chain]].base` | string | Overrides the Manifest's `base` for this Chain's position 0 only. Omit to inherit. |
 
 A Chain of one Ticket never becomes a Stack. Chains within a Batch have no ordering between them and
 run in parallel.
+
+#### Declaring a fan-out
+
+A Chain is strictly linear, so several Tickets that all depend on one shared parent have no home in a
+single Chain. Point each sibling's `base` at the parent's branch instead:
+
+```toml
+name = "tp-ui"
+
+[[chain]]
+tickets = ["70"]
+
+[[chain]]
+base    = "feat/70"
+tickets = ["71", "73"]
+
+[[chain]]
+base    = "feat/70"
+tickets = ["72"]
+```
+
+`feat/71` and `feat/72` both branch from `feat/70` and run concurrently rather than queueing behind
+each other. Position 1 onwards is unaffected: `feat/73` still branches from `feat/71`.
+
+**A sibling Chain does not wait for its parent's pull request.** Position 0 of every Chain is
+unconditionally ready, so the first `tp batch sync` creates `feat/70` and reports an error against
+`feat/71` and `feat/72` whose base does not exist yet. The next tick creates both, because the branch
+is there by then. Sync is idempotent and a failing member stops only its own Chain, so this resolves
+itself, but expect one tick of errors and note that siblings start against the parent's current tip
+rather than against a reviewable pull request. Position 1 onwards keeps the full pull request gate.
 
 > **Chain depth is a review-latency multiplier.** Layer five cannot land until four reviews complete
 > below it, and every merge below rewrites the base under the agents above. Deep Chains optimise
