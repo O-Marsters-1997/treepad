@@ -43,5 +43,6 @@ func Remove(ctx context.Context, d deps.Deps, in RemoveInput) error {
 		return fmt.Errorf("cannot remove the worktree you are currently in; cd elsewhere first")
 	}
 
-	return RemoveWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, in.Force)
+	_, err = RemoveWorktreeAndArtifact(ctx, d, found, rc.Main, rc.OutputDir, in.Force)
+	return err
 }

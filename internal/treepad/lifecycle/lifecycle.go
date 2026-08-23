@@ -223,17 +223,19 @@ func LoadAndSync(
 }
 
 // RemoveWorktreeAndArtifact removes a git worktree, its artifact, and its branch.
+// A non-nil *hook.PostErr means the removal itself succeeded and only the post
+// hook failed; it is logged as a warning here, so a CLI caller can discard it.
 func RemoveWorktreeAndArtifact(
 	ctx context.Context, d deps.Deps,
 	target, main worktree.Worktree,
 	outputDir string, force bool,
-) error {
+) (*hook.PostErr, error) {
 	p := profile.OrDisabled(d.Profiler)
 	configLoadDone := p.Stage("config.load")
 	cfg, err := config.Load(main.Path)
 	configLoadDone()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return nil, fmt.Errorf("load config: %w", err)
 	}
 	return doRemove(ctx, d, target, main, outputDir, force, cfg)
 }
@@ -242,7 +244,7 @@ func doRemove(
 	ctx context.Context, d deps.Deps,
 	target, main worktree.Worktree,
 	outputDir string, force bool, cfg config.Config,
-) error {
+) (*hook.PostErr, error) {
 	p := profile.OrDisabled(d.Profiler)
 
 	removeArgs := []string{"worktree", "remove", target.Path}
@@ -317,7 +319,7 @@ func doRemove(
 	if postErr != nil {
 		d.Log.Warn("%s", postErr)
 	}
-	return err
+	return postErr, err
 }
 
 func gatherMerged(ctx context.Context, d deps.Deps, rc repo.Context, cwd, base string) (pruneSelection, error) {
@@ -457,7 +459,7 @@ func executePrune(ctx context.Context, d deps.Deps, rc repo.Context, sel pruneSe
 		g.Go(func() error {
 			bufDeps := d
 			bufDeps.Log = ui.New(&bufs[i])
-			if err := doRemove(gctx, bufDeps, c, rc.Main, rc.OutputDir, sel.force, cfg); err != nil {
+			if _, err := doRemove(gctx, bufDeps, c, rc.Main, rc.OutputDir, sel.force, cfg); err != nil {
 				bufDeps.Log.Err("error removing %s: %v", c.Branch, err)
 				errs[i] = err
 			}

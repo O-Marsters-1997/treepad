@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/O-Marsters-1997/treepad/internal/hook"
 	"github.com/O-Marsters-1997/treepad/internal/slug"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/treepadtest"
+	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
 
 func TestRemove(t *testing.T) {
@@ -242,4 +244,39 @@ func TestRemove(t *testing.T) {
 			t.Errorf("runner called %d times after guard, want 1 (list only)", runner.Idx)
 		}
 	})
+}
+
+func TestRemoveWorktreeAndArtifactSurfacesPostErr(t *testing.T) {
+	mainPath := makeMainWorktree(t)
+	featPath := mainPath + "-feat"
+	writeTOML(t, mainPath, "[[hooks.post_remove]]\ncommand = \"fail\"\n")
+
+	runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+		{}, // git worktree remove
+		{}, // git branch -d
+	}}
+	var warnings strings.Builder
+	d := deps.Deps{
+		Runner:     runner,
+		Syncer:     &treepadtest.FakeSyncer{},
+		Opener:     &treepadtest.FakeOpener{},
+		HookRunner: &treepadtest.FakeHookRunner{Err: errors.New("hook exploded")},
+		Log:        treepadtest.NewPrinter(&warnings),
+	}
+	target := worktree.Worktree{Path: featPath, Branch: "feat"}
+	main := worktree.Worktree{Path: mainPath, Branch: "main", IsMain: true}
+
+	postErr, err := RemoveWorktreeAndArtifact(context.Background(), d, target, main, t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postErr == nil {
+		t.Fatal("PostErr is nil, want the post-hook failure")
+	}
+	if postErr.Event != hook.PostRemove {
+		t.Errorf("PostErr.Event = %q, want %q", postErr.Event, hook.PostRemove)
+	}
+	if got := strings.Count(warnings.String(), "[WARN]"); got != 1 {
+		t.Errorf("logged %d [WARN] lines, want 1:\n%s", got, warnings.String())
+	}
 }
