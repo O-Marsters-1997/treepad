@@ -16,10 +16,34 @@ stdout 'INTERACTIVE-HOOK-OUTPUT'
 exists quiet.marker
 exists interactive.marker
 
+# The library refuses interactive hooks on new and remove; the CLI still gives
+# them its stdio. (Under -tags=e2e that is testscript's stdout rather than a
+# real /dev/tty, which is as close as this harness gets.)
+cp $WORK/newremove.toml .treepad.toml
+exec tp new feature-x
+stdout 'INTERACTIVE-PRE-NEW'
+stdout 'INTERACTIVE-POST-NEW'
+
+exec tp remove feature-x
+stdout 'INTERACTIVE-PRE-REMOVE'
+
 -- global.toml --
 [[hooks.post_config_init]]
 command = "echo QUIET-HOOK-OUTPUT; touch quiet.marker"
 
 [[hooks.post_config_init]]
 command = "echo INTERACTIVE-HOOK-OUTPUT; touch interactive.marker"
+interactive = true
+
+-- newremove.toml --
+[[hooks.pre_new]]
+command = "echo INTERACTIVE-PRE-NEW"
+interactive = true
+
+[[hooks.post_new]]
+command = "echo INTERACTIVE-POST-NEW"
+interactive = true
+
+[[hooks.pre_remove]]
+command = "echo INTERACTIVE-PRE-REMOVE"
 interactive = true

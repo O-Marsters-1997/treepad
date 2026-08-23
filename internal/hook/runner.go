@@ -32,7 +32,7 @@ func (e ExecRunner) Run(ctx context.Context, hooks []HookEntry, data Data) error
 		return fmt.Errorf("hooks are not supported on Windows")
 	}
 	for _, entry := range hooks {
-		if !shouldRun(entry, data.Branch) {
+		if !ShouldRun(entry, data.Branch) {
 			continue
 		}
 		rendered, err := renderCommand(entry.Command, data)

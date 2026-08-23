@@ -41,20 +41,22 @@ type Deps struct {
 // DefaultDeps wires production implementations. It is the single composition
 // root for callers that do not need custom dependencies.
 func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
-	return DefaultDepsIn("", out, errw, in)
+	return DefaultDepsIn("", out, errw, in, passthrough.OSRunner{})
 }
 
-// DefaultDepsIn is DefaultDeps with every git, hook and open command run in dir.
-// An empty dir inherits the process working directory, which is what a caller
-// standing in the repo wants.
-func DefaultDepsIn(dir string, out, errw io.Writer, in io.Reader) Deps {
+// DefaultDepsIn is DefaultDeps with every git, hook and open command run in dir,
+// and pt behind everything that wants the caller's terminal. An empty dir
+// inherits the process working directory, which is what a caller standing in the
+// repo wants. A library caller passes a pt that refuses, so one composition root
+// still decides what every other dependency is.
+func DefaultDepsIn(dir string, out, errw io.Writer, in io.Reader, pt passthrough.Runner) Deps {
 	runner := worktree.ExecRunner{Dir: dir}
 	return Deps{
 		Runner:     runner,
 		Syncer:     internalsync.FileSyncer{},
 		Opener:     artifact.ExecOpener{Runner: runner},
-		HookRunner: hook.ExecRunner{Runner: runner, TTY: passthrough.OSRunner{}},
-		PTRunner:   passthrough.OSRunner{},
+		HookRunner: hook.ExecRunner{Runner: runner, TTY: pt},
+		PTRunner:   pt,
 		Launcher:   launcher.ProcessLauncher{},
 		Profiler:   profile.Disabled(),
 		Out:        out,

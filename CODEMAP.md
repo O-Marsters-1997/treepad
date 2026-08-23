@@ -16,7 +16,9 @@ Public Go API for callers that import treepad instead of running `tp`. A sibling
 - `ErrNotFound` — no worktree on the branch, so a second `Remove` of the same branch is idempotent
 - `ErrDirty` — uncommitted changes in the target; nothing is touched, and `Force` does not override it
 - `Remove(ctx, RemoveOptions) error` — refuses the main worktree, a dirty tree, and (without `Force`) a branch not merged into main, all before anything is deleted; then delegates to `lifecycle.RemoveWorktreeAndArtifact`. Ignores the process working directory, which `lifecycle.Remove` refuses to do
+- `ErrInteractiveHook` — the repo configures an `interactive = true` hook for an event the operation fires; nothing is written. Both verbs pre-flight `hook.CutEvents` / `hook.TeardownEvents` through `hook.ShouldRun`, so a hook filtered off the branch does not refuse it. `Remove` pre-flights after `ErrNotFound` and `ErrDirty` so neither sentinel is shadowed
 - Cuts and teardowns are serialised per repository by a process-local mutex keyed on the main worktree path
+- `libDeps` passes `refuseTTY` to `deps.DefaultDepsIn` as the terminal runner, so `tty.Open` is unreachable from a library path even if a future code path forgets the pre-flight
 
 ## Entry Point
 
@@ -294,7 +296,7 @@ Business logic entry points. Each public function is a standalone top-level func
   - `IsTerminal func(w io.Writer) bool` — injectable TTY check
   - `CDSentinel func() io.Writer` — test override for the fd-3 cd sentinel writer
 - `DefaultDeps(out, errw io.Writer, in io.Reader) Deps` — wires production implementations; `Profiler` defaults to `profile.Disabled()`
-- `DefaultDepsIn(dir string, out, errw io.Writer, in io.Reader) Deps` — `DefaultDeps` with every git, hook and open command run in `dir`; used by the library facade, which names a repo rather than standing in it
+- `DefaultDepsIn(dir string, out, errw io.Writer, in io.Reader, pt passthrough.Runner) Deps` — `DefaultDeps` with every git, hook and open command run in `dir` and `pt` behind everything that wants the caller's terminal; used by the library facade, which names a repo rather than standing in it and passes a `pt` that refuses
 
 ### `internal/treepad/lifecycle/`
 
@@ -460,7 +462,8 @@ Lifecycle hooks defined in `.treepad.toml` and run at specific points in `tp` op
 
 - `Event` type — string constant: `PreNew`, `PostNew`, `PreRemove`, `PostRemove`, `PreSync`, `PostSync`, `PostConfigInit`
   - `PostConfigInit` is the one non-worktree event; fired via `hook.Run` (not `RunSandwich`, no matching pre-event) from `treepad.ConfigInit` after `config.WriteDefault` writes the file
-- `HookEntry` struct — `Command string`, `Only []string`, `Except []string` (glob branch filters)
+- `CutEvents` / `TeardownEvents` — the events each operation fires, in order, read by the library facade's interactive-hook pre-flight; `CutEvents` includes `PreSync`/`PostSync` because config sync happens inside a cut. Declared beside the `Event` constants, not in the facade, so a new event is named and listed in one file
+- `HookEntry` struct — `Command string`, `Only []string`, `Except []string` (glob branch filters), `Interactive bool`
 - `Config` struct — holds `[]HookEntry` for each event; `IsZero()`, `For(Event) []HookEntry`
 - `Data` struct — template context: `Branch`, `WorktreePath`, `Slug`, `HookType`, `OutputDir`
 - `Runner` interface — `Run(ctx, []HookEntry, Data) error`
@@ -476,7 +479,7 @@ Lifecycle hooks defined in `.treepad.toml` and run at specific points in `tp` op
 
 ### `filter.go`
 
-- `shouldRun(entry HookEntry, branch string) bool` — evaluates `Only`/`Except` glob filters against the branch name
+- `ShouldRun(entry HookEntry, branch string) bool` — evaluates `Only`/`Except` glob filters against the branch name; exported so the library facade's interactive-hook pre-flight applies the same filters the runner would
 
 ## Passthrough Package (`internal/passthrough/`)
 
