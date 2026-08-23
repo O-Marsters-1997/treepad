@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/O-Marsters-1997/treepad"
+	"github.com/O-Marsters-1997/treepad/internal/passthrough"
 )
 
 // The facade's whole point is naming a repo the caller is not standing in, so
@@ -26,8 +27,11 @@ include = [".env.local"]
 command = "echo {{.Branch}} > {{.WorktreePath}}/post_new.marker"
 `
 
+// fixtureRepo builds a repo for a headless caller: git, a .treepad.toml, and a
+// terminal that cannot be opened without failing the test.
 func fixtureRepo(t *testing.T, config string) string {
 	t.Helper()
+	failOnTTY(t)
 
 	parent, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -70,6 +74,40 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func assertNoSiblingDirs(t *testing.T, repo string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Dir(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != filepath.Base(repo) {
+			t.Errorf("unexpected directory left behind: %s", e.Name())
+		}
+	}
+}
+
+// failOnTTY turns any attempt to acquire a controlling terminal into a test
+// failure. A library caller runs headless, so a hook that reached /dev/tty
+// would block on input nobody is there to give.
+func failOnTTY(t *testing.T) {
+	t.Helper()
+	prev := passthrough.OpenTTY
+	passthrough.OpenTTY = func() *os.File {
+		t.Error("a library path opened a TTY")
+		return nil
+	}
+	t.Cleanup(func() { passthrough.OpenTTY = prev })
+}
+
+const interactiveHook = `command = "read answer"
+interactive = true
+`
+
+func interactiveHookConfig(event string) string {
+	return "[[hooks." + event + "]]\n" + interactiveHook
 }
 
 func TestNewCutsWorktreeInNamedRepo(t *testing.T) {
@@ -255,13 +293,7 @@ func TestNewUnresolvableBase(t *testing.T) {
 	if branches := git(t, repo, "branch", "--list", "feature/nope"); branches != "" {
 		t.Errorf("branch was created: %q", branches)
 	}
-	if entries, err := os.ReadDir(filepath.Dir(repo)); err == nil {
-		for _, e := range entries {
-			if e.Name() != filepath.Base(repo) {
-				t.Errorf("unexpected directory left behind: %s", e.Name())
-			}
-		}
-	}
+	assertNoSiblingDirs(t, repo)
 }
 
 func TestNewOutputDir(t *testing.T) {
@@ -614,5 +646,159 @@ func TestRemoveRejectsInvalidOptions(t *testing.T) {
 				t.Errorf("error %q does not name %s", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewRefusesInteractiveCutHooks(t *testing.T) {
+	// Every event a cut fires, the sync sandwich inside it included: a refusal
+	// that only arrived after git worktree add would leave debris behind.
+	for _, event := range []string{"pre_new", "post_new", "pre_sync", "post_sync"} {
+		t.Run(event, func(t *testing.T) {
+			repo := fixtureRepo(t, interactiveHookConfig(event))
+
+			wt, err := treepad.New(context.Background(), treepad.NewOptions{
+				Branch:    "feature/prompt",
+				Base:      "main",
+				RepoDir:   repo,
+				OutputDir: t.TempDir(),
+			})
+			if !errors.Is(err, treepad.ErrInteractiveHook) {
+				t.Fatalf("error = %v, want it to wrap ErrInteractiveHook", err)
+			}
+			if wt != (treepad.Worktree{}) {
+				t.Errorf("Worktree = %+v, want the zero value", wt)
+			}
+			if branches := git(t, repo, "branch", "--list", "feature/prompt"); branches != "" {
+				t.Errorf("branch was created: %q", branches)
+			}
+			assertNoSiblingDirs(t, repo)
+		})
+	}
+}
+
+func TestRemoveRefusesInteractiveHooks(t *testing.T) {
+	for _, event := range []string{"pre_remove", "post_remove"} {
+		t.Run(event, func(t *testing.T) {
+			repo := fixtureRepo(t, interactiveHookConfig(event))
+			outputDir := t.TempDir()
+
+			// The cut goes through: a remove hook is not a cut hook, so each
+			// operation refuses only over the events it actually fires.
+			wt, err := treepad.New(context.Background(), treepad.NewOptions{
+				Branch:    "feature/prompt",
+				Base:      "main",
+				RepoDir:   repo,
+				OutputDir: outputDir,
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			err = treepad.Remove(context.Background(), treepad.RemoveOptions{
+				Branch:    "feature/prompt",
+				RepoDir:   repo,
+				OutputDir: outputDir,
+			})
+			if !errors.Is(err, treepad.ErrInteractiveHook) {
+				t.Fatalf("error = %v, want it to wrap ErrInteractiveHook", err)
+			}
+			if _, statErr := os.Stat(wt.Path); statErr != nil {
+				t.Errorf("worktree %q gone: %v", wt.Path, statErr)
+			}
+			if branches := git(t, repo, "branch", "--list", "feature/prompt"); branches == "" {
+				t.Error("branch was deleted")
+			}
+			if entries, readErr := os.ReadDir(outputDir); readErr != nil || len(entries) != 1 {
+				t.Errorf("OutputDir holds %v (err %v), want the artifact intact", entries, readErr)
+			}
+		})
+	}
+}
+
+func TestNewInteractiveHookExcludedByFilter(t *testing.T) {
+	for _, filter := range []string{`only = ["release/*"]`, `except = ["feature/**"]`} {
+		t.Run(filter, func(t *testing.T) {
+			repo := fixtureRepo(t, "[[hooks.pre_new]]\n"+interactiveHook+filter+"\n")
+
+			wt, err := treepad.New(context.Background(), treepad.NewOptions{
+				Branch:    "feature/unaffected",
+				Base:      "main",
+				RepoDir:   repo,
+				OutputDir: t.TempDir(),
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if info, statErr := os.Stat(wt.Path); statErr != nil || !info.IsDir() {
+				t.Errorf("worktree %q not on disk: %v", wt.Path, statErr)
+			}
+		})
+	}
+}
+
+// A reconcile loop reads ErrNotFound and ErrDirty as state it already knows
+// about, so a repo whose remove hooks want a human must not turn either into a
+// refusal the caller has no rule for.
+func TestRemoveInteractiveHookDoesNotShadowTheSentinels(t *testing.T) {
+	t.Run("ErrNotFound", func(t *testing.T) {
+		repo := fixtureRepo(t, interactiveHookConfig("pre_remove"))
+
+		err := treepad.Remove(context.Background(), treepad.RemoveOptions{
+			Branch:    "feature/never-existed",
+			RepoDir:   repo,
+			OutputDir: t.TempDir(),
+		})
+		if !errors.Is(err, treepad.ErrNotFound) {
+			t.Fatalf("error = %v, want it to wrap ErrNotFound", err)
+		}
+	})
+
+	t.Run("ErrDirty", func(t *testing.T) {
+		repo := fixtureRepo(t, interactiveHookConfig("pre_remove"))
+		outputDir := t.TempDir()
+
+		wt, err := treepad.New(context.Background(), treepad.NewOptions{
+			Branch:    "feature/wip",
+			Base:      "main",
+			RepoDir:   repo,
+			OutputDir: outputDir,
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		writeFile(t, filepath.Join(wt.Path, "README.md"), "uncommitted work\n")
+
+		err = treepad.Remove(context.Background(), treepad.RemoveOptions{
+			Branch:    "feature/wip",
+			RepoDir:   repo,
+			OutputDir: outputDir,
+		})
+		if !errors.Is(err, treepad.ErrDirty) {
+			t.Fatalf("error = %v, want it to wrap ErrDirty", err)
+		}
+	})
+}
+
+func TestNewRefusalPrecedesTheWholeEvent(t *testing.T) {
+	// The quiet hook is declared first, so a refusal made per entry rather than
+	// per event would already have run it.
+	repo := fixtureRepo(t, `[[hooks.pre_new]]
+command = "touch quiet.marker"
+
+[[hooks.pre_new]]
+command = "read answer"
+interactive = true
+`)
+
+	if _, err := treepad.New(context.Background(), treepad.NewOptions{
+		Branch:    "feature/prompt",
+		Base:      "main",
+		RepoDir:   repo,
+		OutputDir: t.TempDir(),
+	}); !errors.Is(err, treepad.ErrInteractiveHook) {
+		t.Fatalf("error = %v, want it to wrap ErrInteractiveHook", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "quiet.marker")); !os.IsNotExist(err) {
+		t.Errorf("the non-interactive hook in the same event ran: %v", err)
 	}
 }

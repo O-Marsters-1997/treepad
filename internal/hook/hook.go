@@ -21,6 +21,15 @@ const (
 	PostConfigInit Event = "post_config_init"
 )
 
+// CutEvents are the events a worktree cut fires, in the order it fires them.
+// PreSync and PostSync are on the list because config sync happens inside the
+// cut, so a caller that only knew about pre_new and post_new would miss half of
+// what a cut can run. Declared beside the constants so a new event is named and
+// listed in the same file.
+var CutEvents = []Event{PreNew, PreSync, PostSync, PostNew}
+
+var TeardownEvents = []Event{PreRemove, PostRemove}
+
 // Data is the context available when rendering hook command templates.
 type Data struct {
 	Branch       string // raw branch name

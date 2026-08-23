@@ -78,6 +78,8 @@ The command inherits `tp`'s stdin, stdout and stderr, so it can prompt and its o
 
 Reach for it only when the command genuinely needs to talk to a human. `post_sync` fires once per worktree and `post_new` runs alongside `tp`'s own progress output, so an interactive hook on those events will interleave with it.
 
+The Go library refuses them. `treepad.New` and `treepad.Remove` return `ErrInteractiveHook` and write nothing if the repo configures an interactive hook for an event the operation would fire — a background process has no human at a terminal, and one that opened one would wait for input forever. A branch filter that excludes the branch excludes the hook from the refusal too, so `only = ["release/*"]` keeps an interactive hook out of the library's way on every other branch.
+
 ## Branch filtering
 
 Each hook entry supports `only` and `except` fields, which accept glob patterns (`*` matches within a path segment; `**` crosses path separators).

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/hook"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
@@ -45,6 +47,49 @@ type Worktree struct {
 // returned Worktree is complete and on disk.
 var ErrPostHook = errors.New("post hook failed")
 
+// ErrInteractiveHook reports that the repository configures a hook with
+// interactive = true for an event the requested operation fires. Nothing has
+// been written. An interactive hook wants a human at a terminal, which a
+// library caller cannot promise.
+var ErrInteractiveHook = errors.New("interactive hooks are not supported by the library API")
+
+// refuseTTY stands in for the passthrough runner on library paths. The
+// pre-flight already refuses interactive hooks before anything is written; this
+// makes tty.Open unreachable, so no future code path can leave a background
+// process blocked on input nobody is there to give.
+type refuseTTY struct{}
+
+func (refuseTTY) Run(context.Context, string, string, ...string) (int, error) {
+	return 0, ErrInteractiveHook
+}
+
+// libDeps wires production dependencies for a library caller: git, hooks and
+// the open command all run in repoDir, and nothing can reach for a terminal.
+func libDeps(repoDir string, stderr io.Writer) deps.Deps {
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	return deps.DefaultDepsIn(repoDir, io.Discard, stderr, nil, refuseTTY{})
+}
+
+// refuseInteractiveHooks reports an interactive hook configured for any of
+// events, skipping entries whose branch filters exclude branch — a hook that
+// would never run on this branch is no reason to refuse the operation.
+func refuseInteractiveHooks(mainPath, branch string, events []hook.Event) error {
+	cfg, err := config.Load(mainPath)
+	if err != nil {
+		return fmt.Errorf("treepad: load config: %w", err)
+	}
+	for _, e := range events {
+		for _, entry := range cfg.Hooks.For(e) {
+			if entry.Interactive && hook.ShouldRun(entry, branch) {
+				return fmt.Errorf("%w: %s hook %q", ErrInteractiveHook, e, entry.Command)
+			}
+		}
+	}
+	return nil
+}
+
 // repoLocks serialises cuts per repository. Two concurrent git worktree adds in
 // one repository contend on the index and ref locks; a caller that manages a
 // repo from several goroutines should not have to know that.
@@ -63,11 +108,7 @@ func New(ctx context.Context, o NewOptions) (Worktree, error) {
 		return Worktree{}, fmt.Errorf("treepad: NewOptions.RepoDir must be absolute, got %q", o.RepoDir)
 	}
 
-	stderr := o.Stderr
-	if stderr == nil {
-		stderr = io.Discard
-	}
-	d := deps.DefaultDepsIn(o.RepoDir, io.Discard, stderr, nil)
+	d := libDeps(o.RepoDir, o.Stderr)
 
 	worktrees, err := repo.ListWorktrees(ctx, d.Runner)
 	if err != nil {
@@ -78,6 +119,10 @@ func New(ctx context.Context, o NewOptions) (Worktree, error) {
 		return Worktree{}, err
 	}
 	defer lockRepo(main.Path)()
+
+	if err := refuseInteractiveHooks(main.Path, o.Branch, hook.CutEvents); err != nil {
+		return Worktree{}, err
+	}
 
 	baseSHA, err := d.Runner.Run(ctx, "git", "rev-parse", o.Base+"^{commit}")
 	if err != nil {
@@ -145,11 +190,7 @@ func Remove(ctx context.Context, o RemoveOptions) error {
 		return fmt.Errorf("treepad: RemoveOptions.RepoDir must be absolute, got %q", o.RepoDir)
 	}
 
-	stderr := o.Stderr
-	if stderr == nil {
-		stderr = io.Discard
-	}
-	d := deps.DefaultDepsIn(o.RepoDir, io.Discard, stderr, nil)
+	d := libDeps(o.RepoDir, o.Stderr)
 
 	rc, err := repo.Load(ctx, d.Runner, o.OutputDir)
 	if err != nil {
@@ -171,6 +212,12 @@ func Remove(ctx context.Context, o RemoveOptions) error {
 	}
 	if dirty {
 		return fmt.Errorf("%w: %s", ErrDirty, target.Path)
+	}
+
+	// After ErrNotFound and ErrDirty, which a reconcile loop reads as state it
+	// already knows about, and still before anything is deleted.
+	if err := refuseInteractiveHooks(rc.Main.Path, o.Branch, hook.TeardownEvents); err != nil {
+		return err
 	}
 
 	// git deletes the branch last, so without this a non-forced call on an
