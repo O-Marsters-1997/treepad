@@ -23,7 +23,8 @@ Public Go API for callers that import treepad instead of running `tp`. A sibling
 ### `api_test.go`
 
 - Diffs `go doc -all .` against `testdata/api.golden`, so the exported surface cannot grow or name an `internal/...` type without a reviewable change to the golden file. `batch/api_test.go`'s no-internal-imports rule cannot apply here: importing internals is how the facade works
-- Regenerate with `just api-golden`, which the failure message names
+- Regenerate with `just api-golden`, which the failure message names. The golden carries the package doc, so the two divergences from the CLI and the `ErrPostHook` contract are pinned text
+- Also walks `go list -deps .` for `bubbletea` and `urfave/cli`. Neither would show up in the exported surface, so nothing else would notice a library caller being made to build the CLI or TUI
 
 ## Entry Point
 
