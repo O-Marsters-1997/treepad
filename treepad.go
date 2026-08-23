@@ -3,7 +3,26 @@
 // serve several repositories concurrently.
 //
 // A worktree cut here is indistinguishable from one cut by tp new: config sync
-// runs and lifecycle hooks fire.
+// runs and lifecycle hooks fire. It diverges from the CLI in two ways, both
+// because nobody is watching a library call:
+//
+//   - A hook configured interactive = true is refused with ErrInteractiveHook
+//     before anything is written. The CLI hands such a hook the terminal; a
+//     library caller has no terminal to hand over.
+//   - RemoveOptions.Force deletes a branch git considers unmerged, but never a
+//     worktree with uncommitted changes — Remove returns ErrDirty instead,
+//     where tp remove --force would wipe it.
+//
+// A failed post hook is the one error that leaves the operation done. New and
+// Remove wrap ErrPostHook once the worktree is already cut or already gone, and
+// New returns its fully populated Worktree alongside it. A caller reconciling
+// desired state should report it rather than retry: a second New fails on the
+// branch the first one created, and a second Remove returns ErrNotFound.
+//
+// Calls are serialised per repository, since two concurrent git worktree adds
+// contend on the same index and ref locks. That lock is held in this process
+// only. Two processes against one repository — or tp run by hand next to a
+// library caller — are not serialised, and need coordinating elsewhere.
 package treepad
 
 import (
