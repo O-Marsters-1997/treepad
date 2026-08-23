@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -533,6 +536,41 @@ func TestLastCommit(t *testing.T) {
 			}
 			if !got.Committed.Equal(tt.want.Committed) {
 				t.Errorf("Committed = %v, want %v", got.Committed, tt.want.Committed)
+			}
+		})
+	}
+}
+
+func TestExecRunnerWorkingDirectory(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		dir  string
+		want string
+	}{
+		{name: "empty inherits the process working directory", dir: "", want: cwd},
+		{name: "set runs the command there", dir: t.TempDir(), want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := tt.want
+			if want == "" {
+				want = tt.dir
+			}
+			// macOS temp dirs live behind a symlink; pwd reports the physical path.
+			want, err := filepath.EvalSymlinks(want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := ExecRunner{Dir: tt.dir}.Run(context.Background(), "pwd")
+			if err != nil {
+				t.Fatalf("run pwd: %v", err)
+			}
+			if got := strings.TrimSpace(string(out)); got != want {
+				t.Errorf("pwd = %q, want %q", got, want)
 			}
 		})
 	}

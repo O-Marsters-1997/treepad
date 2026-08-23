@@ -15,3 +15,10 @@ grep 'post_remove:feature-x' .treepad/activity.log
 exec sh -c 'printf "[[hooks.pre_new]]\ncommand = \"exit 1\"\n" > .treepad.toml'
 ! exec tp new should-not-exist
 ! exists ../repo-should-not-exist
+
+# A failing post_new hook is non-fatal: the worktree is created, tp exits 0, and
+# stderr carries exactly one [WARN] line.
+exec sh -c 'printf "[[hooks.post_new]]\ncommand = \"exit 3\"\n" > .treepad.toml'
+exec tp new feature-warn
+exists ../repo-feature-warn
+stderr -count=1 '\[WARN\] post_new hook failed'

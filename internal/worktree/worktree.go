@@ -27,10 +27,13 @@ type Worktree struct {
 	PrunableReason string // git's human-readable reason, e.g. "gitdir file points to non-existent location"
 }
 
-type ExecRunner struct{}
+// ExecRunner runs commands with os/exec. An empty Dir inherits the process
+// working directory, so a caller that stands in the repo needs no Dir at all.
+type ExecRunner struct{ Dir string }
 
-func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+func (r ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = r.Dir
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {

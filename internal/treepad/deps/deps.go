@@ -41,7 +41,14 @@ type Deps struct {
 // DefaultDeps wires production implementations. It is the single composition
 // root for callers that do not need custom dependencies.
 func DefaultDeps(out, errw io.Writer, in io.Reader) Deps {
-	runner := worktree.ExecRunner{}
+	return DefaultDepsIn("", out, errw, in)
+}
+
+// DefaultDepsIn is DefaultDeps with every git, hook and open command run in dir.
+// An empty dir inherits the process working directory, which is what a caller
+// standing in the repo wants.
+func DefaultDepsIn(dir string, out, errw io.Writer, in io.Reader) Deps {
+	runner := worktree.ExecRunner{Dir: dir}
 	return Deps{
 		Runner:     runner,
 		Syncer:     internalsync.FileSyncer{},
