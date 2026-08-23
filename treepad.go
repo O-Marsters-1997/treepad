@@ -106,3 +106,89 @@ func lockRepo(mainPath string) (unlock func()) {
 	mu.Lock()
 	return mu.Unlock
 }
+
+// RemoveOptions parameterises Remove. Branch and RepoDir are required.
+type RemoveOptions struct {
+	Branch string
+	// RepoDir is an absolute path inside the target repository.
+	RepoDir string
+	// OutputDir is where the editor artifact was written. It must match the
+	// OutputDir the worktree was cut with, or the artifact is left behind.
+	OutputDir string
+	// Force deletes a branch git considers unmerged — what a squash merge
+	// leaves. It never overrides the dirty-worktree refusal.
+	Force bool
+	// Stderr receives the same narrative the CLI prints. Nil discards it.
+	Stderr io.Writer
+}
+
+// ErrNotFound reports that no worktree is checked out on the named branch.
+// Remove is idempotent against it: a second call on the same branch returns it.
+var ErrNotFound = errors.New("worktree not found")
+
+// ErrDirty reports uncommitted changes in the target worktree. Nothing has been
+// touched. Force does not override it — destroying uncommitted work is a
+// decision for a human who can see it.
+var ErrDirty = errors.New("worktree has uncommitted changes")
+
+// Remove deletes the worktree on Branch, its branch and its artifact, firing
+// remove hooks exactly as tp remove does. Unlike the CLI it does not care where
+// the calling process stands, so a caller inside the target worktree succeeds.
+func Remove(ctx context.Context, o RemoveOptions) error {
+	if o.Branch == "" {
+		return errors.New("treepad: RemoveOptions.Branch is required")
+	}
+	if o.RepoDir == "" {
+		return errors.New("treepad: RemoveOptions.RepoDir is required")
+	}
+	if !filepath.IsAbs(o.RepoDir) {
+		return fmt.Errorf("treepad: RemoveOptions.RepoDir must be absolute, got %q", o.RepoDir)
+	}
+
+	stderr := o.Stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	d := deps.DefaultDepsIn(o.RepoDir, io.Discard, stderr, nil)
+
+	rc, err := repo.Load(ctx, d.Runner, o.OutputDir)
+	if err != nil {
+		return err
+	}
+	if o.Branch == rc.Main.Branch {
+		return fmt.Errorf("treepad: cannot remove the main worktree (branch %q)", o.Branch)
+	}
+	defer lockRepo(rc.Main.Path)()
+
+	target, ok := worktree.FindByBranch(rc.Worktrees, o.Branch)
+	if !ok {
+		return fmt.Errorf("%w: branch %q", ErrNotFound, o.Branch)
+	}
+
+	dirty, err := worktree.Dirty(ctx, d.Runner, target.Path)
+	if err != nil {
+		return err
+	}
+	if dirty {
+		return fmt.Errorf("%w: %s", ErrDirty, target.Path)
+	}
+
+	// git deletes the branch last, so without this a non-forced call on an
+	// unmerged branch would remove the worktree and then refuse the branch,
+	// leaving the caller half torn down.
+	if !o.Force {
+		if _, err := d.Runner.Run(ctx, "git", "merge-base", "--is-ancestor", o.Branch, rc.Main.Branch); err != nil {
+			return fmt.Errorf("treepad: branch %q is not merged into %s; set Force to delete it anyway",
+				o.Branch, rc.Main.Branch)
+		}
+	}
+
+	postErr, err := lifecycle.RemoveWorktreeAndArtifact(ctx, d, target, rc.Main, rc.OutputDir, o.Force)
+	if err != nil {
+		return err
+	}
+	if postErr != nil {
+		return fmt.Errorf("%w: %w", ErrPostHook, postErr)
+	}
+	return nil
+}

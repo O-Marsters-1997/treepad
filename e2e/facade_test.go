@@ -43,6 +43,9 @@ func fixtureRepo(t *testing.T, config string) string {
 	git(t, dir, "config", "user.name", "facade")
 	writeFile(t, filepath.Join(dir, ".treepad.toml"), config)
 	writeFile(t, filepath.Join(dir, "README.md"), "fixture\n")
+	// Synced and hook-written files are gitignored in a real repo; untracked they
+	// would read as uncommitted work and make every fresh worktree dirty.
+	writeFile(t, filepath.Join(dir, ".gitignore"), ".env.local\npost_new.marker\n")
 	git(t, dir, "add", "-A")
 	git(t, dir, "commit", "-m", "initial")
 	// Untracked, so its presence in a worktree can only come from [sync] include.
@@ -317,5 +320,299 @@ func TestNewFailingPostHook(t *testing.T) {
 	}
 	if info, statErr := os.Stat(wt.Path); statErr != nil || !info.IsDir() {
 		t.Errorf("worktree %q not on disk: %v", wt.Path, statErr)
+	}
+}
+
+func TestRemoveDeletesWorktreeBranchAndArtifact(t *testing.T) {
+	repo := fixtureRepo(t, fixtureConfig)
+	outputDir := t.TempDir()
+
+	wt, err := treepad.New(context.Background(), treepad.NewOptions{
+		Branch:    "feature/done",
+		Base:      "main",
+		RepoDir:   repo,
+		OutputDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := treepad.Remove(context.Background(), treepad.RemoveOptions{
+		Branch:    "feature/done",
+		RepoDir:   repo,
+		OutputDir: outputDir,
+	}); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
+		t.Errorf("worktree %q still on disk: %v", wt.Path, err)
+	}
+	if branches := git(t, repo, "branch", "--list", "feature/done"); branches != "" {
+		t.Errorf("branch survived: %q", branches)
+	}
+	if entries, err := os.ReadDir(outputDir); err != nil || len(entries) != 0 {
+		t.Errorf("OutputDir holds %v (err %v), want the artifact gone", entries, err)
+	}
+}
+
+func TestRemoveUnmergedBranch(t *testing.T) {
+	// What a squash merge leaves behind: the work is in main, but the branch's
+	// own commit is not an ancestor of it, so git refuses a plain -d.
+	setup := func(t *testing.T) (repoDir, outputDir string, wt treepad.Worktree) {
+		t.Helper()
+		repoDir = fixtureRepo(t, fixtureConfig)
+		outputDir = t.TempDir()
+
+		wt, err := treepad.New(context.Background(), treepad.NewOptions{
+			Branch:    "feature/squashed",
+			Base:      "main",
+			RepoDir:   repoDir,
+			OutputDir: outputDir,
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		writeFile(t, filepath.Join(wt.Path, "work.txt"), "done\n")
+		git(t, wt.Path, "add", "work.txt")
+		git(t, wt.Path, "commit", "-m", "work")
+		return repoDir, outputDir, wt
+	}
+
+	t.Run("Force false deletes nothing", func(t *testing.T) {
+		repoDir, outputDir, wt := setup(t)
+
+		err := treepad.Remove(context.Background(), treepad.RemoveOptions{
+			Branch:    "feature/squashed",
+			RepoDir:   repoDir,
+			OutputDir: outputDir,
+		})
+		if err == nil {
+			t.Fatal("want an error, got nil")
+		}
+		if branches := git(t, repoDir, "branch", "--list", "feature/squashed"); branches == "" {
+			t.Error("branch was deleted")
+		}
+		if _, statErr := os.Stat(wt.Path); statErr != nil {
+			t.Errorf("worktree %q gone: %v", wt.Path, statErr)
+		}
+		if entries, readErr := os.ReadDir(outputDir); readErr != nil || len(entries) != 1 {
+			t.Errorf("OutputDir holds %v (err %v), want the artifact intact", entries, readErr)
+		}
+	})
+
+	t.Run("Force true deletes it", func(t *testing.T) {
+		repoDir, outputDir, wt := setup(t)
+
+		if err := treepad.Remove(context.Background(), treepad.RemoveOptions{
+			Branch:    "feature/squashed",
+			RepoDir:   repoDir,
+			OutputDir: outputDir,
+			Force:     true,
+		}); err != nil {
+			t.Fatalf("Remove: %v", err)
+		}
+		if branches := git(t, repoDir, "branch", "--list", "feature/squashed"); branches != "" {
+			t.Errorf("branch survived: %q", branches)
+		}
+		if _, statErr := os.Stat(wt.Path); !os.IsNotExist(statErr) {
+			t.Errorf("worktree %q still on disk: %v", wt.Path, statErr)
+		}
+	})
+}
+
+func TestRemoveDirtyWorktreeIsRefusedEvenWithForce(t *testing.T) {
+	repoDir := fixtureRepo(t, fixtureConfig)
+	outputDir := t.TempDir()
+
+	wt, err := treepad.New(context.Background(), treepad.NewOptions{
+		Branch:    "feature/wip",
+		Base:      "main",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	writeFile(t, filepath.Join(wt.Path, "README.md"), "uncommitted work\n")
+
+	err = treepad.Remove(context.Background(), treepad.RemoveOptions{
+		Branch:    "feature/wip",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+		Force:     true,
+	})
+	if !errors.Is(err, treepad.ErrDirty) {
+		t.Fatalf("error = %v, want it to wrap ErrDirty", err)
+	}
+	if _, statErr := os.Stat(wt.Path); statErr != nil {
+		t.Errorf("worktree %q gone: %v", wt.Path, statErr)
+	}
+	if branches := git(t, repoDir, "branch", "--list", "feature/wip"); branches == "" {
+		t.Error("branch was deleted")
+	}
+	content, readErr := os.ReadFile(filepath.Join(wt.Path, "README.md"))
+	if readErr != nil || string(content) != "uncommitted work\n" {
+		t.Errorf("working-tree change = %q (err %v), want it untouched", content, readErr)
+	}
+}
+
+func TestRemoveAbsentBranch(t *testing.T) {
+	repoDir := fixtureRepo(t, fixtureConfig)
+
+	err := treepad.Remove(context.Background(), treepad.RemoveOptions{
+		Branch:    "feature/never-existed",
+		RepoDir:   repoDir,
+		OutputDir: t.TempDir(),
+	})
+	if !errors.Is(err, treepad.ErrNotFound) {
+		t.Fatalf("error = %v, want it to wrap ErrNotFound", err)
+	}
+	// A library caller has no tp binary to run; advice aimed at the CLI's user
+	// would be noise at best.
+	if strings.Contains(err.Error(), "tp sync") {
+		t.Errorf("error %q tells a library caller to run tp sync", err)
+	}
+}
+
+func TestRemoveRefusesMainWorktree(t *testing.T) {
+	repoDir := fixtureRepo(t, fixtureConfig)
+
+	err := treepad.Remove(context.Background(), treepad.RemoveOptions{
+		Branch:    "main",
+		RepoDir:   repoDir,
+		OutputDir: t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "main worktree") {
+		t.Errorf("error %q does not say the main worktree is off limits", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(repoDir, ".git")); statErr != nil {
+		t.Errorf("main worktree damaged: %v", statErr)
+	}
+}
+
+func TestRemoveTwiceIsIdempotent(t *testing.T) {
+	repoDir := fixtureRepo(t, fixtureConfig)
+	outputDir := t.TempDir()
+
+	if _, err := treepad.New(context.Background(), treepad.NewOptions{
+		Branch:    "feature/reconciled",
+		Base:      "main",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+	}); err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	opts := treepad.RemoveOptions{
+		Branch:    "feature/reconciled",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+	}
+	if err := treepad.Remove(context.Background(), opts); err != nil {
+		t.Fatalf("first Remove: %v", err)
+	}
+	if err := treepad.Remove(context.Background(), opts); !errors.Is(err, treepad.ErrNotFound) {
+		t.Fatalf("second Remove = %v, want it to wrap ErrNotFound", err)
+	}
+}
+
+func TestRemoveFromInsideTargetWorktree(t *testing.T) {
+	repoDir := fixtureRepo(t, fixtureConfig)
+	outputDir := t.TempDir()
+
+	wt, err := treepad.New(context.Background(), treepad.NewOptions{
+		Branch:    "feature/inside",
+		Base:      "main",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// tp remove refuses this; a library caller has no cwd to move out of.
+	t.Chdir(wt.Path)
+
+	if err := treepad.Remove(context.Background(), treepad.RemoveOptions{
+		Branch:    "feature/inside",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+	}); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, statErr := os.Stat(wt.Path); !os.IsNotExist(statErr) {
+		t.Errorf("worktree %q still on disk: %v", wt.Path, statErr)
+	}
+}
+
+func TestRemoveFailingPostHook(t *testing.T) {
+	repoDir := fixtureRepo(t, "[[hooks.post_remove]]\ncommand = \"exit 3\"\n")
+	outputDir := t.TempDir()
+
+	wt, err := treepad.New(context.Background(), treepad.NewOptions{
+		Branch:    "feature/bad-post-remove",
+		Base:      "main",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	err = treepad.Remove(context.Background(), treepad.RemoveOptions{
+		Branch:    "feature/bad-post-remove",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+	})
+	if !errors.Is(err, treepad.ErrPostHook) {
+		t.Fatalf("error = %v, want it to wrap ErrPostHook", err)
+	}
+	if _, statErr := os.Stat(wt.Path); !os.IsNotExist(statErr) {
+		t.Errorf("worktree %q still on disk: %v", wt.Path, statErr)
+	}
+	if branches := git(t, repoDir, "branch", "--list", "feature/bad-post-remove"); branches != "" {
+		t.Errorf("branch survived: %q", branches)
+	}
+	if entries, readErr := os.ReadDir(outputDir); readErr != nil || len(entries) != 0 {
+		t.Errorf("OutputDir holds %v (err %v), want the artifact gone", entries, readErr)
+	}
+}
+
+func TestRemoveRejectsInvalidOptions(t *testing.T) {
+	tests := []struct {
+		name string
+		opts treepad.RemoveOptions
+		want string
+	}{
+		{
+			name: "empty Branch",
+			opts: treepad.RemoveOptions{RepoDir: "/tmp"},
+			want: "Branch",
+		},
+		{
+			name: "empty RepoDir",
+			opts: treepad.RemoveOptions{Branch: "feature/x"},
+			want: "RepoDir",
+		},
+		{
+			name: "relative RepoDir",
+			opts: treepad.RemoveOptions{Branch: "feature/x", RepoDir: "./fixture"},
+			want: "RepoDir",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := treepad.Remove(context.Background(), tt.opts)
+			if err == nil {
+				t.Fatal("want an error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error %q does not name %s", err, tt.want)
+			}
+		})
 	}
 }

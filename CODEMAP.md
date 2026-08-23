@@ -12,7 +12,11 @@ Public Go API for callers that import treepad instead of running `tp`. A sibling
 - `Worktree` struct — `Path`, `Branch`, `BaseSHA`
 - `ErrPostHook` — returned wrapped when a post hook fails; the returned `Worktree` is still complete and on disk
 - `New(ctx, NewOptions) (Worktree, error)` — resolves `Base` to a SHA before creating anything, then delegates to `lifecycle.CreateWorktreeWithSync`
-- Cuts are serialised per repository by a process-local mutex keyed on the main worktree path
+- `RemoveOptions` struct — `Branch` (required), `RepoDir` (required, absolute), `OutputDir` (must match the cut's), `Force` (branch only), `Stderr`
+- `ErrNotFound` — no worktree on the branch, so a second `Remove` of the same branch is idempotent
+- `ErrDirty` — uncommitted changes in the target; nothing is touched, and `Force` does not override it
+- `Remove(ctx, RemoveOptions) error` — refuses the main worktree, a dirty tree, and (without `Force`) a branch not merged into main, all before anything is deleted; then delegates to `lifecycle.RemoveWorktreeAndArtifact`. Ignores the process working directory, which `lifecycle.Remove` refuses to do
+- Cuts and teardowns are serialised per repository by a process-local mutex keyed on the main worktree path
 
 ## Entry Point
 
@@ -301,7 +305,7 @@ Owns the worktree creation, removal, and pruning verbs.
 - `CreateWorktreeWithSync(ctx, deps.Deps, branch, base, outputDir) (CreateResult, error)` — runs `git worktree add`, syncs configs, writes artifact; fires `pre_new`/`post_new` hooks
 - `LoadAndSync(ctx, deps.Deps, sourceDir, extraPatterns, []SyncTarget, repoSlug, outputDir) (config.Config, *hook.PostErr, error)` — loads config, syncs files to all targets; fires `pre_sync`/`post_sync` per target
 - `OpenWorktree(ctx, deps.Deps, openCmd, branch, wtPath, artifactPath, outputDir) error` — opens artifact (or worktree dir) via configured open command
-- `RemoveWorktreeAndArtifact(ctx, deps.Deps, target, main worktree.Worktree, outputDir string, force bool) error` — `git worktree remove [--force]`, deletes artifact, `git branch -d` (or `-D`); fires `pre_remove`/`post_remove` hooks
+- `RemoveWorktreeAndArtifact(ctx, deps.Deps, target, main worktree.Worktree, outputDir string, force bool) (*hook.PostErr, error)` — `git worktree remove [--force]`, deletes artifact, `git branch -d` (or `-D`); fires `pre_remove`/`post_remove` hooks. A non-nil `*hook.PostErr` means only the post hook failed; it is already logged as a warning, so CLI callers discard it
 - `New(ctx, deps.Deps, NewInput) (mainPath string, error)` — calls `CreateWorktreeWithSync`, optionally opens artifact, emits cd sentinel unless `Current=true`
 - `Remove(ctx, deps.Deps, RemoveInput) error` — guards: not-main, not-cwd-inside; delegates to `RemoveWorktreeAndArtifact`
 - `Prune(ctx, deps.Deps, PruneInput) error` — `All=true`: force-removes all non-main (requires cwd in main); `All=false`: removes merged worktrees (skips dirty, ahead, current); `DryRun=true`: preview only; `Yes=true`: skips confirmation prompt
