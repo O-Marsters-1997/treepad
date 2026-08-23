@@ -469,10 +469,16 @@ See [configuration.md](configuration.md) for details on the configuration schema
 Remove a git worktree, delete its artifact file, and delete the local branch.
 
 ```
-tp remove <branch>
+tp remove <branch> [options]
 ```
 
 Removes the worktree for the specified branch, cleans up its associated artifact file (if any), and deletes the branch locally. Includes pre-flight safety guards to prevent accidental data loss.
+
+### Flags
+
+| Flag      | Short | Description                                                                        |
+| --------- | ----- | ---------------------------------------------------------------------------------- |
+| `--force` | `-f`  | Remove a worktree with uncommitted changes and delete the branch even if unmerged |
 
 **Hooks fired:** `pre_remove` (before `git worktree remove`), `post_remove` (after `git branch -d`). See [hooks.md](hooks.md).
 
@@ -490,6 +496,9 @@ tp remove feature-x
 # Remove after switching out of the worktree
 cd ../main-repo  # or any other location
 tp remove feature-x
+
+# Discard uncommitted changes and delete an unmerged branch
+tp remove --force feature-x
 ```
 
 ### Errors
@@ -499,6 +508,13 @@ Attempting to remove the main worktree or the worktree you're currently in will 
 ```
 cannot remove the main worktree
 cannot remove the worktree you are currently in; cd elsewhere first
+```
+
+A dirty worktree or an unmerged branch also fails; pass `--force` to override:
+
+```
+git worktree remove: ... contains modified or untracked files, use --force to delete it
+git branch -d: ... the branch 'feature-x' is not fully merged
 ```
 
 ## prune
