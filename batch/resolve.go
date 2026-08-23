@@ -14,10 +14,8 @@ import (
 const noTicketURLHint = "set [from_spec] ticket_url in .treepad.toml, or pass the full ticket URL."
 
 // Member is a Chain member resolved against config: one Ticket, its Ref, the
-// branch it seeds, and the base that branch is created from.
-//
-// Base at Chain position 0 is Chain.Base, falling back to Manifest.Base; at
-// every later position it is the previous member's Branch.
+// branch it seeds, and the base that branch is created from. Base at position 0
+// is Chain.Base or Manifest.Base, at every later position the previous Branch.
 type Member struct {
 	Ticket    string `json:"ticket"`
 	Ref       string `json:"ref"`
