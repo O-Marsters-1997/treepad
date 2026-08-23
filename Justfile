@@ -25,6 +25,10 @@ lint:
 fmt:
     go fmt ./...
 
+api-golden:
+    mkdir -p testdata
+    go doc -all . > testdata/api.golden
+
 tidy:
     go mod tidy
 

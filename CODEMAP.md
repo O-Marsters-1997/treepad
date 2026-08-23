@@ -20,6 +20,11 @@ Public Go API for callers that import treepad instead of running `tp`. A sibling
 - Cuts and teardowns are serialised per repository by a process-local mutex keyed on the main worktree path
 - `libDeps` passes `refuseTTY` to `deps.DefaultDepsIn` as the terminal runner, so `tty.Open` is unreachable from a library path even if a future code path forgets the pre-flight
 
+### `api_test.go`
+
+- Diffs `go doc -all .` against `testdata/api.golden`, so the exported surface cannot grow or name an `internal/...` type without a reviewable change to the golden file. `batch/api_test.go`'s no-internal-imports rule cannot apply here: importing internals is how the facade works
+- Regenerate with `just api-golden`, which the failure message names
+
 ## Entry Point
 
 **`cmd/tp/main.go`** — CLI bootstrap

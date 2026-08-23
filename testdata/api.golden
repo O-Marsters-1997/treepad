@@ -1,0 +1,82 @@
+package treepad // import "github.com/O-Marsters-1997/treepad"
+
+Package treepad cuts git worktrees from Go code. Unlike the tp CLI, a caller
+names the repository it means rather than standing in it, so one process can
+serve several repositories concurrently.
+
+A worktree cut here is indistinguishable from one cut by tp new: config sync
+runs and lifecycle hooks fire.
+
+VARIABLES
+
+var ErrDirty = errors.New("worktree has uncommitted changes")
+    ErrDirty reports uncommitted changes in the target worktree. Nothing has
+    been touched. Force does not override it — destroying uncommitted work is a
+    decision for a human who can see it.
+
+var ErrInteractiveHook = errors.New("interactive hooks are not supported by the library API")
+    ErrInteractiveHook reports that the repository configures a hook with
+    interactive = true for an event the requested operation fires. Nothing
+    has been written. An interactive hook wants a human at a terminal, which a
+    library caller cannot promise.
+
+var ErrNotFound = errors.New("worktree not found")
+    ErrNotFound reports that no worktree is checked out on the named branch.
+    Remove is idempotent against it: a second call on the same branch returns
+    it.
+
+var ErrPostHook = errors.New("post hook failed")
+    ErrPostHook reports that a post hook failed. The cut itself succeeded:
+    the returned Worktree is complete and on disk.
+
+
+FUNCTIONS
+
+func Remove(ctx context.Context, o RemoveOptions) error
+    Remove deletes the worktree on Branch, its branch and its artifact, firing
+    remove hooks exactly as tp remove does. Unlike the CLI it does not care
+    where the calling process stands, so a caller inside the target worktree
+    succeeds.
+
+
+TYPES
+
+type NewOptions struct {
+	Branch string
+	Base   string
+	// RepoDir is an absolute path inside the target repository.
+	RepoDir string
+	// OutputDir is where the editor artifact is written. Empty means
+	// $HOME/<repo-slug>-workspaces, matching the CLI.
+	OutputDir string
+	// Stderr receives the same narrative the CLI prints. Nil discards it.
+	Stderr io.Writer
+}
+    NewOptions parameterises New. Branch and RepoDir are required.
+
+type RemoveOptions struct {
+	Branch string
+	// RepoDir is an absolute path inside the target repository.
+	RepoDir string
+	// OutputDir is where the editor artifact was written. It must match the
+	// OutputDir the worktree was cut with, or the artifact is left behind.
+	OutputDir string
+	// Force deletes a branch git considers unmerged — what a squash merge
+	// leaves. It never overrides the dirty-worktree refusal.
+	Force bool
+	// Stderr receives the same narrative the CLI prints. Nil discards it.
+	Stderr io.Writer
+}
+    RemoveOptions parameterises Remove. Branch and RepoDir are required.
+
+type Worktree struct {
+	Path    string
+	Branch  string
+	BaseSHA string
+}
+    Worktree is a created worktree.
+
+func New(ctx context.Context, o NewOptions) (Worktree, error)
+    New creates a worktree for Branch off Base in the repository at RepoDir,
+    syncing configs and firing hooks exactly as tp new does.
+
