@@ -196,6 +196,9 @@ See [docs/commands.md](docs/commands.md#batch-orchestration) for the full refere
 # Remove a completed feature branch (switch out of it first)
 cd ../main-repo
 tp remove feature-x
+
+# Discard uncommitted changes and delete an unmerged branch
+tp remove --force feature-x
 ```
 
 **`prune`** — Remove all worktrees whose branches are merged into a base branch, or force-remove all non-main worktrees:

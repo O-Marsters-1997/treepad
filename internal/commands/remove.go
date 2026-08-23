@@ -10,9 +10,16 @@ import (
 
 func removeCommand() *cli.Command {
 	return &cli.Command{
-		Name:          "remove",
-		Usage:         "remove a git worktree and its associated files",
-		ArgsUsage:     "<branch>",
+		Name:      "remove",
+		Usage:     "remove a git worktree and its associated files",
+		ArgsUsage: "<branch>",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "force",
+				Aliases: []string{"f"},
+				Usage:   "force removal of a dirty worktree and delete the branch even if unmerged",
+			},
+		},
 		ShellComplete: completeRemoveBranch,
 		Action:        runRemove,
 	}
@@ -23,5 +30,5 @@ func runRemove(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	return lifecycle.Remove(ctx, commandDeps(cmd), lifecycle.RemoveInput{Branch: branch})
+	return lifecycle.Remove(ctx, commandDeps(cmd), lifecycle.RemoveInput{Branch: branch, Force: cmd.Bool("force")})
 }

@@ -1,0 +1,13 @@
+# tp remove refuses a dirty worktree on an unmerged branch; --force removes both.
+tp-init-repo
+exec tp new feat-x
+exec git -C ../repo-feat-x commit --allow-empty -m 'unmerged work'
+# Modify a tracked file — git worktree remove refuses without --force.
+exec sh -c 'echo modified >> ../repo-feat-x/README.md'
+! exec tp remove feat-x
+exists ../repo-feat-x
+exec tp remove --force feat-x
+stderr '\[OK\].*removed worktree'
+! exists ../repo-feat-x
+exec git branch
+! stdout 'feat-x'

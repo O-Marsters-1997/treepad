@@ -65,9 +65,10 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 
 ### `remove.go`
 
-- `removeCommand()` — `tp remove <branch>` command definition
+- `removeCommand()` — `tp remove <branch> [options]` command definition
+  - Flags: `--force` / `-f`
   - Shell completes with `completeRemoveBranch`
-- `runRemove(ctx, cmd)` — calls `lifecycle.Remove()` with branch
+- `runRemove(ctx, cmd)` — calls `lifecycle.Remove()` with branch and force
 
 ### `prune.go`
 
@@ -519,6 +520,7 @@ tp [--verbose] <command>
 │   └── sync [options] (--json, --dry-run, --batch, --offline, --launch)
 ├── shell-init
 ├── remove <branch>
+│   └── --force (-f, remove dirty worktree, delete unmerged branch)
 ├── prune [options]
 │   ├── --base (-b, default: main)
 │   ├── --dry-run (-n)
@@ -599,9 +601,9 @@ tp [--verbose] <command>
 3. `runRemove()` builds `deps.DefaultDeps()`, calls `lifecycle.Remove()`
 4. `lifecycle.Remove()` guards: not-main, not-cwd-inside
 5. Calls `lifecycle.RemoveWorktreeAndArtifact()`:
-   - Fires `pre_remove` hook, runs `git worktree remove`
+   - Fires `pre_remove` hook, runs `git worktree remove` (`--force` when `Force` is set)
    - Deletes artifact file (missing file is not an error)
-   - Runs `git branch -d`, fires `post_remove` hook
+   - Runs `git branch -d` (`-D` when `Force` is set), fires `post_remove` hook
 
 ## Data Flow Example: `tp prune [--base main] [--dry-run] [--all]`
 
