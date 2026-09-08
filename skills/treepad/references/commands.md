@@ -205,11 +205,17 @@ Reach for it after editing a local config that other worktrees need, or to repai
 
 ## Removing
 
-### `tp remove <branch>`
+### `tp remove <branch> [--force | --merged]`
 
 Removes the worktree, deletes its artifact file, deletes the local branch. Hooks:
 `pre_remove`, `post_remove`. Refuses to remove the main worktree, and refuses to remove the
 worktree you are currently inside.
+
+Plain `tp remove` also refuses a branch that is not an ancestor of the base branch.
+`--force` wipes a dirty worktree and deletes an unmerged branch outright. `--merged` asserts
+the branch already merged upstream (what a squash merge leaves) and skips only that ancestor
+check — it still refuses a dirty worktree or unpushed commits. The two flags are mutually
+exclusive.
 
 ### `tp prune [options]`
 

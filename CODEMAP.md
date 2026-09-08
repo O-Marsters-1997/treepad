@@ -12,11 +12,12 @@ Public Go API for callers that import treepad instead of running `tp`. A sibling
 - `Worktree` struct — `Path`, `Branch`, `BaseSHA`
 - `ErrPostHook` — returned wrapped when a post hook fails; the returned `Worktree` is still complete and on disk
 - `New(ctx, NewOptions) (Worktree, error)` — resolves `Base` to a SHA before creating anything, then delegates to `lifecycle.CreateWorktreeWithSync`
-- `RemoveOptions` struct — `Branch` (required), `RepoDir` (required, absolute), `OutputDir` (must match the cut's), `Force` (branch only), `Stderr`
+- `RemoveOptions` struct — `Branch` (required), `RepoDir` (required, absolute), `OutputDir` (must match the cut's), `Force` (ancestor check only — matches `tp remove --merged`, not `tp remove --force`), `Stderr`
 - `ErrNotFound` — no worktree on the branch, so a second `Remove` of the same branch is idempotent
 - `ErrDirty` — uncommitted changes in the target; nothing is touched, and `Force` does not override it
-- `Remove(ctx, RemoveOptions) error` — refuses the main worktree, a dirty tree, and (without `Force`) a branch not merged into main, all before anything is deleted; then delegates to `lifecycle.RemoveWorktreeAndArtifact`. Ignores the process working directory, which `lifecycle.Remove` refuses to do
-- `ErrInteractiveHook` — the repo configures an `interactive = true` hook for an event the operation fires; nothing is written. Both verbs pre-flight `hook.CutEvents` / `hook.TeardownEvents` through `hook.ShouldRun`, so a hook filtered off the branch does not refuse it. `Remove` pre-flights after `ErrNotFound` and `ErrDirty` so neither sentinel is shadowed
+- `ErrUnpushed` — commits on the branch that have not reached its upstream; `Force` does not override it either
+- `Remove(ctx, RemoveOptions) error` — refuses the main worktree, a dirty tree, unpushed commits, and (without `Force`) a branch not merged into main, all before anything is deleted; then delegates to `lifecycle.RemoveWorktreeAndArtifact`. Ignores the process working directory, which `lifecycle.Remove` refuses to do
+- `ErrInteractiveHook` — the repo configures an `interactive = true` hook for an event the operation fires; nothing is written. Both verbs pre-flight `hook.CutEvents` / `hook.TeardownEvents` through `hook.ShouldRun`, so a hook filtered off the branch does not refuse it. `Remove` pre-flights after `ErrNotFound`, `ErrDirty` and `ErrUnpushed` so none of those sentinels are shadowed
 - Cuts and teardowns are serialised per repository by a process-local mutex keyed on the main worktree path
 - `libDeps` passes `refuseTTY` to `deps.DefaultDepsIn` as the terminal runner, so `tty.Open` is unreachable from a library path even if a future code path forgets the pre-flight
 
@@ -90,9 +91,9 @@ Central location for all CLI command definitions. Separates CLI wiring from busi
 ### `remove.go`
 
 - `removeCommand()` — `tp remove <branch> [options]` command definition
-  - Flags: `--force` / `-f`
+  - Flags: `--force` / `-f`, `--merged`, mutually exclusive via `cli.MutuallyExclusiveFlags`
   - Shell completes with `completeRemoveBranch`
-- `runRemove(ctx, cmd)` — calls `lifecycle.Remove()` with branch and force
+- `runRemove(ctx, cmd)` — calls `lifecycle.Remove()` with branch, force, and merged
 
 ### `prune.go`
 
@@ -313,9 +314,10 @@ Owns the worktree creation, removal, and pruning verbs.
 - `CreateWorktreeWithSync(ctx, deps.Deps, branch, base, outputDir) (CreateResult, error)` — runs `git worktree add`, syncs configs, writes artifact; fires `pre_new`/`post_new` hooks
 - `LoadAndSync(ctx, deps.Deps, sourceDir, extraPatterns, []SyncTarget, repoSlug, outputDir) (config.Config, *hook.PostErr, error)` — loads config, syncs files to all targets; fires `pre_sync`/`post_sync` per target
 - `OpenWorktree(ctx, deps.Deps, openCmd, branch, wtPath, artifactPath, outputDir) error` — opens artifact (or worktree dir) via configured open command
-- `RemoveWorktreeAndArtifact(ctx, deps.Deps, target, main worktree.Worktree, outputDir string, force bool) (*hook.PostErr, error)` — `git worktree remove [--force]`, deletes artifact, `git branch -d` (or `-D`); fires `pre_remove`/`post_remove` hooks. A non-nil `*hook.PostErr` means only the post hook failed; it is already logged as a warning, so CLI callers discard it
+- `RemoveMode` struct — `WipeDirty` (passes `--force` to `git worktree remove`), `DeleteUnmerged` (passes `-D` instead of `-d` to `git branch`); the two are set independently
+- `RemoveWorktreeAndArtifact(ctx, deps.Deps, target, main worktree.Worktree, outputDir string, mode RemoveMode) (*hook.PostErr, error)` — `git worktree remove [--force]`, deletes artifact, `git branch -d` (or `-D`); fires `pre_remove`/`post_remove` hooks. A non-nil `*hook.PostErr` means only the post hook failed; it is already logged as a warning, so CLI callers discard it
 - `New(ctx, deps.Deps, NewInput) (mainPath string, error)` — calls `CreateWorktreeWithSync`, optionally opens artifact, emits cd sentinel unless `Current=true`
-- `Remove(ctx, deps.Deps, RemoveInput) error` — guards: not-main, not-cwd-inside; delegates to `RemoveWorktreeAndArtifact`
+- `Remove(ctx, deps.Deps, RemoveInput) error` — guards: not-main, not-cwd-inside, `Force`+`Merged` mutually exclusive, then either (`Merged`) dirty + unpushed refusals, or (plain) a `git merge-base --is-ancestor` refusal unless `Force`; delegates to `RemoveWorktreeAndArtifact` with `RemoveMode{WipeDirty: Force, DeleteUnmerged: Force || Merged}`
 - `Prune(ctx, deps.Deps, PruneInput) error` — `All=true`: force-removes all non-main (requires cwd in main); `All=false`: removes merged worktrees (skips dirty, ahead, current); `DryRun=true`: preview only; `Yes=true`: skips confirmation prompt
 
 ### `internal/treepad/cd/`
@@ -546,7 +548,8 @@ tp [--verbose] <command>
 │   └── sync [options] (--json, --dry-run, --batch, --offline, --launch)
 ├── shell-init
 ├── remove <branch>
-│   └── --force (-f, remove dirty worktree, delete unmerged branch)
+│   ├── --force (-f, remove dirty worktree, delete unmerged branch; mutually exclusive with --merged)
+│   └── --merged (assert already merged upstream, skip only the ancestor check; mutually exclusive with --force)
 ├── prune [options]
 │   ├── --base (-b, default: main)
 │   ├── --dry-run (-n)
@@ -625,11 +628,13 @@ tp [--verbose] <command>
 1. `cmd/tp/main.go` parses flags and calls `commands.Router()`
 2. `commands.removeCommand()` defines CLI interface
 3. `runRemove()` builds `deps.DefaultDeps()`, calls `lifecycle.Remove()`
-4. `lifecycle.Remove()` guards: not-main, not-cwd-inside
-5. Calls `lifecycle.RemoveWorktreeAndArtifact()`:
-   - Fires `pre_remove` hook, runs `git worktree remove` (`--force` when `Force` is set)
+4. `lifecycle.Remove()` guards: not-main, not-cwd-inside, then:
+   - `--merged`: refuses a dirty worktree or unpushed commits
+   - plain (neither flag): refuses a branch that fails `git merge-base --is-ancestor <branch> <base>`
+5. Calls `lifecycle.RemoveWorktreeAndArtifact()` with `RemoveMode{WipeDirty: Force, DeleteUnmerged: Force || Merged}`:
+   - Fires `pre_remove` hook, runs `git worktree remove` (`--force` when `WipeDirty` is set)
    - Deletes artifact file (missing file is not an error)
-   - Runs `git branch -d` (`-D` when `Force` is set), fires `post_remove` hook
+   - Runs `git branch -d` (`-D` when `DeleteUnmerged` is set), fires `post_remove` hook
 
 ## Data Flow Example: `tp prune [--base main] [--dry-run] [--all]`
 

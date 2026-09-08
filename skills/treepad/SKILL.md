@@ -102,6 +102,10 @@ run it when the work is merged or genuinely unwanted.
 ## Destructive commands
 
 `tp remove`, `tp prune`, and `tp prune --all` delete branches and working directories.
+Plain `tp remove` refuses a branch that is not merged into the base branch. `--merged`
+skips only that check (still refusing a dirty worktree or unpushed commits) for a squash-merged
+branch; `--force` skips everything. Never pass either on your own initiative — confirm with the
+user that the branch is safe to delete first.
 `prune` without `--all` is fairly safe — it only touches branches already merged into the
 base, and skips the main worktree, detached-HEAD worktrees, dirty worktrees, and the one you
 are in. Even so, run `tp prune --dry-run` first and show the user what it would delete.

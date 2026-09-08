@@ -9,9 +9,9 @@
 //   - A hook configured interactive = true is refused with ErrInteractiveHook
 //     before anything is written. The CLI hands such a hook the terminal; a
 //     library caller has no terminal to hand over.
-//   - RemoveOptions.Force deletes a branch git considers unmerged, but never a
-//     worktree with uncommitted changes — Remove returns ErrDirty instead,
-//     where tp remove --force would wipe it.
+//   - RemoveOptions.Force skips only the merge-base ancestry check, matching
+//     tp remove --merged: Remove still refuses a dirty worktree (ErrDirty) or
+//     unpushed commits (ErrUnpushed), where tp remove --force wipes both.
 //
 // A failed post hook is the one error that leaves the operation done. New and
 // Remove wrap ErrPostHook once the worktree is already cut or already gone, and
@@ -180,7 +180,8 @@ type RemoveOptions struct {
 	// OutputDir the worktree was cut with, or the artifact is left behind.
 	OutputDir string
 	// Force deletes a branch git considers unmerged — what a squash merge
-	// leaves. It never overrides the dirty-worktree refusal.
+	// leaves. It never overrides the dirty-worktree or unpushed-commit
+	// refusals.
 	Force bool
 	// Stderr receives the same narrative the CLI prints. Nil discards it.
 	Stderr io.Writer
@@ -194,6 +195,11 @@ var ErrNotFound = errors.New("worktree not found")
 // touched. Force does not override it — destroying uncommitted work is a
 // decision for a human who can see it.
 var ErrDirty = errors.New("worktree has uncommitted changes")
+
+// ErrUnpushed reports commits on Branch that have not reached its upstream.
+// Force does not override it, for the same reason it does not override
+// ErrDirty.
+var ErrUnpushed = errors.New("branch has unpushed commits")
 
 // Remove deletes the worktree on Branch, its branch and its artifact, firing
 // remove hooks exactly as tp remove does. Unlike the CLI it does not care where
@@ -233,15 +239,18 @@ func Remove(ctx context.Context, o RemoveOptions) error {
 		return fmt.Errorf("%w: %s", ErrDirty, target.Path)
 	}
 
-	// After ErrNotFound and ErrDirty, which a reconcile loop reads as state it
-	// already knows about, and still before anything is deleted.
+	ahead, _, hasUpstream, err := worktree.AheadBehind(ctx, d.Runner, target.Path)
+	if err != nil {
+		return err
+	}
+	if hasUpstream && ahead > 0 {
+		return fmt.Errorf("%w: branch %q has %d unpushed commit(s)", ErrUnpushed, o.Branch, ahead)
+	}
+
 	if err := refuseInteractiveHooks(rc.Main.Path, o.Branch, hook.TeardownEvents); err != nil {
 		return err
 	}
 
-	// git deletes the branch last, so without this a non-forced call on an
-	// unmerged branch would remove the worktree and then refuse the branch,
-	// leaving the caller half torn down.
 	if !o.Force {
 		if _, err := d.Runner.Run(ctx, "git", "merge-base", "--is-ancestor", o.Branch, rc.Main.Branch); err != nil {
 			return fmt.Errorf("treepad: branch %q is not merged into %s; set Force to delete it anyway",
@@ -249,7 +258,8 @@ func Remove(ctx context.Context, o RemoveOptions) error {
 		}
 	}
 
-	postErr, err := lifecycle.RemoveWorktreeAndArtifact(ctx, d, target, rc.Main, rc.OutputDir, o.Force)
+	mode := lifecycle.RemoveMode{DeleteUnmerged: o.Force}
+	postErr, err := lifecycle.RemoveWorktreeAndArtifact(ctx, d, target, rc.Main, rc.OutputDir, mode)
 	if err != nil {
 		return err
 	}

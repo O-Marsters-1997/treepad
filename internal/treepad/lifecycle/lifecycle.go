@@ -222,13 +222,24 @@ func LoadAndSync(
 	return cfg, firstPostErr, nil
 }
 
+// RemoveMode controls the two independently-forceable steps of a worktree
+// removal.
+type RemoveMode struct {
+	// WipeDirty passes --force to git worktree remove, discarding uncommitted
+	// changes.
+	WipeDirty bool
+	// DeleteUnmerged passes -D instead of -d to git branch, deleting a branch
+	// git would otherwise refuse as unmerged.
+	DeleteUnmerged bool
+}
+
 // RemoveWorktreeAndArtifact removes a git worktree, its artifact, and its branch.
 // A non-nil *hook.PostErr means the removal itself succeeded and only the post
 // hook failed; it is logged as a warning here, so a CLI caller can discard it.
 func RemoveWorktreeAndArtifact(
 	ctx context.Context, d deps.Deps,
 	target, main worktree.Worktree,
-	outputDir string, force bool,
+	outputDir string, mode RemoveMode,
 ) (*hook.PostErr, error) {
 	p := profile.OrDisabled(d.Profiler)
 	configLoadDone := p.Stage("config.load")
@@ -237,13 +248,13 @@ func RemoveWorktreeAndArtifact(
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	return doRemove(ctx, d, target, main, outputDir, force, cfg)
+	return doRemove(ctx, d, target, main, outputDir, mode, cfg)
 }
 
 func doRemove(
 	ctx context.Context, d deps.Deps,
 	target, main worktree.Worktree,
-	outputDir string, force bool, cfg config.Config,
+	outputDir string, mode RemoveMode, cfg config.Config,
 ) (*hook.PostErr, error) {
 	p := profile.OrDisabled(d.Profiler)
 
@@ -251,9 +262,11 @@ func doRemove(
 	removeVerb := "git worktree remove"
 	branchFlag := "-d"
 	branchVerb := "git branch -d"
-	if force {
+	if mode.WipeDirty {
 		removeArgs = []string{"worktree", "remove", "--force", target.Path}
 		removeVerb = "git worktree remove --force"
+	}
+	if mode.DeleteUnmerged {
 		branchFlag = "-D"
 		branchVerb = "git branch -D"
 	}
@@ -383,7 +396,6 @@ func gatherMerged(ctx context.Context, d deps.Deps, rc repo.Context, cwd, base s
 
 	return pruneSelection{
 		candidates: candidates,
-		force:      false,
 		verb:       "removed",
 		emptyMsg:   "no merged worktrees to remove",
 	}, nil
@@ -405,7 +417,7 @@ func gatherAll(rc repo.Context, cwd string) (pruneSelection, error) {
 
 	return pruneSelection{
 		candidates: candidates,
-		force:      true,
+		mode:       RemoveMode{WipeDirty: true, DeleteUnmerged: true},
 		verb:       "force-removed",
 		emptyMsg:   "no worktrees to remove",
 	}, nil
@@ -459,7 +471,7 @@ func executePrune(ctx context.Context, d deps.Deps, rc repo.Context, sel pruneSe
 		g.Go(func() error {
 			bufDeps := d
 			bufDeps.Log = ui.New(&bufs[i])
-			if _, err := doRemove(gctx, bufDeps, c, rc.Main, rc.OutputDir, sel.force, cfg); err != nil {
+			if _, err := doRemove(gctx, bufDeps, c, rc.Main, rc.OutputDir, sel.mode, cfg); err != nil {
 				bufDeps.Log.Err("error removing %s: %v", c.Branch, err)
 				errs[i] = err
 			}

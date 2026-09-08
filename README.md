@@ -203,6 +203,9 @@ tp remove feature-x
 
 # Discard uncommitted changes and delete an unmerged branch
 tp remove --force feature-x
+
+# Delete a branch a squash merge left behind, still refusing if it's dirty or unpushed
+tp remove --merged feature-x
 ```
 
 **`prune`** — Remove all worktrees whose branches are merged into a base branch, or force-remove all non-main worktrees:
@@ -372,7 +375,7 @@ tp [--verbose] <command>
 ├── batch
 │   ├── list [--json]
 │   └── sync [options]
-├── remove <branch>
+├── remove <branch> [--force | --merged]
 ├── prune [options]
 ├── cd <branch | ->
 ├── base

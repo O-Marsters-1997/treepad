@@ -489,6 +489,46 @@ func TestRemoveDirtyWorktreeIsRefusedEvenWithForce(t *testing.T) {
 	}
 }
 
+func TestRemoveUnpushedBranchIsRefusedEvenWithForce(t *testing.T) {
+	repoDir := fixtureRepo(t, fixtureConfig)
+	outputDir := t.TempDir()
+
+	bareDir := filepath.Join(t.TempDir(), "origin.git")
+	git(t, "", "init", "--bare", bareDir)
+	git(t, repoDir, "remote", "add", "origin", bareDir)
+	git(t, repoDir, "push", "origin", "main")
+
+	wt, err := treepad.New(context.Background(), treepad.NewOptions{
+		Branch:    "feature/unpushed",
+		Base:      "main",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	git(t, wt.Path, "push", "-u", "origin", "feature/unpushed")
+	writeFile(t, filepath.Join(wt.Path, "work.txt"), "not pushed\n")
+	git(t, wt.Path, "add", "work.txt")
+	git(t, wt.Path, "commit", "-m", "local only")
+
+	err = treepad.Remove(context.Background(), treepad.RemoveOptions{
+		Branch:    "feature/unpushed",
+		RepoDir:   repoDir,
+		OutputDir: outputDir,
+		Force:     true,
+	})
+	if !errors.Is(err, treepad.ErrUnpushed) {
+		t.Fatalf("error = %v, want it to wrap ErrUnpushed", err)
+	}
+	if _, statErr := os.Stat(wt.Path); statErr != nil {
+		t.Errorf("worktree %q gone: %v", wt.Path, statErr)
+	}
+	if branches := git(t, repoDir, "branch", "--list", "feature/unpushed"); branches == "" {
+		t.Error("branch was deleted")
+	}
+}
+
 func TestRemoveAbsentBranch(t *testing.T) {
 	repoDir := fixtureRepo(t, fixtureConfig)
 
