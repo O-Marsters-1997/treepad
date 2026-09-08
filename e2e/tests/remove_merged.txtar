@@ -1,0 +1,21 @@
+# tp remove refuses an unmerged branch on the ancestor check alone;
+# --merged skips that check but still refuses a dirty worktree.
+tp-init-repo
+exec tp new feat-x
+exec git -C ../repo-feat-x commit --allow-empty -m 'squashed upstream'
+! exec tp remove feat-x
+stderr 'not merged into main'
+exists ../repo-feat-x
+
+exec tp remove --merged feat-x
+stderr '\[OK\].*removed worktree'
+! exists ../repo-feat-x
+exec git branch
+! stdout 'feat-x'
+
+exec tp new feat-y
+exec git -C ../repo-feat-y commit --allow-empty -m 'squashed upstream'
+exec sh -c 'echo modified >> ../repo-feat-y/README.md'
+! exec tp remove --merged feat-y
+stderr 'uncommitted changes'
+exists ../repo-feat-y

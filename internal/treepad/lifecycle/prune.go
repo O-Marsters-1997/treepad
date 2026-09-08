@@ -22,7 +22,7 @@ type PruneInput struct {
 
 type pruneSelection struct {
 	candidates []worktree.Worktree
-	force      bool
+	mode       RemoveMode
 	verb       string
 	emptyMsg   string
 }

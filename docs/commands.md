@@ -474,11 +474,17 @@ tp remove <branch> [options]
 
 Removes the worktree for the specified branch, cleans up its associated artifact file (if any), and deletes the branch locally. Includes pre-flight safety guards to prevent accidental data loss.
 
+A plain `tp remove` refuses a branch that is not an ancestor of the base branch before touching anything. `--force` and `--merged` are two different ways past that, and they are mutually exclusive:
+
+- `--force` wipes a dirty worktree and deletes an unmerged branch — nothing is checked, the caller is asserting it's safe.
+- `--merged` asserts the branch already merged upstream (what a squash merge leaves — the work is in main, but the branch's own commit is not main's ancestor) and skips only the ancestor check. It still refuses a dirty worktree or a branch with unpushed commits.
+
 ### Flags
 
-| Flag      | Short | Description                                                                        |
-| --------- | ----- | ---------------------------------------------------------------------------------- |
-| `--force` | `-f`  | Remove a worktree with uncommitted changes and delete the branch even if unmerged |
+| Flag        | Short | Description                                                                         |
+| ----------- | ----- | ------------------------------------------------------------------------------------ |
+| `--force`   | `-f`  | Remove a worktree with uncommitted changes and delete the branch even if unmerged   |
+| `--merged`  |       | Assert the branch already merged upstream; delete it even if not an ancestor of the base branch |
 
 **Hooks fired:** `pre_remove` (before `git worktree remove`), `post_remove` (after `git branch -d`). See [hooks.md](hooks.md).
 
@@ -486,6 +492,10 @@ Removes the worktree for the specified branch, cleans up its associated artifact
 
 - Refuses to remove the main worktree
 - Refuses to remove a worktree if you are currently inside it (must `cd` elsewhere first)
+- Refuses a branch that is not an ancestor of the base branch, unless `--force` or `--merged` is given
+- `--merged` still refuses a dirty worktree, or a branch with commits its upstream hasn't seen
+
+Once a branch's remote ref is deleted (GitHub's delete-branch-on-merge, followed by `git fetch --prune`), there is nothing left to compare the branch's tip against, so `--merged` cannot detect commits made after the last push in that case.
 
 ### Examples
 
@@ -499,6 +509,9 @@ tp remove feature-x
 
 # Discard uncommitted changes and delete an unmerged branch
 tp remove --force feature-x
+
+# Delete a branch a squash merge left behind, still refusing if it's dirty or unpushed
+tp remove --merged feature-x
 ```
 
 ### Errors
@@ -510,11 +523,23 @@ cannot remove the main worktree
 cannot remove the worktree you are currently in; cd elsewhere first
 ```
 
-A dirty worktree or an unmerged branch also fails; pass `--force` to override:
+A plain remove on an unmerged branch is refused before anything is touched:
+
+```
+branch "feature-x" is not merged into main; pass --merged if it merged upstream, or --force to delete it anyway
+```
+
+`--merged` still refuses a dirty worktree or unpushed commits:
+
+```
+worktree has uncommitted changes: /path/to/repo-feature-x
+branch "feature-x" has 2 unpushed commit(s)
+```
+
+A dirty worktree on an already-merged branch still fails via git's own refusal, since a plain remove has no reason to pre-check it:
 
 ```
 git worktree remove: ... contains modified or untracked files, use --force to delete it
-git branch -d: ... the branch 'feature-x' is not fully merged
 ```
 
 ## prune

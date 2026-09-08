@@ -11,9 +11,9 @@ because nobody is watching a library call:
   - A hook configured interactive = true is refused with ErrInteractiveHook
     before anything is written. The CLI hands such a hook the terminal;
     a library caller has no terminal to hand over.
-  - RemoveOptions.Force deletes a branch git considers unmerged, but never
-    a worktree with uncommitted changes — Remove returns ErrDirty instead,
-    where tp remove --force would wipe it.
+  - RemoveOptions.Force skips only the merge-base ancestry check, matching
+    tp remove --merged: Remove still refuses a dirty worktree (ErrDirty) or
+    unpushed commits (ErrUnpushed), where tp remove --force wipes both.
 
 A failed post hook is the one error that leaves the operation done. New and
 Remove wrap ErrPostHook once the worktree is already cut or already gone,
@@ -48,6 +48,11 @@ var ErrPostHook = errors.New("post hook failed")
     ErrPostHook reports that a post hook failed. The cut itself succeeded:
     the returned Worktree is complete and on disk.
 
+var ErrUnpushed = errors.New("branch has unpushed commits")
+    ErrUnpushed reports commits on Branch that have not reached its upstream.
+    Force does not override it, for the same reason it does not override
+    ErrDirty.
+
 
 FUNCTIONS
 
@@ -81,7 +86,8 @@ type RemoveOptions struct {
 	// OutputDir the worktree was cut with, or the artifact is left behind.
 	OutputDir string
 	// Force deletes a branch git considers unmerged — what a squash merge
-	// leaves. It never overrides the dirty-worktree refusal.
+	// leaves. It never overrides the dirty-worktree or unpushed-commit
+	// refusals.
 	Force bool
 	// Stderr receives the same narrative the CLI prints. Nil discards it.
 	Stderr io.Writer

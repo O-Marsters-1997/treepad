@@ -9,16 +9,21 @@ import (
 )
 
 func removeCommand() *cli.Command {
+	forceFlag := &cli.BoolFlag{
+		Name:    "force",
+		Aliases: []string{"f"},
+		Usage:   "force removal of a dirty worktree and delete the branch even if unmerged",
+	}
+	mergedFlag := &cli.BoolFlag{
+		Name:  "merged",
+		Usage: "assert the branch already merged upstream, deleting it even if not an ancestor of the base branch",
+	}
 	return &cli.Command{
 		Name:      "remove",
 		Usage:     "remove a git worktree and its associated files",
 		ArgsUsage: "<branch>",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:    "force",
-				Aliases: []string{"f"},
-				Usage:   "force removal of a dirty worktree and delete the branch even if unmerged",
-			},
+		MutuallyExclusiveFlags: []cli.MutuallyExclusiveFlags{
+			{Flags: [][]cli.Flag{{forceFlag}, {mergedFlag}}},
 		},
 		ShellComplete: completeRemoveBranch,
 		Action:        runRemove,
@@ -30,5 +35,6 @@ func runRemove(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	return lifecycle.Remove(ctx, commandDeps(cmd), lifecycle.RemoveInput{Branch: branch, Force: cmd.Bool("force")})
+	in := lifecycle.RemoveInput{Branch: branch, Force: cmd.Bool("force"), Merged: cmd.Bool("merged")}
+	return lifecycle.Remove(ctx, commandDeps(cmd), in)
 }

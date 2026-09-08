@@ -31,6 +31,7 @@ func TestRemove(t *testing.T) {
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain}, // git worktree list
+			{},                  // git merge-base --is-ancestor
 			{},                  // git worktree remove
 			{},                  // git branch -d
 		}}
@@ -44,14 +45,15 @@ func TestRemove(t *testing.T) {
 		if _, err := os.Stat(wsFile); !os.IsNotExist(err) {
 			t.Error("artifact file should have been deleted")
 		}
-		if runner.Idx != 3 {
-			t.Errorf("runner called %d times, want 3", runner.Idx)
+		if runner.Idx != 4 {
+			t.Errorf("runner called %d times, want 4", runner.Idx)
 		}
 	})
 
 	t.Run("artifact file missing is not an error", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
+			{},
 			{},
 			{},
 		}}
@@ -69,6 +71,7 @@ func TestRemove(t *testing.T) {
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
+			{},
 			{},
 			{},
 		}}
@@ -99,6 +102,7 @@ func TestRemove(t *testing.T) {
 
 		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
+			{}, // git merge-base --is-ancestor
 		}}}
 		hr := &treepadtest.FakeHookRunner{Err: errors.New("pre remove aborted")}
 		deps := deps.Deps{Runner: rr.Inner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
@@ -121,6 +125,7 @@ func TestRemove(t *testing.T) {
 
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
+			{},
 			{},
 			{},
 		}}
@@ -160,6 +165,7 @@ func TestRemove(t *testing.T) {
 			branch: "feat",
 			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 				{Output: porcelain},
+				{}, // git merge-base --is-ancestor
 				{Err: errors.New("locked worktree")},
 			}},
 			wantErr: "locked worktree",
@@ -169,6 +175,7 @@ func TestRemove(t *testing.T) {
 			branch: "feat",
 			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 				{Output: porcelain},
+				{}, // git merge-base --is-ancestor
 				{},
 				{Err: errors.New("branch not found")},
 			}},
@@ -181,6 +188,15 @@ func TestRemove(t *testing.T) {
 				{Output: treepadtest.MainWorktreePorcelain(mainPath)},
 			}},
 			wantErr: "main worktree",
+		},
+		{
+			name:   "plain remove refuses a branch that is not an ancestor of main",
+			branch: "feat",
+			runner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+				{Err: errors.New("not an ancestor")}, // git merge-base --is-ancestor
+			}},
+			wantErr: `branch "feat" is not merged into main`,
 		},
 	}
 	for _, tt := range errorTests {
@@ -226,6 +242,104 @@ func TestRemove(t *testing.T) {
 		}
 	})
 
+	t.Run("refuses Force and Merged set together", func(t *testing.T) {
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+		}}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+
+		in := RemoveInput{Branch: "feat", OutputDir: outputDir, Force: true, Merged: true}
+		err := Remove(context.Background(), deps, in)
+		if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+			t.Errorf("got error %v, want error containing %q", err, "mutually exclusive")
+		}
+		if runner.Idx != 1 {
+			t.Errorf("runner called %d times, want 1 (list only)", runner.Idx)
+		}
+	})
+
+	t.Run("merged remove skips the ancestor check but still passes plain worktree remove and -D", func(t *testing.T) {
+		rr := &treepadtest.RecordingRunner{Inner: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},             // git worktree list
+			{},                              // git status --porcelain (clean)
+			{Output: []byte("origin/feat")}, // git rev-parse @{upstream}
+			{Output: []byte("0\t0")},        // git rev-list --left-right --count
+			{},                              // git worktree remove
+			{},                              // git branch -D
+		}}}
+		deps := deps.Deps{Runner: rr, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir, Merged: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var foundPlainRemove, foundD bool
+		for _, call := range rr.Calls {
+			if len(call) == 4 && call[1] == "worktree" && call[2] == "remove" {
+				foundPlainRemove = true
+			}
+			if len(call) >= 4 && call[1] == "branch" && call[2] == "-D" {
+				foundD = true
+			}
+		}
+		if !foundPlainRemove {
+			t.Error("expected plain git worktree remove, not --force")
+		}
+		if !foundD {
+			t.Error("expected git branch -D")
+		}
+	})
+
+	t.Run("merged remove refuses a dirty worktree", func(t *testing.T) {
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},                // git worktree list
+			{Output: []byte(" M some/file\n")}, // git status --porcelain (dirty)
+		}}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir, Merged: true})
+		if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+			t.Errorf("got error %v, want error containing %q", err, "uncommitted changes")
+		}
+		if runner.Idx != 2 {
+			t.Errorf("runner called %d times, want 2 (list + status only)", runner.Idx)
+		}
+	})
+
+	t.Run("merged remove refuses unpushed commits", func(t *testing.T) {
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{},                              // git status --porcelain (clean)
+			{Output: []byte("origin/feat")}, // git rev-parse @{upstream}
+			{Output: []byte("2\t0")},        // git rev-list --left-right --count: 2 ahead
+		}}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir, Merged: true})
+		if err == nil || !strings.Contains(err.Error(), "2 unpushed commit") {
+			t.Errorf("got error %v, want error containing %q", err, "2 unpushed commit")
+		}
+		if runner.Idx != 4 {
+			t.Errorf("runner called %d times, want 4 (no mutation)", runner.Idx)
+		}
+	})
+
+	t.Run("merged remove proceeds when the branch has no upstream to compare against", func(t *testing.T) {
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: porcelain},
+			{}, // git status --porcelain (clean)
+			{Err: errors.New("no upstream configured")}, // git rev-parse @{upstream}
+			{}, // git worktree remove
+			{}, // git branch -D
+		}}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+
+		err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir, Merged: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
 	t.Run("refuses to remove worktree user is currently in", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},
@@ -266,7 +380,7 @@ func TestRemoveWorktreeAndArtifactSurfacesPostErr(t *testing.T) {
 	target := worktree.Worktree{Path: featPath, Branch: "feat"}
 	main := worktree.Worktree{Path: mainPath, Branch: "main", IsMain: true}
 
-	postErr, err := RemoveWorktreeAndArtifact(context.Background(), d, target, main, t.TempDir(), false)
+	postErr, err := RemoveWorktreeAndArtifact(context.Background(), d, target, main, t.TempDir(), RemoveMode{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
