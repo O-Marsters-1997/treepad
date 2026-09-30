@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // Linker symlinks entries in TargetDir to the same path under SourceDir.
@@ -26,11 +29,54 @@ type LinkResult struct {
 	Skipped   []LinkSkip
 }
 
-// Reconcile links each literal file entry. It only creates a symlink where the
-// path is absent or already a link to SourceDir/entry; anything else is skipped.
+// expand turns entries into concrete relative paths. A trailing "/" names one
+// directory link, a glob expands to its untracked matches in SourceDir, and
+// paths under a linked directory are dropped as covered by it.
+func (l Linker) expand(entries []string, cfg Config, res *LinkResult) []string {
+	var dirs, paths []string
+	for _, e := range entries {
+		switch {
+		case strings.HasSuffix(e, "/"):
+			d := strings.TrimSuffix(e, "/")
+			dirs = append(dirs, d)
+			paths = append(paths, d)
+		case doublestar.ValidatePattern(e) && strings.ContainsAny(e, "*?[{"):
+			matches, _ := doublestar.Glob(os.DirFS(cfg.SourceDir), e)
+			for _, m := range matches {
+				if l.Tracked == nil || !l.Tracked(m) {
+					paths = append(paths, m)
+				}
+			}
+		default:
+			paths = append(paths, e)
+		}
+	}
+	var out []string
+	for _, p := range paths {
+		if parent, ok := coveredBy(p, dirs); ok {
+			res.skip(p, "covered by parent "+parent)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func coveredBy(p string, dirs []string) (string, bool) {
+	for _, d := range dirs {
+		if strings.HasPrefix(p, d+"/") {
+			return d, true
+		}
+	}
+	return "", false
+}
+
+// Reconcile links each entry: a file, a trailing-"/" directory or a glob. It
+// only creates a symlink where the path is absent or already a link to
+// SourceDir/entry; anything else is skipped.
 func (l Linker) Reconcile(entries []string, cfg Config) (LinkResult, error) {
 	var res LinkResult
-	for _, e := range entries {
+	for _, e := range l.expand(entries, cfg, &res) {
 		src := filepath.Join(cfg.SourceDir, e)
 		dst := filepath.Join(cfg.TargetDir, e)
 
