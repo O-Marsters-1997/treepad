@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"text/tabwriter"
@@ -14,7 +15,9 @@ import (
 	"github.com/O-Marsters-1997/treepad/batch"
 	"github.com/O-Marsters-1997/treepad/internal/config"
 	"github.com/O-Marsters-1997/treepad/internal/gh"
+	internalsync "github.com/O-Marsters-1997/treepad/internal/sync"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
+	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/repo"
 	"github.com/O-Marsters-1997/treepad/internal/worktree"
 )
@@ -108,6 +111,7 @@ func Doctor(ctx context.Context, d deps.Deps, in DoctorInput) error {
 
 		if !wt.IsMain {
 			findings = append(findings, doctorCheckConfigDrift(wt, mainCfg)...)
+			findings = append(findings, doctorCheckLinks(ctx, d, wt, rc.Main.Path, mainCfg.Sync.Link)...)
 		}
 	}
 
@@ -286,6 +290,25 @@ func doctorCheckConfigDrift(wt worktree.Worktree, mainCfg config.Config) []Docto
 		}}
 	}
 	return nil
+}
+
+func doctorCheckLinks(
+	ctx context.Context, d deps.Deps, wt worktree.Worktree, mainPath string, entries []string,
+) []DoctorFinding {
+	if len(entries) == 0 {
+		return nil
+	}
+	linker := lifecycle.GitLinker(ctx, d, mainPath, wt.Path)
+	var findings []DoctorFinding
+	for _, is := range linker.Inspect(entries, internalsync.Config{SourceDir: mainPath, TargetDir: wt.Path}) {
+		findings = append(findings, DoctorFinding{
+			Branch: wt.Branch,
+			Path:   filepath.Join(wt.Path, is.Path),
+			Kind:   "link-" + is.Kind,
+			Detail: is.Detail,
+		})
+	}
+	return findings
 }
 
 func writeDoctorTable(out io.Writer, findings []DoctorFinding) {

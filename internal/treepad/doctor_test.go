@@ -2,10 +2,13 @@ package treepad
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -385,6 +388,114 @@ tickets = ["ENG-12"]
 		}
 		if !strings.Contains(out, "sync") {
 			t.Errorf("drift detail should mention 'sync':\n%s", out)
+		}
+	})
+
+	t.Run("link findings for broken, replaced and unignored links", func(t *testing.T) {
+		writeMainTOML := "[sync]\nlink = [\"broken\", \"replaced\", \"unignored\", \"healthy\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(writeMainTOML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		for _, name := range []string{"broken", "replaced", "unignored", "healthy"} {
+			if err := os.WriteFile(filepath.Join(mainPath, name), []byte("m"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, name)); _ = os.Remove(filepath.Join(featPath, name)) })
+		}
+		for _, name := range []string{"broken", "unignored", "healthy"} {
+			if err := os.Symlink(filepath.Join(mainPath, name), filepath.Join(featPath, name)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(featPath, "replaced"), []byte("local"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(mainPath, "broken")); err != nil {
+			t.Fatal(err)
+		}
+
+		runner := &treepadtest.DispatchRunner{
+			Classify: func(_ string, args []string) string {
+				switch {
+				case slices.Contains(args, "ls-files"):
+					return "ls-files"
+				case slices.Contains(args, "check-ignore"):
+					return "check-ignore:" + args[len(args)-1]
+				}
+				return ""
+			},
+			Routes: map[string][]treepadtest.RunResponse{
+				"ls-files":               slices.Repeat([]treepadtest.RunResponse{{Err: errors.New("no")}}, 4),
+				"check-ignore:unignored": {{Err: errors.New("exit status 1")}},
+				"check-ignore:healthy":   {{}},
+			},
+			Fallback: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain},
+				{Output: []byte("aaa111\n")},
+				{Output: []byte("")},
+				{Output: recentCommitOutput("abc1234", "init")},
+				{Output: []byte("")},
+				{Output: []byte("")},
+				{Err: errors.New("no upstream")},
+				{Output: recentCommitOutput("def5678", "feat x")},
+				{Output: []byte("")},
+				{Output: []byte("")},
+				{Err: errors.New("no upstream")},
+			}},
+		}
+		var buf strings.Builder
+		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: &buf}
+
+		in := offlineInput(func(in *DoctorInput) { in.JSON = true })
+		if err := Doctor(context.Background(), d, in); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		var findings []DoctorFinding
+		if err := json.Unmarshal([]byte(buf.String()), &findings); err != nil {
+			t.Fatalf("decode: %v\n%s", err, buf.String())
+		}
+		got := map[string]string{}
+		for _, f := range findings {
+			if strings.HasPrefix(f.Kind, "link-") {
+				got[filepath.Base(f.Path)] = f.Kind
+			}
+		}
+		want := map[string]string{"broken": "link-broken", "replaced": "link-replaced", "unignored": "link-unignored"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("link findings = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("strict fails on a link finding", func(t *testing.T) {
+		toml := "[sync]\nlink = [\"f\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })
+		_ = os.WriteFile(filepath.Join(mainPath, "f"), []byte("m"), 0o644)
+		_ = os.WriteFile(filepath.Join(featPath, "f"), []byte("local"), 0o644)
+		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, "f")); _ = os.Remove(filepath.Join(featPath, "f")) })
+
+		runner := &treepadtest.DispatchRunner{
+			Classify: func(_ string, args []string) string {
+				if slices.Contains(args, "ls-files") {
+					return "ls-files"
+				}
+				return ""
+			},
+			Routes: map[string][]treepadtest.RunResponse{"ls-files": {{Err: errors.New("no")}}},
+			Fallback: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain}, {Output: []byte("aaa111\n")}, {Output: []byte("")},
+				{Output: recentCommitOutput("abc1234", "init")}, {Output: []byte("")}, {Output: []byte("")},
+				{Err: errors.New("no upstream")},
+				{Output: recentCommitOutput("def5678", "feat x")}, {Output: []byte("")}, {Output: []byte("")},
+				{Err: errors.New("no upstream")},
+			}},
+		}
+		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}, Out: io.Discard}
+		if err := Doctor(context.Background(), d, offlineInput(func(in *DoctorInput) { in.Strict = true })); err == nil {
+			t.Fatal("want non-nil error under --strict")
 		}
 	})
 

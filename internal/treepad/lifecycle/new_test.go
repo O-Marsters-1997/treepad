@@ -100,6 +100,50 @@ func TestNew(t *testing.T) {
 		}
 	})
 
+	t.Run("warns when a created link is not ignored by git", func(t *testing.T) {
+		mainPath := makeMainWorktree(t)
+		if err := os.MkdirAll(filepath.Join(mainPath, "shared"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeTOML(t, mainPath, "[sync]\nlink = [\"shared/\"]\n")
+		wtPath := filepath.Join(filepath.Dir(mainPath), filepath.Base(mainPath)+"-feature-auth")
+		if err := os.MkdirAll(wtPath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(wtPath) })
+
+		runner := &treepadtest.DispatchRunner{
+			Classify: func(_ string, args []string) string {
+				switch {
+				case slices.Contains(args, "ls-files"):
+					return "ls-files"
+				case slices.Contains(args, "check-ignore"):
+					return "check-ignore"
+				}
+				return ""
+			},
+			Routes: map[string][]treepadtest.RunResponse{
+				"ls-files":     {{Err: errors.New("not tracked")}},
+				"check-ignore": {{Err: errors.New("exit status 1")}},
+			},
+			Fallback: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: treepadtest.MainWorktreePorcelain(mainPath)},
+				{}, {},
+			}},
+		}
+		var logs strings.Builder
+		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{},
+			Log: treepadtest.NewPrinter(&logs)}
+
+		in := NewInput{Branch: "feature/auth", Base: "main", OutputDir: t.TempDir()}
+		if _, err := New(context.Background(), d, in); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(logs.String(), "not ignored by git") {
+			t.Errorf("log missing unignored warning:\n%s", logs.String())
+		}
+	})
+
 	t.Run("opens artifact when Open is true", func(t *testing.T) {
 		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
 			{Output: porcelain},

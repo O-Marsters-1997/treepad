@@ -226,16 +226,17 @@ func LoadAndSync(
 }
 
 func linkEntries(ctx context.Context, d deps.Deps, entries []string, sourceDir string, t SyncTarget, force bool) error {
-	linker := internalsync.Linker{Force: force, Tracked: func(rel string) bool {
-		_, err := d.Runner.Run(ctx, "git", "-C", sourceDir, "ls-files", "--error-unmatch", "--", rel)
-		return err == nil
-	}}
+	linker := GitLinker(ctx, d, sourceDir, t.Path)
+	linker.Force = force
 	res, err := linker.Reconcile(entries, internalsync.Config{SourceDir: sourceDir, TargetDir: t.Path})
 	if err != nil {
 		return fmt.Errorf("link into %s: %w", t.Branch, err)
 	}
 	for _, s := range res.Skipped {
 		d.Log.Warn("link %s skipped: %s", s.Path, s.Reason)
+	}
+	for _, p := range res.Unignored {
+		d.Log.Warn("link %s: %s", p, internalsync.UnignoredHint)
 	}
 	for _, p := range res.Replaced {
 		d.Log.Info("linked existing copy %s", p)
@@ -244,6 +245,21 @@ func linkEntries(ctx context.Context, d deps.Deps, entries []string, sourceDir s
 		d.Log.Info("removed link %s", p)
 	}
 	return nil
+}
+
+// GitLinker builds a Linker whose git checks run against sourceDir (tracked)
+// and targetDir (ignored).
+func GitLinker(ctx context.Context, d deps.Deps, sourceDir, targetDir string) internalsync.Linker {
+	return internalsync.Linker{
+		Tracked: func(rel string) bool {
+			_, err := d.Runner.Run(ctx, "git", "-C", sourceDir, "ls-files", "--error-unmatch", "--", rel)
+			return err == nil
+		},
+		Ignored: func(rel string) bool {
+			_, err := d.Runner.Run(ctx, "git", "-C", targetDir, "check-ignore", "-q", "--", rel)
+			return err == nil
+		},
+	}
 }
 
 // RemoveMode controls the two independently-forceable steps of a worktree
@@ -305,6 +321,13 @@ func doRemove(
 
 	pre, post := hook.PreRemove, hook.PostRemove
 	postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, pre, post, hData, func() error {
+		if len(cfg.Sync.Link) > 0 {
+			linker := GitLinker(ctx, d, main.Path, target.Path)
+			linkCfg := internalsync.Config{SourceDir: main.Path, TargetDir: target.Path}
+			if _, err := linker.Unlink(cfg.Sync.Link, linkCfg); err != nil {
+				return err
+			}
+		}
 		var removeFiles, removeBytes int64
 		if profile.IsEnabled(p) {
 			removeFiles, removeBytes = statTree(target.Path)
