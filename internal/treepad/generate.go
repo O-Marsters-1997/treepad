@@ -21,6 +21,8 @@ type GenerateInput struct {
 	SyncOnly      bool
 	OutputDir     string
 	ExtraPatterns []string
+	// Force backs up differing copies as .treepad-bak when converting them to links.
+	Force bool
 	// Branch restricts the sync and artifact generation to a single worktree.
 	// Empty means fleet-wide (existing behaviour).
 	Branch string
@@ -99,7 +101,7 @@ func Generate(ctx context.Context, d deps.Deps, in GenerateInput) error {
 			Profiler:   d.Profiler,
 			Log:        d.Log,
 			In:         d.In,
-		}, sourceDir, nil, in.ExtraPatterns, targets, repoSlug, outputDir)
+		}, sourceDir, nil, in.ExtraPatterns, targets, repoSlug, outputDir, in.Force)
 	if err != nil {
 		return err
 	}
