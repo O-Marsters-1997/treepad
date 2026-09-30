@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,6 +48,44 @@ func TestRemove(t *testing.T) {
 		}
 		if runner.Idx != 4 {
 			t.Errorf("runner called %d times, want 4", runner.Idx)
+		}
+	})
+
+	t.Run("unlinks owned sync.link entries and leaves main's files intact", func(t *testing.T) {
+		writeTOML(t, mainPath, "[sync]\nlink = [\"shared.txt\"]\n")
+		if err := os.MkdirAll(featPath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(featPath) })
+		if err := os.WriteFile(filepath.Join(mainPath, "shared.txt"), []byte("main content"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		linkPath := filepath.Join(featPath, "shared.txt")
+		if err := os.Symlink(filepath.Join(mainPath, "shared.txt"), linkPath); err != nil {
+			t.Fatal(err)
+		}
+		runner := &treepadtest.DispatchRunner{
+			Classify: func(_ string, args []string) string {
+				if slices.Contains(args, "ls-files") {
+					return "ls-files"
+				}
+				return ""
+			},
+			Routes: map[string][]treepadtest.RunResponse{"ls-files": {{Err: errors.New("not tracked")}}},
+			Fallback: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: porcelain}, {}, {}, {},
+			}},
+		}
+		deps := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{}}
+
+		if err := Remove(context.Background(), deps, RemoveInput{Branch: "feat", OutputDir: outputDir}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, err := os.Lstat(linkPath); err == nil {
+			t.Error("link should have been removed")
+		}
+		if b, _ := os.ReadFile(filepath.Join(mainPath, "shared.txt")); string(b) != "main content" {
+			t.Errorf("main file = %q, want intact", b)
 		}
 	})
 

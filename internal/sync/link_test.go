@@ -220,3 +220,146 @@ func TestLinkerExpand(t *testing.T) {
 		}
 	})
 }
+
+func TestLinkerUnlink(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	for _, f := range []string{"owned", "regular", "foreign"} {
+		if err := os.WriteFile(filepath.Join(src, f), []byte("main"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(src, "owned"), filepath.Join(dst, "owned")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "regular"), []byte("local"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("elsewhere", filepath.Join(dst, "foreign")); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := Linker{}.Unlink([]string{"owned", "regular", "foreign", "absent"}, Config{SourceDir: src, TargetDir: dst})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(removed, []string{"owned"}) {
+		t.Errorf("removed = %v, want [owned]", removed)
+	}
+	if _, err := os.Lstat(filepath.Join(dst, "owned")); err == nil {
+		t.Error("owned link should be gone")
+	}
+	for _, f := range []string{"regular", "foreign"} {
+		if _, err := os.Lstat(filepath.Join(dst, f)); err != nil {
+			t.Errorf("%s should be untouched: %v", f, err)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(src, "owned")); string(b) != "main" {
+		t.Errorf("source content = %q, want main", b)
+	}
+}
+
+func TestLinkerInspect(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T, src, dst string)
+		ignored  bool
+		wantKind string
+	}{
+		{
+			name: "healthy link",
+			setup: func(t *testing.T, src, dst string) {
+				mustLink(t, src, dst, "f")
+			},
+			ignored: true,
+		},
+		{
+			name: "broken link when source removed",
+			setup: func(t *testing.T, src, dst string) {
+				mustLink(t, src, dst, "f")
+				_ = os.Remove(filepath.Join(src, "f"))
+			},
+			ignored:  true,
+			wantKind: "broken",
+		},
+		{
+			name: "foreign symlink is replaced",
+			setup: func(t *testing.T, src, dst string) {
+				mustWrite(t, filepath.Join(src, "f"))
+				if err := os.Symlink("elsewhere", filepath.Join(dst, "f")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			ignored:  true,
+			wantKind: "replaced",
+		},
+		{
+			name: "replaced by regular file",
+			setup: func(t *testing.T, src, dst string) {
+				mustLink(t, src, dst, "f")
+				_ = os.Remove(filepath.Join(dst, "f"))
+				if err := os.WriteFile(filepath.Join(dst, "f"), []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			ignored:  true,
+			wantKind: "replaced",
+		},
+		{
+			name:     "unignored link",
+			setup:    func(t *testing.T, src, dst string) { mustLink(t, src, dst, "f") },
+			ignored:  false,
+			wantKind: "unignored",
+		},
+		{
+			name:  "not yet linked is not an issue",
+			setup: func(t *testing.T, src, _ string) { mustWrite(t, filepath.Join(src, "f")) },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src, dst := t.TempDir(), t.TempDir()
+			tt.setup(t, src, dst)
+			l := Linker{Ignored: func(string) bool { return tt.ignored }}
+			issues := l.Inspect([]string{"f"}, Config{SourceDir: src, TargetDir: dst})
+			if tt.wantKind == "" {
+				if len(issues) != 0 {
+					t.Fatalf("issues = %v, want none", issues)
+				}
+				return
+			}
+			if len(issues) != 1 || issues[0].Kind != tt.wantKind {
+				t.Fatalf("issues = %v, want one %q", issues, tt.wantKind)
+			}
+		})
+	}
+}
+
+func mustWrite(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustLink(t *testing.T, src, dst, rel string) {
+	t.Helper()
+	mustWrite(t, filepath.Join(src, rel))
+	if err := os.Symlink(filepath.Join(src, rel), filepath.Join(dst, rel)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLinkerReconcileUnignored(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	mustWrite(t, filepath.Join(src, "f"))
+	res, err := Linker{Ignored: func(string) bool { return false }}.Reconcile([]string{"f"}, Config{SourceDir: src, TargetDir: dst})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(res.Unignored, []string{"f"}) {
+		t.Errorf("Unignored = %v, want [f]", res.Unignored)
+	}
+}

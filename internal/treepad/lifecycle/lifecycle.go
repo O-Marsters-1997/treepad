@@ -226,10 +226,7 @@ func linkEntries(ctx context.Context, d deps.Deps, entries []string, sourceDir s
 	if len(entries) == 0 {
 		return nil
 	}
-	linker := internalsync.Linker{Tracked: func(rel string) bool {
-		_, err := d.Runner.Run(ctx, "git", "-C", sourceDir, "ls-files", "--error-unmatch", "--", rel)
-		return err == nil
-	}}
+	linker := GitLinker(ctx, d, sourceDir, t.Path)
 	res, err := linker.Reconcile(entries, internalsync.Config{SourceDir: sourceDir, TargetDir: t.Path})
 	if err != nil {
 		return fmt.Errorf("link into %s: %w", t.Branch, err)
@@ -237,7 +234,25 @@ func linkEntries(ctx context.Context, d deps.Deps, entries []string, sourceDir s
 	for _, s := range res.Skipped {
 		d.Log.Warn("link %s skipped: %s", s.Path, s.Reason)
 	}
+	for _, p := range res.Unignored {
+		d.Log.Warn("link %s: %s", p, internalsync.UnignoredHint)
+	}
 	return nil
+}
+
+// GitLinker builds a Linker whose git checks run against sourceDir (tracked)
+// and targetDir (ignored).
+func GitLinker(ctx context.Context, d deps.Deps, sourceDir, targetDir string) internalsync.Linker {
+	return internalsync.Linker{
+		Tracked: func(rel string) bool {
+			_, err := d.Runner.Run(ctx, "git", "-C", sourceDir, "ls-files", "--error-unmatch", "--", rel)
+			return err == nil
+		},
+		Ignored: func(rel string) bool {
+			_, err := d.Runner.Run(ctx, "git", "-C", targetDir, "check-ignore", "-q", "--", rel)
+			return err == nil
+		},
+	}
 }
 
 // RemoveMode controls the two independently-forceable steps of a worktree
@@ -299,6 +314,12 @@ func doRemove(
 
 	pre, post := hook.PreRemove, hook.PostRemove
 	postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, pre, post, hData, func() error {
+		if len(cfg.Sync.Link) > 0 {
+			linker := GitLinker(ctx, d, main.Path, target.Path)
+			if _, err := linker.Unlink(cfg.Sync.Link, internalsync.Config{SourceDir: main.Path, TargetDir: target.Path}); err != nil {
+				return err
+			}
+		}
 		var removeFiles, removeBytes int64
 		if profile.IsEnabled(p) {
 			removeFiles, removeBytes = statTree(target.Path)

@@ -14,6 +14,8 @@ import (
 type Linker struct {
 	// Tracked reports whether rel is tracked in git in SourceDir.
 	Tracked func(rel string) bool
+	// Ignored reports whether rel is ignored by git in TargetDir.
+	Ignored func(rel string) bool
 }
 
 // LinkSkip is an entry Reconcile left alone, with the reason.
@@ -27,6 +29,15 @@ type LinkResult struct {
 	Created   []string
 	Unchanged []string
 	Skipped   []LinkSkip
+	// Unignored lists created links that git does not ignore in TargetDir.
+	Unignored []string
+}
+
+// LinkIssue is an entry whose link in TargetDir is not healthy.
+type LinkIssue struct {
+	Path   string
+	Kind   string // "broken", "replaced" or "unignored"
+	Detail string
 }
 
 // expand turns entries into concrete relative paths. A trailing "/" names one
@@ -112,9 +123,65 @@ func (l Linker) Reconcile(entries []string, cfg Config) (LinkResult, error) {
 			return res, fmt.Errorf("link %s: %w", e, err)
 		}
 		res.Created = append(res.Created, e)
+		if l.Ignored != nil && !l.Ignored(e) {
+			res.Unignored = append(res.Unignored, e)
+		}
 	}
 	return res, nil
 }
+
+// Unlink removes the symlinks in TargetDir that Reconcile would have created,
+// leaving any other file or symlink alone. It returns the removed paths.
+func (l Linker) Unlink(entries []string, cfg Config) ([]string, error) {
+	var removed []string
+	for _, e := range l.expand(entries, cfg, &LinkResult{}) {
+		dst := filepath.Join(cfg.TargetDir, e)
+		if target, err := os.Readlink(dst); err != nil || target != filepath.Join(cfg.SourceDir, e) {
+			continue
+		}
+		if err := os.Remove(dst); err != nil {
+			return removed, fmt.Errorf("unlink %s: %w", e, err)
+		}
+		removed = append(removed, e)
+	}
+	return removed, nil
+}
+
+// Inspect reports entries whose link in TargetDir is dangling, has been
+// replaced by a regular file or foreign symlink, or is not ignored by git.
+// Tracked entries and entries not present in TargetDir are not issues.
+func (l Linker) Inspect(entries []string, cfg Config) []LinkIssue {
+	var issues []LinkIssue
+	for _, e := range l.expand(entries, cfg, &LinkResult{}) {
+		src := filepath.Join(cfg.SourceDir, e)
+		dst := filepath.Join(cfg.TargetDir, e)
+		if l.Tracked != nil && l.Tracked(e) {
+			continue
+		}
+		if _, err := os.Lstat(dst); err != nil {
+			continue
+		}
+		target, err := os.Readlink(dst)
+		if err != nil || target != src {
+			if _, srcErr := os.Lstat(src); srcErr == nil {
+				issues = append(issues, LinkIssue{e, "replaced", "no longer a link to " + src})
+			}
+			continue
+		}
+		if _, err := os.Stat(dst); err != nil {
+			issues = append(issues, LinkIssue{e, "broken", "link target " + src + " is missing"})
+			continue
+		}
+		if l.Ignored != nil && !l.Ignored(e) {
+			issues = append(issues, LinkIssue{e, "unignored", UnignoredHint})
+		}
+	}
+	return issues
+}
+
+// UnignoredHint explains a link that git does not ignore.
+const UnignoredHint = "link is not ignored by git; a trailing-slash gitignore pattern " +
+	"does not match a symlink, drop the slash or use .git/info/exclude"
 
 func (r *LinkResult) skip(path, reason string) {
 	r.Skipped = append(r.Skipped, LinkSkip{Path: path, Reason: reason})
