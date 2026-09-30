@@ -95,7 +95,7 @@ func CreateWorktreeWithSync(ctx context.Context, d deps.Deps, branch, base, outp
 		g.Go(func() error {
 			var err error
 			newCfg, syncPostErr, err = LoadAndSync(gctx, d, rc.Main.Path, &cfg, nil,
-				[]SyncTarget{{Path: worktreePath, Branch: branch}}, rc.Slug, rc.OutputDir)
+				[]SyncTarget{{Path: worktreePath, Branch: branch}}, rc.Slug, rc.OutputDir, false)
 			return err
 		})
 		g.Go(func() error {
@@ -164,7 +164,7 @@ func OpenWorktree(
 func LoadAndSync(
 	ctx context.Context, d deps.Deps, sourceDir string,
 	preloaded *config.Config, extraPatterns []string, targets []SyncTarget,
-	repoSlug, outputDir string,
+	repoSlug, outputDir string, forceLink bool,
 ) (config.Config, *hook.PostErr, error) {
 	p := profile.OrDisabled(d.Profiler)
 
@@ -197,6 +197,9 @@ func LoadAndSync(
 			OutputDir:    outputDir,
 		}
 		postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, hook.PreSync, hook.PostSync, hData, func() error {
+			if err := linkEntries(ctx, d, cfg.Sync.Link, sourceDir, t, forceLink); err != nil {
+				return err
+			}
 			fileSyncDone := p.Stage("file_sync")
 			syncRes, syncErr := d.Syncer.Sync(patterns, internalsync.Config{
 				SourceDir: sourceDir,
@@ -209,7 +212,7 @@ func LoadAndSync(
 				return fmt.Errorf("sync configs to %s: %w", t.Branch, syncErr)
 			}
 			slog.Debug("synced worktree", "branch", t.Branch, "target", t.Path)
-			return linkEntries(ctx, d, cfg.Sync.Link, sourceDir, t)
+			return nil
 		})
 		if postErr != nil {
 			d.Log.Warn("%s", postErr)
@@ -222,11 +225,9 @@ func LoadAndSync(
 	return cfg, firstPostErr, nil
 }
 
-func linkEntries(ctx context.Context, d deps.Deps, entries []string, sourceDir string, t SyncTarget) error {
-	if len(entries) == 0 {
-		return nil
-	}
+func linkEntries(ctx context.Context, d deps.Deps, entries []string, sourceDir string, t SyncTarget, force bool) error {
 	linker := GitLinker(ctx, d, sourceDir, t.Path)
+	linker.Force = force
 	res, err := linker.Reconcile(entries, internalsync.Config{SourceDir: sourceDir, TargetDir: t.Path})
 	if err != nil {
 		return fmt.Errorf("link into %s: %w", t.Branch, err)
@@ -236,6 +237,12 @@ func linkEntries(ctx context.Context, d deps.Deps, entries []string, sourceDir s
 	}
 	for _, p := range res.Unignored {
 		d.Log.Warn("link %s: %s", p, internalsync.UnignoredHint)
+	}
+	for _, p := range res.Replaced {
+		d.Log.Info("linked existing copy %s", p)
+	}
+	for _, p := range res.Removed {
+		d.Log.Info("removed link %s", p)
 	}
 	return nil
 }

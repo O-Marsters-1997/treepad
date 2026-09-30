@@ -29,6 +29,10 @@ func syncCommand() *cli.Command {
 				Aliases: []string{"o"},
 				Usage:   "directory for generated artifact files (default: ~/<repo-slug>-workspaces/)",
 			},
+			&cli.BoolFlag{
+				Name:  "force",
+				Usage: "back up differing files as <path>.treepad-bak and replace them with links",
+			},
 			&cli.StringSliceFlag{
 				Name:  "include",
 				Usage: "additional file patterns to sync (appended to sync.include in .treepad.toml)",
@@ -53,5 +57,6 @@ func runSync(ctx context.Context, cmd *cli.Command) error {
 		SyncOnly:      cmd.Bool("sync-only"),
 		OutputDir:     cmd.String("output-dir"),
 		ExtraPatterns: cmd.StringSlice("include"),
+		Force:         cmd.Bool("force"),
 	})
 }
