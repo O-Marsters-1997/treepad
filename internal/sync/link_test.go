@@ -238,7 +238,8 @@ func TestLinkerUnlink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	removed, err := Linker{}.Unlink([]string{"owned", "regular", "foreign", "absent"}, Config{SourceDir: src, TargetDir: dst})
+	entries := []string{"owned", "regular", "foreign", "absent"}
+	removed, err := Linker{}.Unlink(entries, Config{SourceDir: src, TargetDir: dst})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +356,8 @@ func mustLink(t *testing.T, src, dst, rel string) {
 func TestLinkerReconcileUnignored(t *testing.T) {
 	src, dst := t.TempDir(), t.TempDir()
 	mustWrite(t, filepath.Join(src, "f"))
-	res, err := Linker{Ignored: func(string) bool { return false }}.Reconcile([]string{"f"}, Config{SourceDir: src, TargetDir: dst})
+	l := Linker{Ignored: func(string) bool { return false }}
+	res, err := l.Reconcile([]string{"f"}, Config{SourceDir: src, TargetDir: dst})
 	if err != nil {
 		t.Fatal(err)
 	}

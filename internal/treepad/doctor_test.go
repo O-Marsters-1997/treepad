@@ -426,7 +426,7 @@ tickets = ["ENG-12"]
 				return ""
 			},
 			Routes: map[string][]treepadtest.RunResponse{
-				"ls-files":               {{Err: errors.New("no")}, {Err: errors.New("no")}, {Err: errors.New("no")}, {Err: errors.New("no")}},
+				"ls-files":               slices.Repeat([]treepadtest.RunResponse{{Err: errors.New("no")}}, 4),
 				"check-ignore:unignored": {{Err: errors.New("exit status 1")}},
 				"check-ignore:healthy":   {{}},
 			},
@@ -468,7 +468,8 @@ tickets = ["ENG-12"]
 	})
 
 	t.Run("strict fails on a link finding", func(t *testing.T) {
-		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte("[sync]\nlink = [\"f\"]\n"), 0o644); err != nil {
+		toml := "[sync]\nlink = [\"f\"]\n"
+		if err := os.WriteFile(filepath.Join(mainPath, ".treepad.toml"), []byte(toml), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.Remove(filepath.Join(mainPath, ".treepad.toml")) })

@@ -316,7 +316,8 @@ func doRemove(
 	postErr, err := hook.RunSandwich(ctx, p, d.HookRunner, cfg.Hooks, pre, post, hData, func() error {
 		if len(cfg.Sync.Link) > 0 {
 			linker := GitLinker(ctx, d, main.Path, target.Path)
-			if _, err := linker.Unlink(cfg.Sync.Link, internalsync.Config{SourceDir: main.Path, TargetDir: target.Path}); err != nil {
+			linkCfg := internalsync.Config{SourceDir: main.Path, TargetDir: target.Path}
+			if _, err := linker.Unlink(cfg.Sync.Link, linkCfg); err != nil {
 				return err
 			}
 		}
