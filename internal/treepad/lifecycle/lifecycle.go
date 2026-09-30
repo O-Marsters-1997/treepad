@@ -209,7 +209,7 @@ func LoadAndSync(
 				return fmt.Errorf("sync configs to %s: %w", t.Branch, syncErr)
 			}
 			slog.Debug("synced worktree", "branch", t.Branch, "target", t.Path)
-			return nil
+			return linkEntries(ctx, d, cfg.Sync.Link, sourceDir, t)
 		})
 		if postErr != nil {
 			d.Log.Warn("%s", postErr)
@@ -220,6 +220,24 @@ func LoadAndSync(
 		}
 	}
 	return cfg, firstPostErr, nil
+}
+
+func linkEntries(ctx context.Context, d deps.Deps, entries []string, sourceDir string, t SyncTarget) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	linker := internalsync.Linker{Tracked: func(rel string) bool {
+		_, err := d.Runner.Run(ctx, "git", "-C", sourceDir, "ls-files", "--error-unmatch", "--", rel)
+		return err == nil
+	}}
+	res, err := linker.Reconcile(entries, internalsync.Config{SourceDir: sourceDir, TargetDir: t.Path})
+	if err != nil {
+		return fmt.Errorf("link into %s: %w", t.Branch, err)
+	}
+	for _, s := range res.Skipped {
+		d.Log.Warn("link %s skipped: %s", s.Path, s.Reason)
+	}
+	return nil
 }
 
 // RemoveMode controls the two independently-forceable steps of a worktree

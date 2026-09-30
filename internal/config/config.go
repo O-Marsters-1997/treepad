@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 
@@ -55,6 +56,9 @@ type SyncConfig struct {
 	// Patterns use gitignore syntax: ** crosses directories, trailing / matches
 	// a directory and all its contents, ! prefix negates a pattern.
 	Include []string `toml:"include"`
+	// Link entries are symlinked to the main worktree's copy instead of copied.
+	// An entry may not also appear in Include.
+	Link []string `toml:"link"`
 }
 
 // ArtifactConfig holds per-worktree artifact settings; leave FilenameTemplate empty to skip generation.
@@ -178,6 +182,14 @@ func Load(repoRoot string) (Config, error) {
 	// An explicit empty include array is treated as unset — defaults apply.
 	if len(fileCfg.Sync.Include) > 0 {
 		cfg.Sync.Include = fileCfg.Sync.Include
+	}
+	if len(fileCfg.Sync.Link) > 0 {
+		for _, l := range fileCfg.Sync.Link {
+			if slices.Contains(cfg.Sync.Include, l) {
+				return cfg, fmt.Errorf("%s: %q is in both sync.include and sync.link", configFileName, l)
+			}
+		}
+		cfg.Sync.Link = fileCfg.Sync.Link
 	}
 	if !fileCfg.Artifact.IsZero() {
 		cfg.Artifact = fileCfg.Artifact

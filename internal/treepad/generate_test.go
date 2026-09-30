@@ -3,6 +3,9 @@ package treepad
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,6 +30,28 @@ func TestGenerate(t *testing.T) {
 		}
 		if syn.Calls[0].TargetDir != "/repo/feat" {
 			t.Errorf("TargetDir = %q, want /repo/feat", syn.Calls[0].TargetDir)
+		}
+	})
+
+	t.Run("--current with sync.link errors before syncing", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ".treepad.toml"), []byte("[sync]\nlink = [\"a\"]\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(dir)
+		cwd, _ := os.Getwd()
+		syn := &treepadtest.FakeSyncer{}
+		runner := &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+			{Output: treepadtest.TwoWorktreePorcelainWithMain("/repo/main", cwd)},
+		}}
+
+		err := Generate(context.Background(), deps.Deps{Runner: runner, Syncer: syn, Log: treepadtest.NewPrinter(io.Discard)},
+			GenerateInput{UseCurrentDir: true, SyncOnly: true})
+		if err == nil || !strings.Contains(err.Error(), "sync.link") {
+			t.Fatalf("err = %v, want sync.link rejection", err)
+		}
+		if len(syn.Calls) != 0 {
+			t.Errorf("syncer called %d times, want 0", len(syn.Calls))
 		}
 	})
 
