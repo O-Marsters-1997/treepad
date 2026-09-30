@@ -99,9 +99,14 @@ tp sync --use-current
 # Include extra file patterns in the sync
 tp sync --include ".prettierrc" --include ".eslintrc.json"
 
+# Back up differing copies and replace them with sync.link symlinks
+tp sync --force
+
 # Debug what tp is doing
 tp --verbose sync
 ```
+
+Files listed under `[sync] link` are symlinked to the main worktree's copy instead of copied, so parallel worktrees share one file (`link = [".claude/settings.local.json", ".codemap/", "ideas/"]`). Never link `node_modules`. See [docs/configuration.md](docs/configuration.md#link).
 
 **`new`** — Create a new git worktree with configs synced and artifact file generated:
 
@@ -319,7 +324,7 @@ tp diff feature-x -- -- src/
 
 The `diff` command uses `git diff <base>...HEAD` three-dot semantics (matches GitHub PR diff view) and respects your git configuration (pager, delta, diff-so-fancy). Inherits color and pager config from the target worktree's git setup. Pass `--output` / `-o` to write an uncolored patch to a file.
 
-**`doctor`** — Report cross-worktree health issues (stale, merged, remote-gone, artifact-missing, config-drift):
+**`doctor`** — Report cross-worktree health issues (stale, merged, remote-gone, artifact-missing, config-drift, link-broken, link-replaced, link-unignored):
 
 ```bash
 # Show a table of findings

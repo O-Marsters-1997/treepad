@@ -8,7 +8,7 @@ Syncs editor configs and generates artifact files across all git worktrees. By d
 tp sync [options] [source-path]
 ```
 
-By default, uses the main worktree (the one with a `.git` directory) as the config source. Configs from `.vscode/`, `.claude/`, and `.env` files are copied to every other worktree. The artifact file generated is controlled by `.treepad.toml` and can be customized for any editor.
+By default, uses the main worktree (the one with a `.git` directory) as the config source. Configs from `.vscode/`, `.claude/`, and `.env` files are copied to every other worktree; entries under `sync.link` are symlinked to the main worktree instead (see [configuration.md](configuration.md#link)). `--current` is rejected when `sync.link` is set. The artifact file generated is controlled by `.treepad.toml` and can be customized for any editor.
 
 **Hooks fired:** `pre_sync`/`post_sync` around each worktree's file sync. See [hooks.md](hooks.md).
 
@@ -26,6 +26,7 @@ By default, uses the main worktree (the one with a `.git` directory) as the conf
 | `--sync-only`  |       | Sync configs only; skip artifact file generation                                 |
 | `--output-dir` | `-o`  | Directory for generated artifact files (default: `~/<repo-slug>-workspaces/`)    |
 | `--include`    |       | Additional file patterns to sync (appended to `sync.include` in `.treepad.toml`) |
+| `--force`      |       | Back up differing copies as `<path>.treepad-bak` and replace them with `sync.link` links |
 
 **Note:** `--use-current` is accepted as a backwards-compatible alias for `--current`.
 
@@ -49,6 +50,9 @@ tp sync /path/to/repo
 
 # Include extra file patterns in the sync
 tp sync --include ".prettierrc" --include "*.md"
+
+# Convert differing copies to links (backed up as <path>.treepad-bak)
+tp sync --force
 ```
 
 ### Configuration
@@ -342,6 +346,9 @@ Scans all worktrees and emits a table (or JSON with `--json`) of findings. Each 
 | `remote-gone` | Branch no longer exists on the remote (requires network; skip with `--offline`) |
 | `artifact-missing` | Expected artifact file is absent for a configured `[artifact]` section |
 | `config-drift` | Worktree's `.treepad.toml` differs from the main worktree's config |
+| `link-broken` | A `sync.link` symlink's target in the main worktree is missing |
+| `link-replaced` | A `sync.link` path is now a regular file or foreign symlink (typically an atomic-rename write) |
+| `link-unignored` | A `sync.link` symlink is not ignored by git (trailing-slash gitignore pattern) |
 | `prunable` | Git marks the worktree as prunable (stale metadata) |
 
 ### Flags

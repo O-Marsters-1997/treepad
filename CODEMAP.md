@@ -139,7 +139,7 @@ Handles TOML configuration file loading, initialization, and display.
 ### `config.go`
 
 - `Config` struct — root config object with `Sync`, `Artifact`, `Open`, `Hooks`, `Exec`, `FromSpec`, `Diff` fields
-- `SyncConfig` struct — contains `Include` (string array of gitignore-style patterns)
+- `SyncConfig` struct — contains `Include` (string array of gitignore-style patterns) and `Link` (patterns symlinked to main instead of copied; overlap with `Include` is a load error)
 - `ArtifactConfig` struct — contains `FilenameTemplate` and `ContentTemplate` (text/template strings)
   - `IsZero()` — reports whether artifact is configured
 - `OpenConfig` struct — contains `Command` (string slice of template strings)
@@ -248,7 +248,7 @@ Business logic entry points. Each public function is a standalone top-level func
 - `DoctorInput` struct — `JSON`, `StaleDays` (default 30), `Base`, `Offline`, `Strict`, `OutputDir`
 - `DoctorFinding` struct — `Branch`, `Path`, `Kind`, `Detail` (JSON-serialisable)
 - `Doctor(ctx, deps.Deps, DoctorInput) error` — reports cross-worktree health findings
-  - Per worktree runs: `doctorCheckAge` (stale/dirty-old), `doctorCheckMerged` (merged-present), `doctorCheckRemoteGone` (remote-gone; skipped when `Offline`), `doctorCheckArtifact` (artifact-missing), `doctorCheckConfigDrift` (config-drift vs main)
+  - Per worktree runs: `doctorCheckAge` (stale/dirty-old), `doctorCheckMerged` (merged-present), `doctorCheckRemoteGone` (remote-gone; skipped when `Offline`), `doctorCheckArtifact` (artifact-missing), `doctorCheckConfigDrift` (config-drift vs main), `doctorCheckLinks` (link-broken, link-replaced, link-unignored; only when `sync.link` is set)
   - Prunable worktrees get a `prunable` finding immediately
   - `Strict=true` returns an error if any findings were reported
 
@@ -430,6 +430,15 @@ File synchronization across worktrees.
 
 - `FileSyncer` — copies files from source to target directories
 - Glob pattern matching and batch copying
+
+### `link.go`
+
+- `Linker` struct — `Tracked`, `Ignored` git predicates and `Force`; symlinks `TargetDir/<p>` to `SourceDir/<p>`
+  - `Reconcile(entries, Config) (LinkResult, error)` — expands entries (literal, trailing-`/` dir, glob), converges copy/link/removed transitions, prunes owned symlinks no longer wanted
+  - `Unlink(entries, Config)` — removes owned symlinks (called by remove)
+  - `Inspect(entries, Config) []LinkIssue` — `broken`, `replaced`, `unignored` states for doctor
+- Ownership rule: a symlink is treepad's only if its target is exactly `SourceDir/<its relative path>`
+- `lifecycle.GitLinker` wires the git predicates; `LoadAndSync` runs `Reconcile` after each target's copy
 
 ## Artifact Package (`internal/artifact/`)
 
