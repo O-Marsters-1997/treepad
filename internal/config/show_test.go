@@ -37,4 +37,20 @@ func TestShow(t *testing.T) {
 			t.Errorf("hooks-only config should not be reported as built-in defaults, got:\n%s", out)
 		}
 	})
+
+	t.Run("prints the resolved link list", func(t *testing.T) {
+		t.Setenv("TREEPAD_CONFIG", "")
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+		dir := t.TempDir()
+		writeFile(t, dir+"/"+configFileName, "[sync]\nlink = [\".env.shared\"]\n")
+
+		out, err := Show(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, ".env.shared") || !strings.Contains(out, "local:") {
+			t.Errorf("want local source with link entry, got:\n%s", out)
+		}
+	})
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -46,6 +48,55 @@ func TestNew(t *testing.T) {
 		}
 		if cdPath != mainPath {
 			t.Errorf("cdPath = %q, want %q", cdPath, mainPath)
+		}
+	})
+
+	t.Run("links sync.link entries into the new worktree", func(t *testing.T) {
+		mainPath := makeMainWorktree(t)
+		if err := os.WriteFile(filepath.Join(mainPath, ".env.shared"), []byte("v"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeTOML(t, mainPath, "[sync]\nlink = [\".env.shared\", \"tracked\", \"absent\"]\n")
+		if err := os.WriteFile(filepath.Join(mainPath, "tracked"), []byte("v"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		wtPath := filepath.Join(filepath.Dir(mainPath), filepath.Base(mainPath)+"-feature-auth")
+		if err := os.MkdirAll(wtPath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(wtPath) })
+
+		runner := &treepadtest.DispatchRunner{
+			Classify: func(_ string, args []string) string {
+				if slices.Contains(args, "ls-files") {
+					return "ls-files:" + args[len(args)-1]
+				}
+				return ""
+			},
+			Routes: map[string][]treepadtest.RunResponse{
+				"ls-files:.env.shared": {{Err: errors.New("not tracked")}},
+				"ls-files:tracked":     {{Output: []byte("tracked")}},
+			},
+			Fallback: &treepadtest.SeqRunner{Responses: []treepadtest.RunResponse{
+				{Output: treepadtest.MainWorktreePorcelain(mainPath)},
+				{}, {},
+			}},
+		}
+		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{},
+			Log: treepadtest.NewPrinter(io.Discard)}
+
+		in := NewInput{Branch: "feature/auth", Base: "main", OutputDir: t.TempDir()}
+		if _, err := New(context.Background(), d, in); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		got, err := os.Readlink(filepath.Join(wtPath, ".env.shared"))
+		if err != nil || got != filepath.Join(mainPath, ".env.shared") {
+			t.Errorf("Readlink = %q, %v; want link to main", got, err)
+		}
+		for _, name := range []string{"tracked", "absent"} {
+			if _, err := os.Lstat(filepath.Join(wtPath, name)); err == nil {
+				t.Errorf("%s should not be linked", name)
+			}
 		}
 	})
 

@@ -237,6 +237,33 @@ launch = ["claude", "--dangerously-skip-permissions", "{{.TicketURL}}"]
 	})
 }
 
+func TestLoadLink(t *testing.T) {
+	t.Run("loads link list", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"), "[sync]\nlink = [\".env.shared\"]\n")
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(cfg.Sync.Link, []string{".env.shared"}) {
+			t.Errorf("Sync.Link = %v, want [.env.shared]", cfg.Sync.Link)
+		}
+		if !reflect.DeepEqual(cfg.Sync.Include, defaultSyncInclude()) {
+			t.Errorf("Sync.Include = %v, want defaults", cfg.Sync.Include)
+		}
+	})
+
+	t.Run("entry in both include and link is an error", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".treepad.toml"),
+			"[sync]\ninclude = [\"a\"]\nlink = [\"a\"]\n")
+		_, err := Load(dir)
+		if err == nil || !strings.Contains(err.Error(), "both sync.include and sync.link") {
+			t.Fatalf("err = %v, want both-lists error", err)
+		}
+	})
+}
+
 func TestDefaultSyncInclude(t *testing.T) {
 	patterns := defaultSyncInclude()
 	if len(patterns) != 10 {

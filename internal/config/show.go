@@ -80,6 +80,7 @@ func loadFile(path string) (Config, bool, error) {
 // Load uses per-section to decide whether the file contributed anything.
 func isZero(cfg Config) bool {
 	return len(cfg.Sync.Include) == 0 &&
+		len(cfg.Sync.Link) == 0 &&
 		cfg.Artifact.IsZero() &&
 		cfg.Open.IsZero() &&
 		cfg.Hooks.IsZero() &&

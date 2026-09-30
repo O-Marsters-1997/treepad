@@ -48,6 +48,16 @@ func Generate(ctx context.Context, d deps.Deps, in GenerateInput) error {
 	)
 	d.Log.Info("using config source: %s", sourceDir)
 
+	if in.UseCurrentDir {
+		srcCfg, err := config.Load(sourceDir)
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		if len(srcCfg.Sync.Link) > 0 {
+			return fmt.Errorf("--current cannot be used with sync.link: links must point at the main worktree")
+		}
+	}
+
 	// Generate uses sourceDir (not main.Path) as the slug base because --current
 	// may point to a non-main worktree.
 	repoSlug := slug.Slug(filepath.Base(sourceDir))
