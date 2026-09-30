@@ -27,6 +27,7 @@ File patterns to copy from the source worktree to all other worktrees.
 | Field     | Type     | Description                                                     |
 | --------- | -------- | --------------------------------------------------------------- |
 | `include` | string[] | Gitignore-style patterns of files/dirs to sync across worktrees |
+| `link`    | string[] | Files/dirs symlinked to the main worktree's copy instead of copied |
 
 Patterns use gitignore syntax: `**` matches across directories, a trailing `/` matches a directory and all its contents, and a `!` prefix negates (excludes) a pattern.
 
@@ -46,6 +47,50 @@ Playbooks live at `.claude/playbooks/**` and are propagated by this mechanism â€
 - `.vscode/launch.json`
 - `.vscode/extensions.json`
 - `.vscode/*.code-snippets`
+
+#### `link`
+
+`[sync] link` lists gitignored files and directories that are symlinked to the main worktree instead of copied, so all worktrees share one physical file and edits are never lost or clobbered.
+
+```toml
+[sync]
+link = [".claude/settings.local.json", ".codemap/", "ideas/"]
+```
+
+- **Syntax**: same as `include` (doublestar globs; a trailing `/` names a directory). An entry in both `include` and `link` is a config error. `tp config show` prints the resolved `link` list.
+- **Target**: always an absolute path under the main worktree, never another worktree, so links cannot chain.
+- **Eligibility**: the path must exist in main and be untracked by git. Tracked or absent paths are skipped with a warning; the sync does not fail.
+- **Expansion**: a trailing-`/` entry becomes one directory symlink. A glob (e.g. `.vscode/*.code-snippets`) expands against main to its untracked matches and each match is linked individually; new matches appear on the next `tp sync`. Entries beneath a linked directory are dropped and reported as "covered by parent".
+- **Ownership**: treepad only creates, replaces or removes a symlink at `<worktree>/<p>` whose target is exactly `<main>/<p>`. Any other file or symlink at that path is never touched.
+- **`--current`**: `tp sync --current` is rejected when `link` is non-empty.
+- **Removal**: `tp remove` unlinks owned links before removing the worktree; main's files are never touched.
+
+**Reconcile on `tp sync`** (`tp new` and `tp sync` both reconcile; a second run is a no-op):
+
+| Was | Now | Action |
+| --- | --- | --- |
+| copy | link | Replaced with a link only if the file is byte-identical to main's. A differing copy (or a directory) is skipped with a warning. `tp sync --force` renames it to `<path>.treepad-bak` first, then links. |
+| link | copy (moved to `include`) | Owned symlink removed and the entry copied as usual. |
+| link | removed from config | Owned symlink removed only. |
+| copy | removed from config | File left in place. |
+
+A skip in one worktree does not abort the others.
+
+**What to link, and what not to**
+
+- Never link `node_modules`. Shared install state corrupts across branches.
+- Link `.env` only if you do not run two stacks at once; both worktrees would share one file.
+- Tools that save by atomic rename (write a temp file, rename over the target) replace a file symlink with a regular file. Prefer directory links (`.codemap/`) over file links for such files; `tp doctor` reports `link-replaced` when it happens.
+- A gitignore pattern with a trailing slash (`shared/`) does not match a symlink named `shared`, so the link shows as untracked in `git status`. Drop the slash or add the path to `.git/info/exclude`. treepad warns at link time and `tp doctor` reports `link-unignored`.
+
+**Recipe: parallel agents sharing state**
+
+```toml
+[sync]
+link = [".claude/settings.local.json", ".codemap/", "ideas/"]
+```
+
+Permissions granted in one agent's worktree apply to all, the code map is built once, and the roadmap in `ideas/` is one document rather than one copy per branch.
 
 ### `[artifact]` section
 
