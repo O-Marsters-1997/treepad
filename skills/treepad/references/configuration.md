@@ -48,6 +48,47 @@ Setting `include` replaces the defaults rather than adding to them, so carry ove
 entries you still want. `tp sync --include <pattern>` appends for a single run without
 touching the file.
 
+### `link`
+
+`[sync] link` lists gitignored files and directories that are symlinked to the main
+worktree's copy instead of copied, so every worktree shares one physical file.
+
+```toml
+[sync]
+link = [".claude/settings.local.json", ".codemap/", "ideas/"]
+```
+
+- Same syntax as `include`. An entry in both `include` and `link` is a config error.
+- The target is always the main worktree, never another worktree. The path must exist in main
+  and be untracked; tracked or absent paths are skipped with a warning.
+- A trailing `/` makes one directory symlink. A glob expands against main and each match is
+  linked individually. Entries beneath a linked directory are dropped ("covered by parent").
+- treepad only creates, replaces or removes a symlink whose target is exactly `<main>/<path>`.
+  Any other file or symlink at that path is left alone.
+- `tp sync --current` is rejected while `link` is set.
+
+Reconcile on `tp new` / `tp sync` (a second run is a no-op):
+
+| Was | Now | Action |
+| --- | --- | --- |
+| copy | link | Linked only if byte-identical to main's. A differing copy or directory is skipped with a warning; `tp sync --force` renames it to `<path>.treepad-bak` and links. |
+| link | moved to `include` | Owned symlink removed, then copied. |
+| link | removed from config | Owned symlink removed only. |
+| copy | removed from config | File left in place. |
+
+What to link, and what not to:
+
+- Never link `node_modules`; shared install state corrupts across branches.
+- Link `.env` only if you never run two stacks at once.
+- Tools that save by atomic rename replace a file symlink with a regular file. Prefer directory
+  links (`.codemap/`) for those; `tp doctor` reports `link-replaced`.
+- A gitignore pattern with a trailing slash (`shared/`) does not match a symlink named
+  `shared`, so the link shows as untracked. Drop the slash or use `.git/info/exclude`;
+  `tp doctor` reports `link-unignored`.
+
+Recipe for parallel agents sharing state: `link = [".claude/settings.local.json", ".codemap/", "ideas/"]`
+shares permissions, the code map and the roadmap across every agent's worktree.
+
 ## `[artifact]`
 
 The per-worktree file `sync` and `new` generate — by default a VS Code `.code-workspace`

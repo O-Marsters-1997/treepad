@@ -144,6 +144,18 @@ at least one member errored this tick. Read the Report for which. See [batch.md]
 `.treepad.toml` may be winning, and setting `[sync] include` replaces the defaults rather
 than extending them.
 
+**`tp doctor` reports `link-replaced`.** A tool saved by atomic rename and swapped the symlink for
+a regular file. Link the parent directory instead. For a regular file, `tp sync --force` backs
+it up as `<path>.treepad-bak` and relinks (skipped if that backup already exists). A foreign
+symlink is never touched: remove it by hand, then run `tp sync`.
+
+**`tp doctor` reports `link-broken` or `link-unignored`.** Broken: the path is missing from the
+main worktree; restore it there. Unignored: a trailing-slash gitignore pattern does not match
+a symlink; drop the slash or add the path to `.git/info/exclude`.
+
+**A `[sync] link` entry was skipped with a warning.** The path is tracked, absent from main, or
+a differing copy already exists in the worktree. Use `tp sync --force` for the last case.
+
 **`<path> already exists; pass --force to overwrite`** — from `tp config init` or
 `tp skill install`. Confirm the existing file is safe to lose before adding `--force`.
 

@@ -135,6 +135,9 @@ Health findings across the fleet. Each finding is `{branch, path, kind, detail}`
 | `artifact-missing` | Configured artifact file absent |
 | `config-drift` | Worktree's `.treepad.toml` differs from the main worktree's |
 | `prunable` | Git considers the worktree metadata stale |
+| `link-broken` | A `[sync] link` symlink's target in the main worktree is missing |
+| `link-replaced` | A `[sync] link` path is now a regular file or foreign symlink (typically an atomic-rename write) |
+| `link-unignored` | A `[sync] link` symlink is not ignored by git (trailing-slash gitignore pattern) |
 
 | Flag | Description |
 | --- | --- |
@@ -145,7 +148,8 @@ Health findings across the fleet. Each finding is `{branch, path, kind, detail}`
 | `--strict` | Exit non-zero when any finding is reported |
 
 `doctor` reports; it never changes anything. Act on `merged-present` with `tp prune`, on
-`artifact-missing` or `config-drift` with `tp sync`.
+`artifact-missing` or `config-drift` with `tp sync`, and on `link-*` findings by fixing the path
+then running `tp sync` (`--force` to replace a differing copy).
 
 ### `tp diff [options] <branch> [-- <git-diff-args>...]`
 
@@ -199,6 +203,10 @@ auto-detected main worktree. Hooks: `pre_sync`/`post_sync` per worktree.
 | `--sync-only` | Copy files only; skip artifact generation |
 | `--output-dir` / `-o` | Artifact output directory (default `~/<repo-slug>-workspaces/`) |
 | `--include` | Extra glob, repeatable; appended to `[sync] include` |
+| `--force` | Back up differing copies as `<path>.treepad-bak` and replace them with `[sync] link` links |
+
+Entries under `[sync] link` are symlinked to the main worktree instead of copied, and
+`--current` is rejected while `link` is set (see [configuration.md](configuration.md#link)).
 
 Reach for it after editing a local config that other worktrees need, or to repair
 `artifact-missing` / `config-drift` findings from `doctor`.

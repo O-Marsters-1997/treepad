@@ -72,6 +72,7 @@ anything, so use `git -C "$WT"` or `cd "$WT" && ...` there instead.
 | See the whole fleet at a glance | `tp status` (human) / `tp status --json` (scripted) |
 | Find stale, merged, drifted, or orphaned worktrees | `tp doctor` (`--json`, `--offline`, `--strict` for CI) |
 | Copy configs into worktrees that predate a change | `tp sync` (`--sync-only` to skip artifact generation) |
+| Share a gitignored file or dir across worktrees instead of copying | `[sync] link` in `.treepad.toml`, then `tp sync` (`--force` to replace differing copies) |
 | Finish one branch | `tp remove <branch>` |
 | Clean up everything already merged | `tp prune` (`--dry-run` first) |
 | Set up a repo for `tp` | `tp config init`, then `tp config show` to confirm what resolved |
