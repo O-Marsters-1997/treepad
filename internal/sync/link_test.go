@@ -55,7 +55,7 @@ func TestLinkerReconcile(t *testing.T) {
 				write(t, filepath.Join(dst, "f"), "local")
 			},
 			entry:    "f",
-			wantSkip: "path exists and is not a symlink",
+			wantSkip: "differs from source; use --force to back up and link",
 		},
 		{
 			name: "foreign symlink is left alone",
@@ -217,6 +217,116 @@ func TestLinkerExpand(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(src, "d", "new")); err != nil {
 			t.Error(err)
+		}
+	})
+}
+
+func TestLinkerTransitions(t *testing.T) {
+	write := func(t *testing.T, path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	isLink := func(path string) bool {
+		fi, err := os.Lstat(path)
+		return err == nil && fi.Mode()&os.ModeSymlink != 0
+	}
+
+	t.Run("identical copy becomes a link", func(t *testing.T) {
+		src, dst := t.TempDir(), t.TempDir()
+		write(t, filepath.Join(src, "f"), "x")
+		write(t, filepath.Join(dst, "f"), "x")
+		res, err := (Linker{}).Reconcile([]string{"f"}, Config{SourceDir: src, TargetDir: dst})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(res.Replaced, []string{"f"}) || !isLink(filepath.Join(dst, "f")) {
+			t.Errorf("Replaced = %v, link = %v", res.Replaced, isLink(filepath.Join(dst, "f")))
+		}
+	})
+
+	t.Run("directory copy is refused without force", func(t *testing.T) {
+		src, dst := t.TempDir(), t.TempDir()
+		write(t, filepath.Join(src, "d/a"), "x")
+		write(t, filepath.Join(dst, "d/a"), "x")
+		res, err := (Linker{}).Reconcile([]string{"d/"}, Config{SourceDir: src, TargetDir: dst})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Skipped) != 1 || isLink(filepath.Join(dst, "d")) {
+			t.Errorf("Skipped = %v, want one skip and no link", res.Skipped)
+		}
+	})
+
+	t.Run("force backs up a divergent file", func(t *testing.T) {
+		src, dst := t.TempDir(), t.TempDir()
+		write(t, filepath.Join(src, "f"), "main")
+		write(t, filepath.Join(dst, "f"), "local")
+		res, err := (Linker{Force: true}).Reconcile([]string{"f"}, Config{SourceDir: src, TargetDir: dst})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bak, _ := os.ReadFile(filepath.Join(dst, "f.treepad-bak"))
+		if string(bak) != "local" || !isLink(filepath.Join(dst, "f")) || !reflect.DeepEqual(res.Replaced, []string{"f"}) {
+			t.Errorf("bak = %q, link = %v, Replaced = %v", bak, isLink(filepath.Join(dst, "f")), res.Replaced)
+		}
+	})
+
+	t.Run("force backs up a directory", func(t *testing.T) {
+		src, dst := t.TempDir(), t.TempDir()
+		write(t, filepath.Join(src, "d/a"), "x")
+		write(t, filepath.Join(dst, "d/a"), "x")
+		if _, err := (Linker{Force: true}).Reconcile([]string{"d/"}, Config{SourceDir: src, TargetDir: dst}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(dst, "d.treepad-bak", "a")); err != nil || !isLink(filepath.Join(dst, "d")) {
+			t.Errorf("backup missing (%v) or not linked", err)
+		}
+	})
+
+	t.Run("owned link no longer wanted is removed, foreign link kept", func(t *testing.T) {
+		src, dst := t.TempDir(), t.TempDir()
+		write(t, filepath.Join(src, "owned"), "x")
+		write(t, filepath.Join(src, "sub/owned2"), "x")
+		for _, p := range []string{"owned", "sub/owned2"} {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(dst, p)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(src, p), filepath.Join(dst, p)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.Symlink("/elsewhere", filepath.Join(dst, "foreign")); err != nil {
+			t.Fatal(err)
+		}
+		res, err := (Linker{}).Reconcile(nil, Config{SourceDir: src, TargetDir: dst})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sort.Strings(res.Removed)
+		if !reflect.DeepEqual(res.Removed, []string{"owned", "sub/owned2"}) || !isLink(filepath.Join(dst, "foreign")) {
+			t.Errorf("Removed = %v, foreign kept = %v", res.Removed, isLink(filepath.Join(dst, "foreign")))
+		}
+	})
+
+	t.Run("second run changes nothing", func(t *testing.T) {
+		src, dst := t.TempDir(), t.TempDir()
+		write(t, filepath.Join(src, "a"), "x")
+		write(t, filepath.Join(dst, "a"), "x")
+		cfg := Config{SourceDir: src, TargetDir: dst}
+		if _, err := (Linker{}).Reconcile([]string{"a"}, cfg); err != nil {
+			t.Fatal(err)
+		}
+		res, err := (Linker{}).Reconcile([]string{"a"}, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Created)+len(res.Replaced)+len(res.Removed)+len(res.Skipped) != 0 {
+			t.Errorf("second run = %+v, want no changes", res)
 		}
 	})
 }
