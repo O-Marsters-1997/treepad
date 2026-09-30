@@ -145,8 +145,9 @@ at least one member errored this tick. Read the Report for which. See [batch.md]
 than extending them.
 
 **`tp doctor` reports `link-replaced`.** A tool saved by atomic rename and swapped the symlink for
-a regular file. Link the parent directory instead, or re-run `tp sync --force` (the file is
-kept as `<path>.treepad-bak`).
+a regular file. Link the parent directory instead. For a regular file, `tp sync --force` backs
+it up as `<path>.treepad-bak` and relinks (skipped if that backup already exists). A foreign
+symlink is never touched: remove it by hand, then run `tp sync`.
 
 **`tp doctor` reports `link-broken` or `link-unignored`.** Broken: the path is missing from the
 main worktree; restore it there. Unignored: a trailing-slash gitignore pattern does not match
