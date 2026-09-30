@@ -85,7 +85,8 @@ func TestNew(t *testing.T) {
 		d := deps.Deps{Runner: runner, Syncer: &treepadtest.FakeSyncer{}, Opener: &treepadtest.FakeOpener{},
 			Log: treepadtest.NewPrinter(io.Discard)}
 
-		if _, err := New(context.Background(), d, NewInput{Branch: "feature/auth", Base: "main", OutputDir: t.TempDir()}); err != nil {
+		in := NewInput{Branch: "feature/auth", Base: "main", OutputDir: t.TempDir()}
+		if _, err := New(context.Background(), d, in); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		got, err := os.Readlink(filepath.Join(wtPath, ".env.shared"))
