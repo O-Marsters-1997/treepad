@@ -7,3 +7,5 @@ dist
 /tp
 .treepad.toml
 .treepad
+docs/plans/
+docs/prds/
