@@ -4,7 +4,8 @@ Date: 2026-08-23
 
 ## Status
 
-Accepted
+Accepted. The sentence "The surface is `New` and `Remove` and nothing else" is superseded by
+[ADR 0005](./0005-library-facade-grows-to-list.md), which adds `List`.
 
 ## Context
 

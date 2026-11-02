@@ -1,6 +1,6 @@
 # Library facade — scope
 
-**Status:** scoped, not built.
+**Status:** built (`New`, `Remove`); `List` added per [ADR 0005](./adr/0005-library-facade-grows-to-list.md).
 **Goal:** treepad supports two first-class callers — the `tp` CLI and Go code importing it as
 a library. The first library consumer is command-centre, which today is specced to reach
 treepad by subprocess (`docs/command-centre-v1.md` decision 5).
@@ -38,7 +38,7 @@ so importing treepad does not drag a terminal UI into a consumer's binary.
 | 1 | **Thin facade; `deps.Deps` stays internal.** Public surface is 2 funcs, 2 option structs, 1 result struct, 3 sentinels. | `Deps` names 8 interfaces across 8 packages plus concrete `*ui.Printer`. Exporting it freezes all of that. An injection seam is additive later (see *Deferred*). |
 | 2 | **Facade is a sibling of the CLI, not its replacement.** Both adapt over `CreateWorktreeWithSync`. | The CLI needs `--open`, `--current`, `--ticket` and the `__TREEPAD_CD__` fd-3 emit. The library must not carry terminal affordances. Drift risk is near-zero: `lifecycle.New` is 47 lines and the real work is all in the shared core. |
 | 3 | **`go.work` for local development, v-tags for CI.** | The workspace file lives at `ai-development/`, outside both git repos, so it is uncommitted by construction. Edits to treepad are live in command-centre with no tag; a fresh clone and CI resolve a real version. |
-| 4 | **`New` + `Remove` only.** No `List`, no `Activity`. | The app keeps parsing `git worktree list --porcelain` for reconcile (command-centre decision 20). Git's porcelain format is a more stable contract than a v0 API. Exposing `Activity` would deepen the double-ownership already flagged at `command-centre/docs/assessment.md:44`. |
+| 4 | **`New`, `Remove` and `List`.** No `Activity`. | `List` supersedes the original "no `List`" cut ([ADR 0005](./adr/0005-library-facade-grows-to-list.md)): command-centre enumerates every tick and wants no `git worktree` subprocess. Exposing `Activity` would deepen the double-ownership already flagged at `command-centre/docs/assessment.md:44`. |
 | 5 | **A handful of sentinels, wrap the rest.** | command-centre buckets every cut failure as `cut failed → re-run` (v1 §383), so `New` needs no taxonomy. Remove needs `ErrNotFound` (idempotent reconcile), `ErrDirty`, and `ErrUnpushed`. Adding sentinels later is backward compatible; removing them is not. |
 | 6 | **Identical cut semantics — sync and hooks both run — except interactive hooks are refused.** | An app-cut worktree must be indistinguishable from a hand-cut one. The one divergence closes a real hazard: `passthrough.OSRunner.Run` opens `/dev/tty` when stdio is not a terminal, so an `interactive = true` hook fired by a background tick would seize the user's terminal and block. Non-interactive hooks are safe (`hook/runner.go:53`). |
 | 7 | **Golden API snapshot guards the boundary.** | `batch/api_test.go` bans internal imports outright, which the facade cannot satisfy by design. Go also leaks silently: an exported func returning an `internal/...` type compiles, and consumers can hold it with `:=` but never name it. A `go doc -all` golden file catches leakage *and* unplanned surface growth. |
@@ -165,7 +165,7 @@ regardless of this work.
 
 ## Deliberately out of scope
 
-- `List`, `Activity`, `status`, `doctor`, `sync`, `batch` — decision 4.
+- `Activity`, `status`, `doctor`, `sync`, `batch` — decision 4.
 - `deps` and the 8 dependency packages stay under `internal/` — decision 1.
 - An injection seam for tests. A `Git Git` field on the option structs (nil → real git) is a
   backward-compatible addition whenever it is wanted; it does not need deciding now.
