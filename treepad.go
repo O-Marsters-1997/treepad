@@ -60,6 +60,7 @@ type Worktree struct {
 	Path    string
 	Branch  string
 	BaseSHA string
+	Main    bool
 }
 
 // ErrPostHook reports that a post hook failed. The cut itself succeeded: the
@@ -267,4 +268,39 @@ func Remove(ctx context.Context, o RemoveOptions) error {
 		return fmt.Errorf("%w: %w", ErrPostHook, postErr)
 	}
 	return nil
+}
+
+// ListOptions parameterises List. RepoDir is required.
+type ListOptions struct {
+	// RepoDir is an absolute path inside the target repository.
+	RepoDir string
+}
+
+// List returns every worktree of the repository, main included, resolving a
+// rebasing worktree to the branch being rebased.
+func List(ctx context.Context, o ListOptions) ([]Worktree, error) {
+	if o.RepoDir == "" {
+		return nil, errors.New("treepad: ListOptions.RepoDir is required")
+	}
+	if !filepath.IsAbs(o.RepoDir) {
+		return nil, fmt.Errorf("treepad: ListOptions.RepoDir must be absolute, got %q", o.RepoDir)
+	}
+
+	d := libDeps(o.RepoDir, nil)
+	found, err := repo.ListWorktrees(ctx, d.Runner)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Worktree, 0, len(found))
+	for _, w := range found {
+		branch := w.Branch
+		if branch == "(detached)" {
+			branch, err = worktree.RebasingBranch(ctx, d.Runner, w.Path)
+			if err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, Worktree{Path: w.Path, Branch: branch, Main: w.IsMain})
+	}
+	return out, nil
 }

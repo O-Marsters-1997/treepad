@@ -842,3 +842,65 @@ interactive = true
 		t.Errorf("the non-interactive hook in the same event ran: %v", err)
 	}
 }
+
+func TestListResolvesMainRebasingAndDetachedWorktrees(t *testing.T) {
+	repo := fixtureRepo(t, fixtureConfig)
+	ctx := context.Background()
+	out := t.TempDir()
+
+	feature, err := treepad.New(ctx, treepad.NewOptions{Branch: "feature/a", Base: "main", RepoDir: repo, OutputDir: out})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	rebasing, err := treepad.New(ctx, treepad.NewOptions{Branch: "feature/rebasing", Base: "main", RepoDir: repo, OutputDir: out})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	detached, err := treepad.New(ctx, treepad.NewOptions{Branch: "feature/detached", Base: "main", RepoDir: repo, OutputDir: out})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Diverge main and the rebasing branch on the same file so the rebase stops on a conflict.
+	writeFile(t, filepath.Join(repo, "README.md"), "main change\n")
+	git(t, repo, "commit", "-am", "main change")
+	writeFile(t, filepath.Join(rebasing.Path, "README.md"), "branch change\n")
+	git(t, rebasing.Path, "commit", "-am", "branch change")
+	cmd := exec.Command("git", "rebase", "main")
+	cmd.Dir = rebasing.Path
+	if err := cmd.Run(); err == nil {
+		t.Fatal("rebase unexpectedly succeeded; want a conflict")
+	}
+	git(t, detached.Path, "checkout", "--detach")
+
+	got, err := treepad.List(ctx, treepad.ListOptions{RepoDir: repo})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	want := map[string]treepad.Worktree{
+		repo:          {Path: repo, Branch: "main", Main: true},
+		feature.Path:  {Path: feature.Path, Branch: "feature/a"},
+		rebasing.Path: {Path: rebasing.Path, Branch: "feature/rebasing"},
+		detached.Path: {Path: detached.Path},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("List returned %d worktrees, want %d: %+v", len(got), len(want), got)
+	}
+	for _, w := range got {
+		if w != want[w.Path] {
+			t.Errorf("worktree %s = %+v, want %+v", w.Path, w, want[w.Path])
+		}
+	}
+}
+
+func TestListRejectsInvalidOptions(t *testing.T) {
+	for name, dir := range map[string]string{"empty RepoDir": "", "relative RepoDir": "./fixture"} {
+		t.Run(name, func(t *testing.T) {
+			_, err := treepad.List(context.Background(), treepad.ListOptions{RepoDir: dir})
+			if err == nil || !strings.Contains(err.Error(), "RepoDir") {
+				t.Errorf("error = %v, want one naming RepoDir", err)
+			}
+		})
+	}
+}
