@@ -62,6 +62,32 @@ func List(ctx context.Context, runner CommandRunner) ([]Worktree, error) {
 	return wts, nil
 }
 
+func RebasingBranch(ctx context.Context, runner CommandRunner, path string) (string, error) {
+	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
+		out, err := runner.Run(ctx, "git", "-C", path, "rev-parse", "--git-path", dir+"/head-name")
+		if err != nil {
+			return "", fmt.Errorf("resolve rebase head: %w", err)
+		}
+		headName := strings.TrimSpace(string(out))
+		if !filepath.IsAbs(headName) {
+			headName = filepath.Join(path, headName)
+		}
+		ref, err := os.ReadFile(headName)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", headName, err)
+		}
+		branch, ok := strings.CutPrefix(strings.TrimSpace(string(ref)), "refs/heads/")
+		if !ok {
+			return "", nil
+		}
+		return branch, nil
+	}
+	return "", nil
+}
+
 // MainWorktree returns the worktree whose .git entry is a directory (the main repo).
 func MainWorktree(wts []Worktree) (Worktree, error) {
 	for _, wt := range wts {

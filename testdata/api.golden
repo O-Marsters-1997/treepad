@@ -65,6 +65,12 @@ func Remove(ctx context.Context, o RemoveOptions) error
 
 TYPES
 
+type ListOptions struct {
+	// RepoDir is an absolute path inside the target repository.
+	RepoDir string
+}
+    ListOptions parameterises List. RepoDir is required.
+
 type NewOptions struct {
 	Branch string
 	Base   string
@@ -96,10 +102,15 @@ type RemoveOptions struct {
 
 type Worktree struct {
 	Path    string
-	Branch  string
-	BaseSHA string
+	Branch  string // empty for a detached worktree that is not rebasing
+	BaseSHA string // empty in List results
+	Main    bool
 }
     Worktree is a created worktree.
+
+func List(ctx context.Context, o ListOptions) ([]Worktree, error)
+    List returns every worktree of the repository, main included, resolving a
+    rebasing worktree to the branch being rebased.
 
 func New(ctx context.Context, o NewOptions) (Worktree, error)
     New creates a worktree for Branch off Base in the repository at RepoDir,
