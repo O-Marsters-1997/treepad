@@ -861,7 +861,6 @@ func TestListResolvesMainRebasingAndDetachedWorktrees(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	// Diverge main and the rebasing branch on the same file so the rebase stops on a conflict.
 	writeFile(t, filepath.Join(repo, "README.md"), "main change\n")
 	git(t, repo, "commit", "-am", "main change")
 	writeFile(t, filepath.Join(rebasing.Path, "README.md"), "branch change\n")

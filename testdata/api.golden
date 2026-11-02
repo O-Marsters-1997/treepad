@@ -102,8 +102,8 @@ type RemoveOptions struct {
 
 type Worktree struct {
 	Path    string
-	Branch  string
-	BaseSHA string
+	Branch  string // empty for a detached worktree that is not rebasing
+	BaseSHA string // empty in List results
 	Main    bool
 }
     Worktree is a created worktree.

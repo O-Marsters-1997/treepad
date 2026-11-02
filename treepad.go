@@ -58,8 +58,8 @@ type NewOptions struct {
 // Worktree is a created worktree.
 type Worktree struct {
 	Path    string
-	Branch  string
-	BaseSHA string
+	Branch  string // empty for a detached worktree that is not rebasing
+	BaseSHA string // empty in List results
 	Main    bool
 }
 
