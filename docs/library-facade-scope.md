@@ -1,6 +1,6 @@
 # Library facade — scope
 
-**Status:** built (`New`, `Remove`); `List` added per [ADR 0005](./adr/0005-library-facade-grows-to-list.md).
+**Status:** built (`New`, `Remove`); `List` decided in [ADR 0005](./adr/0005-library-facade-grows-to-list.md), not yet built.
 **Goal:** treepad supports two first-class callers — the `tp` CLI and Go code importing it as
 a library. The first library consumer is command-centre, which today is specced to reach
 treepad by subprocess (`docs/command-centre-v1.md` decision 5).
@@ -35,7 +35,7 @@ so importing treepad does not drag a terminal UI into a consumer's binary.
 
 | # | Decision | Why |
 |---|---|---|
-| 1 | **Thin facade; `deps.Deps` stays internal.** Public surface is 2 funcs, 2 option structs, 1 result struct, 3 sentinels. | `Deps` names 8 interfaces across 8 packages plus concrete `*ui.Printer`. Exporting it freezes all of that. An injection seam is additive later (see *Deferred*). |
+| 1 | **Thin facade; `deps.Deps` stays internal.** Public surface is 3 funcs (`New`, `Remove`, `List`), 3 option structs, 1 result struct, 3 sentinels. | `Deps` names 8 interfaces across 8 packages plus concrete `*ui.Printer`. Exporting it freezes all of that. An injection seam is additive later (see *Deferred*). |
 | 2 | **Facade is a sibling of the CLI, not its replacement.** Both adapt over `CreateWorktreeWithSync`. | The CLI needs `--open`, `--current`, `--ticket` and the `__TREEPAD_CD__` fd-3 emit. The library must not carry terminal affordances. Drift risk is near-zero: `lifecycle.New` is 47 lines and the real work is all in the shared core. |
 | 3 | **`go.work` for local development, v-tags for CI.** | The workspace file lives at `ai-development/`, outside both git repos, so it is uncommitted by construction. Edits to treepad are live in command-centre with no tag; a fresh clone and CI resolve a real version. |
 | 4 | **`New`, `Remove` and `List`.** No `Activity`. | `List` supersedes the original "no `List`" cut ([ADR 0005](./adr/0005-library-facade-grows-to-list.md)): command-centre enumerates every tick and wants no `git worktree` subprocess. Exposing `Activity` would deepen the double-ownership already flagged at `command-centre/docs/assessment.md:44`. |

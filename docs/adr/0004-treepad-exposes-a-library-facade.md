@@ -59,7 +59,7 @@ which was already the shared core.
 on the option structs, nil meaning real git — is a backward-compatible change that does not need
 deciding now.
 
-The surface is `New` and `Remove` and nothing else. Callers enumerate worktrees through
+The surface is `New` and `Remove` and nothing else (superseded by ADR 0005). Callers enumerate worktrees through
 `git worktree list --porcelain`, whose format is a more stable contract than a `v0` API, and
 liveness stays with the caller rather than becoming a second reading of the Activity file.
 
