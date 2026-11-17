@@ -61,6 +61,9 @@ func PRList(ctx context.Context, r worktree.CommandRunner) (map[string]batch.PR,
 
 	prs := make(map[string]batch.PR, len(entries))
 	for _, e := range entries {
+		if _, seen := prs[e.HeadRefName]; seen {
+			continue
+		}
 		prs[e.HeadRefName] = batch.PR{
 			Number:      e.Number,
 			HeadRefName: e.HeadRefName,

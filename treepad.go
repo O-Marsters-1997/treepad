@@ -35,6 +35,7 @@ import (
 	"sync"
 
 	"github.com/O-Marsters-1997/treepad/internal/config"
+	"github.com/O-Marsters-1997/treepad/internal/gh"
 	"github.com/O-Marsters-1997/treepad/internal/hook"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/deps"
 	"github.com/O-Marsters-1997/treepad/internal/treepad/lifecycle"
@@ -303,4 +304,128 @@ func List(ctx context.Context, o ListOptions) ([]Worktree, error) {
 		out = append(out, Worktree{Path: w.Path, Branch: branch, Main: w.IsMain})
 	}
 	return out, nil
+}
+
+// PruneOptions parameterises Prune. RepoDir is required.
+type PruneOptions struct {
+	// RepoDir is an absolute path inside the target repository.
+	RepoDir string
+	// OutputDir is where the editor artifacts were written. It must match the
+	// OutputDir the worktrees were cut with, or artifacts are left behind.
+	OutputDir string
+	// Token is passed to gh as GH_TOKEN. Empty means gh uses its own auth.
+	Token string
+	// Stderr receives the same narrative the CLI prints. Nil discards it.
+	Stderr io.Writer
+}
+
+// PruneResult is the outcome for one worktree whose pull request is merged.
+type PruneResult struct {
+	Branch string
+	// Removed reports that the worktree, branch and artifact are gone. It is
+	// also true when Err wraps ErrPostHook.
+	Removed bool
+	// SkipReason is set when the worktree was left alone on purpose.
+	SkipReason string
+	// Err is set when removal was attempted and failed.
+	Err error
+}
+
+// ErrGHUnavailable reports that gh is missing or unauthenticated. Nothing has
+// been removed: Prune never falls back to git ancestry, which misses squash and
+// rebase merges.
+var ErrGHUnavailable = errors.New("gh is not installed or not authenticated")
+
+// Prune removes every worktree whose branch has a MERGED pull request on
+// GitHub, squash merges included, and never prompts. Dirty worktrees and ones
+// with unpushed commits are skipped and reported. The main and detached
+// worktrees are never considered. Only the 200 most recent pull requests are
+// consulted.
+func Prune(ctx context.Context, o PruneOptions) ([]PruneResult, error) {
+	if o.RepoDir == "" {
+		return nil, errors.New("treepad: PruneOptions.RepoDir is required")
+	}
+	if !filepath.IsAbs(o.RepoDir) {
+		return nil, fmt.Errorf("treepad: PruneOptions.RepoDir must be absolute, got %q", o.RepoDir)
+	}
+
+	d := libDeps(o.RepoDir, o.Stderr)
+	ghRunner := worktree.ExecRunner{Dir: o.RepoDir}
+	if o.Token != "" {
+		ghRunner.Env = []string{"GH_TOKEN=" + o.Token}
+	}
+	if !gh.Available(ctx, ghRunner) {
+		return nil, ErrGHUnavailable
+	}
+
+	rc, err := repo.Load(ctx, d.Runner, o.OutputDir)
+	if err != nil {
+		return nil, err
+	}
+	defer lockRepo(rc.Main.Path)()
+
+	prs, err := gh.PRList(ctx, ghRunner)
+	if err != nil {
+		return nil, fmt.Errorf("list pull requests: %w", err)
+	}
+
+	var results []PruneResult
+	var candidates []worktree.Worktree
+	for _, wt := range rc.Worktrees {
+		if wt.IsMain || wt.Branch == rc.Main.Branch || wt.Branch == "(detached)" {
+			continue
+		}
+		if prs[wt.Branch].State != "MERGED" {
+			continue
+		}
+		skip, skipErr := pruneSkipReason(ctx, d, wt)
+		if skipErr != nil {
+			return nil, fmt.Errorf("check worktree %q: %w", wt.Branch, skipErr)
+		}
+		if skip != "" {
+			results = append(results, PruneResult{Branch: wt.Branch, SkipReason: skip})
+			continue
+		}
+		if hookErr := refuseInteractiveHooks(rc.Main.Path, wt.Branch, hook.TeardownEvents); hookErr != nil {
+			return nil, hookErr
+		}
+		candidates = append(candidates, wt)
+	}
+
+	mode := lifecycle.RemoveMode{DeleteUnmerged: true}
+	for _, wt := range candidates {
+		postErr, err := lifecycle.RemoveWorktreeAndArtifact(ctx, d, wt, rc.Main, rc.OutputDir, mode)
+		res := PruneResult{Branch: wt.Branch, Removed: err == nil, Err: err}
+		if err == nil && postErr != nil {
+			res.Err = fmt.Errorf("%w: %w", ErrPostHook, postErr)
+		}
+		results = append(results, res)
+	}
+	if len(candidates) > 0 {
+		if _, err := d.Runner.Run(ctx, "git", "worktree", "prune"); err != nil {
+			return results, fmt.Errorf("git worktree prune: %w", err)
+		}
+	}
+	return results, nil
+}
+
+func pruneSkipReason(ctx context.Context, d deps.Deps, wt worktree.Worktree) (string, error) {
+	if wt.Prunable {
+		return "worktree directory is missing", nil
+	}
+	dirty, err := worktree.Dirty(ctx, d.Runner, wt.Path)
+	if err != nil {
+		return "", err
+	}
+	if dirty {
+		return "uncommitted changes", nil
+	}
+	ahead, _, hasUpstream, err := worktree.AheadBehind(ctx, d.Runner, wt.Path)
+	if err != nil {
+		return "", err
+	}
+	if hasUpstream && ahead > 0 {
+		return "unpushed commits", nil
+	}
+	return "", nil
 }

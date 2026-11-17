@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,12 +30,15 @@ type Worktree struct {
 
 // ExecRunner runs commands with os/exec. An empty Dir inherits the process
 // working directory, so a caller that stands in the repo needs no Dir at all.
-type ExecRunner struct{ Dir string }
+type ExecRunner struct {
+	Dir string
+	Env []string
+}
 
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = r.Dir
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	cmd.Env = slices.Concat(os.Environ(), []string{"GIT_OPTIONAL_LOCKS=0"}, r.Env)
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
