@@ -33,6 +33,11 @@ var ErrDirty = errors.New("worktree has uncommitted changes")
     been touched. Force does not override it — destroying uncommitted work is a
     decision for a human who can see it.
 
+var ErrGHUnavailable = errors.New("gh is not installed or not authenticated")
+    ErrGHUnavailable reports that gh is missing or unauthenticated. Nothing has
+    been removed: Prune never falls back to git ancestry, which misses squash
+    and rebase merges.
+
 var ErrInteractiveHook = errors.New("interactive hooks are not supported by the library API")
     ErrInteractiveHook reports that the repository configures a hook with
     interactive = true for an event the requested operation fires. Nothing
@@ -83,6 +88,38 @@ type NewOptions struct {
 	Stderr io.Writer
 }
     NewOptions parameterises New. Branch and RepoDir are required.
+
+type PruneOptions struct {
+	// RepoDir is an absolute path inside the target repository.
+	RepoDir string
+	// OutputDir is where the editor artifacts were written. It must match the
+	// OutputDir the worktrees were cut with, or artifacts are left behind.
+	OutputDir string
+	// Token is passed to gh as GH_TOKEN. Empty means gh uses its own auth.
+	Token string
+	// Stderr receives the same narrative the CLI prints. Nil discards it.
+	Stderr io.Writer
+}
+    PruneOptions parameterises Prune. RepoDir is required.
+
+type PruneResult struct {
+	Branch string
+	// Removed reports that the worktree, branch and artifact are gone. It is
+	// also true when Err wraps ErrPostHook.
+	Removed bool
+	// SkipReason is set when the worktree was left alone on purpose.
+	SkipReason string
+	// Err is set when removal was attempted and failed.
+	Err error
+}
+    PruneResult is the outcome for one worktree whose pull request is merged.
+
+func Prune(ctx context.Context, o PruneOptions) ([]PruneResult, error)
+    Prune removes every worktree whose branch has a MERGED pull request on
+    GitHub, squash merges included, and never prompts. Dirty worktrees and
+    ones with unpushed commits are skipped and reported. The main and detached
+    worktrees are never considered. Only the 200 most recent pull requests are
+    consulted.
 
 type RemoveOptions struct {
 	Branch string

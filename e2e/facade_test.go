@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -902,4 +903,166 @@ func TestListRejectsInvalidOptions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func fakeGH(t *testing.T, authenticated bool, prs string) (tokenFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	tokenFile = filepath.Join(dir, "token")
+	prsFile := filepath.Join(dir, "prs.json")
+	writeFile(t, prsFile, prs)
+	status := "1"
+	if authenticated {
+		status = "0"
+	}
+	script := `#!/bin/sh
+case "$1 $2" in
+"auth status") exit ` + status + ` ;;
+"pr list") printf '%s' "$GH_TOKEN" > '` + tokenFile + `'; cat '` + prsFile + `' ;;
+esac
+`
+	writeFile(t, filepath.Join(dir, "gh"), script)
+	if err := os.Chmod(filepath.Join(dir, "gh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return tokenFile
+}
+
+func prJSON(entries map[string]string) string {
+	var parts []string
+	for branch, state := range entries {
+		parts = append(parts, `{"number":1,"headRefName":"`+branch+`","baseRefName":"main","state":"`+state+`","url":"u"}`)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func cutWithCommit(t *testing.T, repo, outputDir, branch string) treepad.Worktree {
+	t.Helper()
+	wt, err := treepad.New(context.Background(), treepad.NewOptions{
+		Branch: branch, Base: "main", RepoDir: repo, OutputDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("New %s: %v", branch, err)
+	}
+	writeFile(t, filepath.Join(wt.Path, "work.txt"), branch+"\n")
+	git(t, wt.Path, "add", "work.txt")
+	git(t, wt.Path, "commit", "-m", "work")
+	return wt
+}
+
+func TestPrune(t *testing.T) {
+	t.Run("removes only worktrees whose PR is merged, squash merges included", func(t *testing.T) {
+		repo := fixtureRepo(t, fixtureConfig)
+		outputDir := t.TempDir()
+		merged := cutWithCommit(t, repo, outputDir, "feature/merged")
+		open := cutWithCommit(t, repo, outputDir, "feature/open")
+		dirty := cutWithCommit(t, repo, outputDir, "feature/dirty")
+		writeFile(t, filepath.Join(dirty.Path, "scratch.txt"), "wip\n")
+		tokenFile := fakeGH(t, true, prJSON(map[string]string{
+			"feature/merged": "MERGED", "feature/open": "OPEN", "feature/dirty": "MERGED",
+		}))
+
+		got, err := treepad.Prune(context.Background(), treepad.PruneOptions{
+			RepoDir: repo, OutputDir: outputDir, Token: "tok-123",
+		})
+		if err != nil {
+			t.Fatalf("Prune: %v", err)
+		}
+
+		slices.SortFunc(got, func(a, b treepad.PruneResult) int { return strings.Compare(a.Branch, b.Branch) })
+		want := []treepad.PruneResult{
+			{Branch: "feature/dirty", SkipReason: "uncommitted changes"},
+			{Branch: "feature/merged", Removed: true},
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("Prune = %+v, want %+v", got, want)
+		}
+		if _, statErr := os.Stat(merged.Path); !os.IsNotExist(statErr) {
+			t.Errorf("merged worktree still on disk: %v", statErr)
+		}
+		if branches := git(t, repo, "branch", "--list", "feature/merged"); branches != "" {
+			t.Errorf("merged branch survived: %q", branches)
+		}
+		for _, p := range []string{open.Path, dirty.Path} {
+			if _, statErr := os.Stat(p); statErr != nil {
+				t.Errorf("worktree %q gone: %v", p, statErr)
+			}
+		}
+		tok, readErr := os.ReadFile(tokenFile)
+		if readErr != nil {
+			t.Fatalf("read recorded token: %v", readErr)
+		}
+		if string(tok) != "tok-123" {
+			t.Errorf("gh ran with GH_TOKEN %q, want tok-123", tok)
+		}
+	})
+
+	t.Run("skips a merged worktree with unpushed commits", func(t *testing.T) {
+		repo := fixtureRepo(t, fixtureConfig)
+		outputDir := t.TempDir()
+		bareDir := filepath.Join(t.TempDir(), "origin.git")
+		git(t, "", "init", "--bare", bareDir)
+		git(t, repo, "remote", "add", "origin", bareDir)
+		git(t, repo, "push", "origin", "main")
+		wt := cutWithCommit(t, repo, outputDir, "feature/unpushed")
+		git(t, wt.Path, "push", "-u", "origin", "feature/unpushed")
+		writeFile(t, filepath.Join(wt.Path, "more.txt"), "x\n")
+		git(t, wt.Path, "add", "more.txt")
+		git(t, wt.Path, "commit", "-m", "local only")
+		fakeGH(t, true, prJSON(map[string]string{"feature/unpushed": "MERGED"}))
+
+		got, err := treepad.Prune(context.Background(), treepad.PruneOptions{RepoDir: repo, OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("Prune: %v", err)
+		}
+		want := []treepad.PruneResult{{Branch: "feature/unpushed", SkipReason: "unpushed commits"}}
+		if !slices.Equal(got, want) {
+			t.Errorf("Prune = %+v, want %+v", got, want)
+		}
+		if _, statErr := os.Stat(wt.Path); statErr != nil {
+			t.Errorf("worktree %q gone: %v", wt.Path, statErr)
+		}
+	})
+
+	t.Run("gh unauthenticated returns ErrGHUnavailable and removes nothing", func(t *testing.T) {
+		repo := fixtureRepo(t, fixtureConfig)
+		outputDir := t.TempDir()
+		wt := cutWithCommit(t, repo, outputDir, "feature/merged")
+		fakeGH(t, false, prJSON(map[string]string{"feature/merged": "MERGED"}))
+
+		_, err := treepad.Prune(context.Background(), treepad.PruneOptions{RepoDir: repo, OutputDir: outputDir})
+		if !errors.Is(err, treepad.ErrGHUnavailable) {
+			t.Fatalf("error = %v, want it to wrap ErrGHUnavailable", err)
+		}
+		if _, statErr := os.Stat(wt.Path); statErr != nil {
+			t.Errorf("worktree %q gone: %v", wt.Path, statErr)
+		}
+	})
+
+	t.Run("interactive teardown hook is refused before anything is removed", func(t *testing.T) {
+		repo := fixtureRepo(t, interactiveHookConfig("pre_remove"))
+		outputDir := t.TempDir()
+		wt := cutWithCommit(t, repo, outputDir, "feature/merged")
+		fakeGH(t, true, prJSON(map[string]string{"feature/merged": "MERGED"}))
+
+		_, err := treepad.Prune(context.Background(), treepad.PruneOptions{RepoDir: repo, OutputDir: outputDir})
+		if !errors.Is(err, treepad.ErrInteractiveHook) {
+			t.Fatalf("error = %v, want it to wrap ErrInteractiveHook", err)
+		}
+		if _, statErr := os.Stat(wt.Path); statErr != nil {
+			t.Errorf("worktree %q gone: %v", wt.Path, statErr)
+		}
+	})
+
+	t.Run("rejects invalid options", func(t *testing.T) {
+		for name, o := range map[string]treepad.PruneOptions{
+			"empty RepoDir":    {},
+			"relative RepoDir": {RepoDir: "relative/path"},
+		} {
+			if _, err := treepad.Prune(context.Background(), o); err == nil {
+				t.Errorf("%s: want an error, got nil", name)
+			}
+		}
+	})
 }

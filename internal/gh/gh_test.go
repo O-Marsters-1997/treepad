@@ -103,6 +103,20 @@ func TestPRList(t *testing.T) {
 		}
 	})
 
+	t.Run("a reused head branch resolves to its newest PR, the first gh lists", func(t *testing.T) {
+		r := &countingRunner{out: []byte(`[
+{"number":9,"headRefName":"feat/x","baseRefName":"main","state":"OPEN","url":"u9"},
+{"number":3,"headRefName":"feat/x","baseRefName":"main","state":"MERGED","url":"u3"}
+]`)}
+		prs, err := PRList(context.Background(), r)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := prs["feat/x"].Number; got != 9 {
+			t.Errorf("prs[feat/x].Number = %d, want 9", got)
+		}
+	})
+
 	t.Run("gh call failing returns an error", func(t *testing.T) {
 		r := staticRunner{err: errors.New("gh: command not found")}
 		if _, err := PRList(context.Background(), r); err == nil {
